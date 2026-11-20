@@ -19,6 +19,16 @@ final class AppUpgradeController: ObservableObject {
   @Published var staged: AppUpgradeStage?
   @Published var error = ""
   @Published var notice = ""
+  @Published private(set) var releaseNotesVersion: String?
+  var releaseNotesURL: URL? { releaseNotesVersion.flatMap { AppReleaseNotes.url(version: $0) } }
+  func dismissNotice() {
+    notice = ""
+    releaseNotesVersion = nil
+  }
+  func openReleaseNotes() {
+    guard let url = releaseNotesURL else { return }
+    NSWorkspace.shared.open(url)
+  }
   @Published var managed = false
   @Published var requiredMinimum: String?
   @Published var pendingRecoveries: [AppUpgradeRecovery] = []
@@ -151,7 +161,7 @@ final class AppUpgradeController: ObservableObject {
     if manual {
       error = ""
       requirementError = false
-      notice = ""
+      dismissNotice()
     }
     generation &+= 1
     let token = generation
@@ -239,7 +249,7 @@ final class AppUpgradeController: ObservableObject {
     guard !busy, phase == .idle, let release = available else { return }
     error = ""
     requirementError = false
-    notice = ""
+    dismissNotice()
     staged = nil
     showSheet = true
     guard managed else {
@@ -355,6 +365,7 @@ final class AppUpgradeController: ObservableObject {
     phase = .launching
     lastLaunch = Date()
     error = ""
+    dismissNotice()
     requirementError = false
     DispatchQueue.global(qos: .userInitiated).async {
       let reply = Result {
@@ -408,6 +419,7 @@ final class AppUpgradeController: ObservableObject {
             self.recovery = nil
             self.phase = .idle
             self.showSheet = false
+            self.releaseNotesVersion = nil
             if phase == "recovered" || phase == "abandoned" {
               self.notice =
                 phase == "recovered"
@@ -416,6 +428,7 @@ final class AppUpgradeController: ObservableObject {
             } else if phase == "complete" {
               self.available = nil
               self.schedule.release = nil
+              self.releaseNotesVersion = value?["version"] as? String ?? self.currentVersion
               self.notice =
                 "Jam was upgraded to \(value?["version"] as? String ?? self.currentVersion)."
             } else {
@@ -471,14 +484,21 @@ struct AppUpgradeOverlay: View {
       } else if showsNotification && !controller.showSheet && !controller.error.isEmpty {
         WarningToast(message: controller.error, retry: nil, dismiss: { controller.error = "" })
       } else if showsNotification && !controller.showSheet && !controller.notice.isEmpty {
-        HStack {
-          Text(controller.notice).font(.callout)
-          Button {
-            controller.notice = ""
-          } label: {
-            Image(systemName: "xmark")
+        VStack(alignment: .leading, spacing: 12) {
+          HStack(alignment: .top) {
+            Text(controller.notice).font(.callout)
+            Spacer(minLength: 8)
+            Button(action: controller.dismissNotice) {
+              Image(systemName: "xmark")
+            }
+            .buttonStyle(.plain).accessibilityLabel("Dismiss update notification")
           }
-          .buttonStyle(.plain).accessibilityLabel("Dismiss update notification")
+          if controller.releaseNotesURL != nil {
+            HStack {
+              Spacer()
+              Button("Open Release Notes", action: controller.openReleaseNotes)
+            }.controlSize(.small)
+          }
         }.padding(14).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
       } else if let release = controller.available, showsNotification, !controller.showSheet {
         VStack(alignment: .leading, spacing: 12) {

@@ -53,6 +53,12 @@ struct AppUpgradeStateTests {
 
   static func run() throws {
     try stageRoundTrip()
+    assert(
+      AppReleaseNotes.url(version: "0.0.3")?.absoluteString
+        == "https://github.com/saffronjam/jam/releases/tag/v0.0.3")
+    for invalid in ["", "0.0.3-beta", "01.0.3", "0.0.3/path", "0.0.3\n", "https://example.com"] {
+      assert(AppReleaseNotes.url(version: invalid) == nil)
+    }
     for phase in ["recovered", "rolled_back", "failed", "complete_with_pending"] {
       let status = try JSONSerialization.data(withJSONObject: [
         "phase": phase, "error": "Diagnostic",

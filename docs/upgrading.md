@@ -46,3 +46,6 @@ Servers without release metadata require an explicit migration. Stop legacy deve
 The updater verifies an Ed25519 signature against the public key embedded in Jam, then verifies artifact sizes and SHA-256 digests. macOS app signing is checked independently. Initial releases use ad-hoc signatures, so Apple notarization is not provided yet.
 
 See the [release workflow](../.github/workflows/release.yml) and [dependency notices](dependencies.md) for packaging details.
+
+After a successful desktop upgrade, choose **Open Release Notes** in the
+confirmation notification to read that version's GitHub release.

@@ -170,3 +170,12 @@ struct AppUpgradeRecovery: Codable, Identifiable {
   let error: String?
   var id: String { journal }
 }
+
+/// Release notes always open the published stable tag on Jam's own repository.
+enum AppReleaseNotes {
+  static func url(version: String) -> URL? {
+    let stable = #"\A(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\z"#
+    guard version.range(of: stable, options: .regularExpression) != nil else { return nil }
+    return URL(string: "https://github.com/saffronjam/jam/releases/tag/v" + version)
+  }
+}

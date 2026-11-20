@@ -1276,6 +1276,11 @@ struct WorktreeListFixture: View {
       controller.phase == .idle && !controller.notice.isEmpty && recorded("launch").count == 1
     }
     assert(recorded("launch")[0].1)
+    assert(
+      controller.releaseNotesURL?.absoluteString
+        == "https://github.com/saffronjam/jam/releases/tag/v0.0.3")
+    controller.dismissNotice()
+    assert(controller.notice.isEmpty && controller.releaseNotesURL == nil)
     lock.lock()
     let preservedSessions = launchedSessions
     lock.unlock()

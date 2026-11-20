@@ -15,8 +15,8 @@
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>CFBundleShortVersionString</key>
-	<string>0.0.2</string>
+	<string>0.0.3</string>
 	<key>CFBundleVersion</key>
-	<string>2</string>
+	<string>3</string>
 </dict>
 </plist>
