@@ -1,0 +1,142 @@
+name: Release
+on:
+  push:
+    tags: ['v[0-9]*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag or branch to build; publishing requires an annotated release tag
+        required: true
+        type: string
+      publish:
+        description: Publish a complete annotated-tag release after verification
+        required: false
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+jobs:
+  checks:
+    uses: ./.github/workflows/check.yml
+    with:
+      ref: ${{ inputs.tag || github.ref_name }}
+  linux:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: x86_64
+          - runner: ubuntu-24.04-arm
+            arch: aarch64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+          fetch-depth: 0
+      - name: Build native Linux servers on Debian 12
+        run: |
+          docker build -t jam-release-builder -f scripts/Remote.Dockerfile .
+          docker run --rm -v "$PWD:/work" -w /work jam-release-builder python3 scripts/remote-build.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: remote-${{ matrix.arch }}
+          path: |
+            build/remote/${{ matrix.arch }}.tar.gz
+            build/remote/${{ matrix.arch }}.json
+            build/remote/${{ matrix.arch }}.snapshot
+          if-no-files-found: error
+  macos:
+    needs: linux
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc
+        with:
+          toolchain: 1.97.1
+      - name: Select OpenSSL 3 for Ed25519 signing
+        run: |
+          brew list openssl@3 >/dev/null 2>&1 || brew install openssl@3
+          echo "$(brew --prefix openssl@3)/bin" >> "$GITHUB_PATH"
+      - name: Verify signing toolchain
+        run: openssl version | grep -E '^OpenSSL 3\.'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: remote-*
+          merge-multiple: true
+          path: build/remote
+      - name: Build and verify macOS release
+        run: |
+          test "$(uname -m)" = arm64
+          scripts/release/build-macos.sh
+      - name: Exercise signed upgrade rollback in an isolated profile
+        env:
+          JAM_RELEASE_SIGNING_KEY_PEM: ${{ secrets.JAM_RELEASE_SIGNING_KEY_PEM }}
+        run: |
+          python3 - <<'PYCODE'
+          import os
+          from pathlib import Path
+          import subprocess
+          import tempfile
+          with tempfile.TemporaryDirectory(prefix='jam-release-key-') as temporary:
+              key = Path(temporary) / 'key.pem'
+              key.write_text(os.environ.pop('JAM_RELEASE_SIGNING_KEY_PEM'))
+              key.chmod(0o600)
+              subprocess.run(['python3', 'scripts/tests/upgrade_transaction.py', '--cli', 'target/release/jam', '--signing-key', str(key)], check=True)
+          PYCODE
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: macos-release
+          path: build/release/*.zip
+          if-no-files-found: error
+  publish:
+    if: github.event_name == 'push' || inputs.publish == true
+    needs: [checks, macos]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+          fetch-depth: 0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: remote-*
+          merge-multiple: true
+          path: build/remote
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: macos-release
+          path: build/release
+      - name: Validate annotated tag and sign release
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+          JAM_RELEASE_SIGNING_KEY_PEM: ${{ secrets.JAM_RELEASE_SIGNING_KEY_PEM }}
+        run: |
+          test "$(git cat-file -t "$RELEASE_TAG")" = tag
+          test "$(git rev-parse "$RELEASE_TAG^{commit}")" = "$(git rev-parse HEAD)"
+          python3 scripts/release/prepare.py "$RELEASE_TAG"
+          git for-each-ref --format='%(contents:body)' "refs/tags/$RELEASE_TAG" > build/release-notes.md
+          test -s build/release-notes.md
+      - name: Publish complete release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          if draft=$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft 2>/dev/null); then
+            test "$draft" = true || { echo 'Refusing to modify a published release'; exit 1; }
+            gh release upload "$RELEASE_TAG" build/release/* --clobber
+            gh release edit "$RELEASE_TAG" --title "Jam $RELEASE_TAG" --notes-file build/release-notes.md
+          else
+            gh release create "$RELEASE_TAG" --verify-tag --draft --title "Jam $RELEASE_TAG" --notes-file build/release-notes.md build/release/*
+          fi
+          gh release edit "$RELEASE_TAG" --draft=false --latest
+          gh release view "$RELEASE_TAG" --json body,assets,isDraft,tagName

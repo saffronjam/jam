@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+docker build -t jam-linux-check -f scripts/Dockerfile .
+docker run --rm --init -v "$PWD:/work" -v jam-linux-cargo:/usr/local/cargo -v jam-linux-target:/work/target -v jam-linux-cache:/work/.cache -w /work jam-linux-check bash -lc '
+set -euo pipefail
+python3 scripts/bootstrap.py
+export PATH="/work/.cache/zig:/usr/local/cargo/bin:$PATH"
+export XDG_RUNTIME_DIR=/tmp/jam-runtime
+mkdir -p "$XDG_RUNTIME_DIR"
+chmod 700 "$XDG_RUNTIME_DIR"
+python3 scripts/test.py
+timeout 120s xvfb-run -a cargo run -p jam-render --example linux_smoke --locked
+printf "Linux terminal, GPU readback, and native surface checks passed.\n"
+'

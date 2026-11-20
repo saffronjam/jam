@@ -1,0 +1,5 @@
+[env]
+# Ghostty's Debug mode checks the entire scrollback repeatedly; use checked,
+# optimized terminal parsing even when Jam's Rust code is built for debugging.
+LIBGHOSTTY_VT_SYS_OPTIMIZE = "ReleaseSafe"
+MACOSX_DEPLOYMENT_TARGET = "14.0"

@@ -1,0 +1,16 @@
+[package]
+name = "jam-render"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+[dependencies]
+anyhow.workspace = true
+jam-core.workspace = true
+wgpu = "=30.0.2"
+glyphon = "=0.12.0"
+raw-window-handle = "0.6"
+pollster = "0.4"
+bytemuck = { version = "1", features = ["derive"] }
+[dev-dependencies]
+winit = "=0.30.12"

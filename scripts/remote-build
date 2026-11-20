@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+case "$(uname -m)" in arm64|aarch64) host=arm64;; *) host=amd64;; esac
+docker build --platform "linux/$host" -t jam-remote-builder - < scripts/Remote.Dockerfile
+mkdir -p .cache/remote-registry .cache/remote-git
+docker run --rm --platform "linux/$host" -v "$PWD:/work" -v "$PWD/.cache/remote-registry:/usr/local/cargo/registry" -v "$PWD/.cache/remote-git:/usr/local/cargo/git" -w /work \
+  -e CARGO_TARGET_DIR=/work/target/remote-linux jam-remote-builder \
+  bash -ec 'for target in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu; do CARGO_BUILD_TARGET="$target" python3 scripts/remote-build.py; done'

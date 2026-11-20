@@ -1,0 +1,15 @@
+[package]
+name = "jam-native"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+[lib]
+crate-type = ["staticlib", "rlib"]
+[dependencies]
+jam-core.workspace = true
+jam-render = { path = "../jam-render" }
+serde_json.workspace = true
+anyhow.workspace = true
+libghostty-vt.workspace = true
+libc = "0.2"
