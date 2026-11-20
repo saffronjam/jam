@@ -82,11 +82,13 @@ struct CoordinationView: View {
         if command == "instructions", let data = result["Coordination"] {
           if let content = data as? [String: Any] {
             let files = content["files"] as? [[String: Any]] ?? []
-            instructions =
-              ([content["guidance"] as? String ?? ""]
-              + files.map {
-                "\n" + ($0["path"] as? String ?? "") + "\n" + ($0["text"] as? String ?? "")
-              }).joined(separator: "\n")
+            let guidance: String = content["guidance"] as? String ?? ""
+            let fileSections: [String] = files.map { file -> String in
+              let path: String = file["path"] as? String ?? ""
+              let text: String = file["text"] as? String ?? ""
+              return "\n" + path + "\n" + text
+            }
+            instructions = ([guidance] + fileSections).joined(separator: "\n")
           }
         }
         if let error = result["error"] as? String { failure = error }

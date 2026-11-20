@@ -94,20 +94,56 @@ struct WorkspaceSidebar: NSViewRepresentable {
       items[key] = item
       return item
     }
+    private func workspaceSignature(_ workspace: Workspace) -> String {
+      let coordinator = workspace.coordinator
+      let context = workspace.context
+      let summary = store.gitSummaries[workspace.id]
+      let fields: [String] = [
+        workspace.id, workspace.parent ?? "", workspace.repository ?? "", workspace.name,
+        coordinator?.id ?? "", coordinator?.pane ?? "", workspace.sidebarBranch ?? "",
+        context?.path ?? "", context?.repository ?? "", String(context?.ready ?? false),
+        context?.createDisabledReason ?? "", store.workspaceTints[workspace.id] ?? "",
+        store.workspaceTints[coordinator?.id ?? ""] ?? "", String(summary?.added ?? 0),
+        String(summary?.removed ?? 0), summary?.review?.displaySignature ?? "",
+      ]
+      return fields.joined(separator: "|")
+    }
+    private func rowSignature(for item: Item) -> (String, [String]) {
+      let workspace = item.workspace
+      let parentItem = parent(of: item)
+      let summary: GitSummary? =
+        item.isCoordinator ? nil : workspace.flatMap { store.gitSummaries[$0.id] }
+      let endpoint: String =
+        workspace.map { WorkspaceSelection.endpoint(of: $0.id) } ?? item.machine ?? ""
+      let branch: String = item.isCoordinator ? "" : (workspace?.sidebarBranch ?? "")
+      let creating: Bool = workspace.map { store.isCreatingWorkspace($0.id) } ?? false
+      let fields: [String] = [
+        item.path, String(item.loading), String(item.connectionAttempt), String(item.offline),
+        "\(item.topInset)", workspace?.name ?? "", branch, String(!item.children.isEmpty),
+        String(summary?.added ?? 0), String(summary?.removed ?? 0),
+        summary?.review?.displaySignature ?? "", status(for: item),
+        store.workspaceTints[item.tintID ?? ""] ?? "", parentItem?.key ?? "",
+        store.workspaceTints[parentItem?.workspace?.id ?? ""] ?? "", String(creating),
+        store.remoteMessages[endpoint] ?? "",
+      ]
+      return (item.key, fields)
+    }
     func update(_ outline: NSOutlineView) {
       guard editing == nil, !store.reorderingWorkspaces else { return }
-      let next =
-        "\(store.groupsMachines)|"
-        + store.remotes.map {
-          $0.id + $0.name + (store.remoteMessages[$0.id] ?? "")
-            + "\(store.remoteSidebarState($0.id))|\(store.remoteConnectionState($0.id))"
-        }.joined()
-        + store.displayedWorkspaces.map {
-          "\($0.id)|\($0.parent ?? "")|\($0.repository ?? "")|\($0.name)|\($0.coordinator?.id ?? "")|\($0.coordinator?.pane ?? "")|\($0.sidebarBranch ?? "")|\($0.context?.path ?? "")|\($0.context?.repository ?? "")|\($0.context?.ready ?? false)|\($0.context?.createDisabledReason ?? "")|\(store.workspaceTints[$0.id] ?? "")|\(store.workspaceTints[$0.coordinator?.id ?? ""] ?? "")|\(store.gitSummaries[$0.id]?.added ?? 0)|\(store.gitSummaries[$0.id]?.removed ?? 0)|\(store.gitSummaries[$0.id]?.review?.displaySignature ?? "")"
-        }.joined(
-          separator: ";")
-        + store.panes.values.map { "\($0.id):\($0.status):\($0.exited)" }.sorted().joined(
-          separator: ";")
+      let remoteSignatures: [String] = store.remotes.map { remote -> String in
+        let message: String = store.remoteMessages[remote.id] ?? ""
+        let state: String =
+          "\(store.remoteSidebarState(remote.id))|\(store.remoteConnectionState(remote.id))"
+        return [remote.id, remote.name, message, state].joined()
+      }
+      let workspaceSignatures: [String] = store.displayedWorkspaces.map(workspaceSignature)
+      let paneSignatures: [String] = store.panes.values.map { pane -> String in
+        "\(pane.id):\(pane.status):\(pane.exited)"
+      }
+      let next: String = [
+        "\(store.groupsMachines)|", remoteSignatures.joined(),
+        workspaceSignatures.joined(separator: ";"), paneSignatures.sorted().joined(separator: ";"),
+      ].joined()
       updating = true
       defer { updating = false }
       if signature != next {
@@ -203,41 +239,18 @@ struct WorkspaceSidebar: NSViewRepresentable {
         let desiredItems = activeItems
         let desiredChildren = Dictionary(
           uniqueKeysWithValues: desiredItems.map { ($0.key, $0.children) })
-        let nextRowSignatures = Dictionary(
-          uniqueKeysWithValues: desiredItems.map { item in
-            let w = item.workspace
-            let parent = parent(of: item)
-            let diff = item.isCoordinator ? nil : w.flatMap { store.gitSummaries[$0.id] }
-            let endpoint = w.map { WorkspaceSelection.endpoint(of: $0.id) } ?? item.machine ?? ""
-            return (
-              item.key,
-              [
-                item.path, "\(item.loading)", "\(item.connectionAttempt)", "\(item.offline)",
-                "\(item.topInset)", w?.name ?? "",
-                item.isCoordinator ? "" : w?.sidebarBranch ?? "",
-                "\(!item.children.isEmpty)",
-                "\(diff?.added ?? 0)", "\(diff?.removed ?? 0)",
-                diff?.review?.displaySignature ?? "",
-                status(for: item),
-                store.workspaceTints[item.tintID ?? ""] ?? "", parent?.key ?? "",
-                store.workspaceTints[parent?.workspace?.id ?? ""] ?? "",
-                "\(w.map { store.isCreatingWorkspace($0.id) } ?? false)",
-                store.remoteMessages[endpoint] ?? "",
-              ]
-            )
-          })
-        let nextRowHeights = Dictionary(
-          uniqueKeysWithValues: desiredItems.map {
-            (
-              $0.key,
-              ($0.repositoryGroup
-                ? 26
-                : SidebarGeometry.rowHeight(
-                  hasBranch: !$0.isCoordinator && $0.workspace?.sidebarBranch != nil,
-                  isMachine: $0.machine != nil))
-                + $0.topInset
-            )
-          })
+        let rowEntries: [(String, [String])] = desiredItems.map { rowSignature(for: $0) }
+        let nextRowSignatures: [String: [String]] = Dictionary(uniqueKeysWithValues: rowEntries)
+        let heightEntries: [(String, CGFloat)] = desiredItems.map { item -> (String, CGFloat) in
+          let height: CGFloat =
+            item.repositoryGroup
+            ? 26
+            : SidebarGeometry.rowHeight(
+              hasBranch: !item.isCoordinator && item.workspace?.sidebarBranch != nil,
+              isMachine: item.machine != nil)
+          return (item.key, height + item.topInset)
+        }
+        let nextRowHeights: [String: CGFloat] = Dictionary(uniqueKeysWithValues: heightEntries)
         if initial {
           outline.reloadData()
         } else {
