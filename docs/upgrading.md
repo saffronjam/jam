@@ -21,6 +21,14 @@ jam update                  # Alias for upgrade
 
 `--yes` explicitly approves the interruptions for unattended upgrades. Without it, noninteractive use cannot approve stopping work. Development checkouts are not self-updated.
 
+## In the app
+
+Automatic checks run shortly after launch when due, then wait a day after a successful check. Choose **Jam → Check for Updates…** or use **Settings → General** to check immediately. Automatic checks can be disabled in General settings.
+
+The update notification offers **Upgrade…** and **Skip This Version**. A skipped version stays hidden until a newer release appears; a manual check can show it again. Jam downloads and verifies the update before presenting restart confirmation.
+
+If an upgrade was interrupted, Jam offers recovery with fresh confirmation. Recovery does not reuse earlier permission to upgrade remote machines.
+
 ## What restarts
 
 Jam downloads and verifies the signed release and required artifacts before asking to interrupt work. Confirmation identifies affected sessions and machines. The application and affected daemons restart; layouts, working directories, and resumable agent conversations are restored. Cancelled and intentionally paused work stays paused. Ordinary running shell commands can end during a daemon restart.

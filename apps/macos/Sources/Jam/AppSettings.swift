@@ -251,6 +251,10 @@ struct AppSettingsView: View {
   @ViewBuilder private var settingsContent: some View {
     switch section {
     case "General":
+      settingsGroup("Updates") {
+        AppUpdateSettings(
+          controller: store.appUpgrade, automatic: $draft.config.automaticCheckUpdates)
+      }
       settingsGroup("Workspaces") {
         settingToggle(
           "Close workspace after its last tab closes", isOn: $draft.config.closeEmptyWorkspaces)

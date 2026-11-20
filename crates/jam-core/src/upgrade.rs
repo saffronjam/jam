@@ -744,7 +744,14 @@ pub fn plan(staged: &Staged) -> Result<Plan> {
     })
 }
 pub fn launch(staged: &Staged, plan: &Plan) -> Result<PathBuf> {
-    let directory = root()?.join(format!("apply-{}", crate::id()));
+    let upgrades = root()?;
+    let lock = installation_lock(&upgrades)?;
+    lock.try_lock_exclusive()
+        .context("Another Jam upgrade or recovery is running")?;
+    if !crash_recovery::pending_locked(&upgrades, None)?.is_empty() {
+        bail!("Recover the interrupted Jam upgrade before starting another upgrade");
+    }
+    let directory = upgrades.join(format!("apply-{}", crate::id()));
     crate::server::private_dir(&directory)?;
     let journal = directory.join("journal.json");
     write_json(
@@ -796,6 +803,10 @@ pub fn launch(staged: &Staged, plan: &Plan) -> Result<PathBuf> {
             Ok(())
         });
     }
+    // The durable staged journal is now the admission barrier. Release before
+    // spawning so the helper can acquire the lock without timing assumptions;
+    // another launcher must see this journal before it can create its own.
+    drop(lock);
     let mut child = command.spawn()?;
     if cfg!(target_os = "linux") && !child.wait()?.success() {
         bail!("Could not launch detached updater service");
@@ -963,18 +974,39 @@ fn exchange(a: &Path, b: &Path) -> Result<()> {
     fs::File::open(parent)?.sync_all()?;
     Ok(())
 }
-pub fn apply(path: &Path) -> Result<()> {
-    std::thread::sleep(Duration::from_millis(300));
-    let _ = std::env::set_current_dir("/");
-    let lock = fs::OpenOptions::new()
+fn installation_lock(directory: &Path) -> Result<fs::File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    Ok(fs::OpenOptions::new()
         .create(true)
         .truncate(false)
         .read(true)
         .write(true)
-        .open(root()?.join("install.lock"))?;
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(directory.join("install.lock"))?)
+}
+pub fn apply(path: &Path) -> Result<()> {
+    std::thread::sleep(Duration::from_millis(300));
+    let _ = std::env::set_current_dir("/");
+    let upgrades = root()?;
+    let lock = installation_lock(&upgrades)?;
     lock.try_lock_exclusive()
         .context("Another Jam upgrade is in progress")?;
     let mut journal = read_journal(path)?;
+    if journal.phase != "staged" {
+        bail!(
+            "This upgrade attempt has already started or finished; use explicit recovery if needed"
+        );
+    }
+    // Discovery in another process can race launch. Recheck under the same
+    // exclusive lock used for application replacement, before stopping anything
+    // or creating a new checkpoint. Refusal needs no rollback of this attempt.
+    if !crash_recovery::pending_locked(&upgrades, Some(path))?.is_empty() {
+        journal.error =
+            Some("Recover the interrupted Jam upgrade before starting another upgrade".into());
+        save_journal(path, &mut journal, "abandoned")?;
+        bail!("Recover the interrupted Jam upgrade before starting another upgrade");
+    }
     let result = apply_inner(path, &mut journal);
     if let Err(ref error) = result {
         if journal.plan.local_running {
@@ -1666,6 +1698,73 @@ pub fn cli(check_only: bool, yes: bool, json: bool) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn active_updater_rejects_another_launch_before_creating_a_journal() {
+        use std::os::unix::fs::PermissionsExt;
+        let fixture = tempfile::tempdir().unwrap();
+        fs::set_permissions(fixture.path(), fs::Permissions::from_mode(0o700)).unwrap();
+        let upgrades = fixture.path().join("upgrades");
+        crate::server::private_dir(&upgrades).unwrap();
+        let lock = installation_lock(&upgrades).unwrap();
+        lock.lock_exclusive().unwrap();
+        let output = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "upgrade::tests::launch_admission_child",
+                "--ignored",
+            ])
+            .env("JAM_UPGRADE_ADMISSION_FIXTURE", "1")
+            .env("JAM_STATE_DIR", fixture.path())
+            .env("JAM_SOCKET", fixture.path().join("unused.sock"))
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "stdout: {}\nstderr: {}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let entries: Vec<_> = fs::read_dir(&upgrades)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        assert_eq!(
+            entries,
+            vec![std::ffi::OsString::from("install.lock")],
+            "A rejected concurrent launch must not leave an unfinished journal"
+        );
+    }
+    #[test]
+    #[ignore = "controlled child with a private profile and no updater helper"]
+    fn launch_admission_child() {
+        assert_eq!(
+            std::env::var("JAM_UPGRADE_ADMISSION_FIXTURE").as_deref(),
+            Ok("1")
+        );
+        let staged = Staged {
+            directory: crate::state_dir().join("must-not-be-read"),
+            archive: crate::state_dir().join("must-not-be-read.zip"),
+            release: Release {
+                schema: 1,
+                version: "0.0.3".into(),
+                protocol: crate::VERSION.into(),
+                min_macos: "14.0".into(),
+                assets: vec![],
+            },
+        };
+        let plan = Plan {
+            installation: crate::state_dir().join("untouched"),
+            local_running: false,
+            targets: vec![],
+            offline: vec![],
+            app_pids: vec![],
+        };
+        let error = launch(&staged, &plan).unwrap_err();
+        assert!(
+            format!("{error:#}").contains("Another Jam upgrade or recovery is running"),
+            "{error:#}"
+        );
+    }
     use ed25519_dalek::{Signer, SigningKey};
     #[test]
     fn signed_manifest_rejects_tampering_and_unsafe_assets() {

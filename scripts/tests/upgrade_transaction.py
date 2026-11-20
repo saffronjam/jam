@@ -96,6 +96,29 @@ def test(cli, signing_key):
         assert (state / 'coordination.sqlite').read_text() == 'original board'
         assert json.loads(journal_path.read_text())['phase'] in ('failed', 'rolled_back')
         print('Signed upgrade rollback passed: previous app, layout and board restored; private failure journal retained.')
+        # A separate process must not replace the baseline while an older
+        # transaction still needs recovery, even if UI discovery raced launch.
+        import uuid
+        upgrades = state / 'upgrades'
+        older = upgrades / ('apply-' + str(uuid.uuid4()))
+        older.mkdir(mode=0o700)
+        unfinished = dict(journal, phase='recovering_previous')
+        older_journal = older / 'journal.json'
+        older_journal.write_text(json.dumps(unfinished))
+        older_journal.chmod(0o600)
+        candidate_marker = state / 'candidate-started'
+        candidate_marker.unlink()
+        journal_path.write_text(json.dumps(journal))
+        before = {name: (state / name).read_bytes() for name in ('layout.json', 'coordination.sqlite')}
+        result = subprocess.run([str(previous / 'Contents/Resources/bin/jam'), '__upgrade-apply', str(journal_path)],
+                                env={**environment, **profile}, capture_output=True, text=True, timeout=60)
+        assert result.returncode != 0 and 'Recover the interrupted' in result.stderr, result
+        assert json.loads(journal_path.read_text())['phase'] == 'abandoned'
+        assert older_journal.read_text() == json.dumps(unfinished)
+        assert not candidate_marker.exists()
+        assert all((state / name).read_bytes() == data for name, data in before.items())
+        assert json.loads((previous / 'Contents/Resources/release.json').read_text())['version'] == current
+        print('Unfinished recovery barrier passed: second installation refused before replacement, checkpoint or restart.')
 
 
 def main():

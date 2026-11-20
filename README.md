@@ -24,6 +24,8 @@ Install the CLI with `~/Applications/Jam.app/Contents/Resources/bin/jam install-
 
 ## Upgrades
 
+The app checks for updates automatically and offers **Upgrade…** or **Skip This Version**. Use **Jam → Check for Updates…** to check manually, or turn automatic checks off in **Settings → General**.
+
 Run `jam upgrade` to check, download, and apply the latest stable release. Jam asks before interrupting active sessions. `jam update` is an alias; `jam upgrade --check --json` is available for scripts. See [upgrade behavior](docs/upgrading.md).
 
 ## Agents
@@ -42,7 +44,7 @@ Saved layouts and agent conversations can be restored after a server restart. Or
 
 ## Build
 
-Install Xcode Command Line Tools, Rust through rustup, and [just](https://github.com/casey/just). The repository pins Rust and downloads a checksum-verified Zig toolchain into `.cache`.
+Install Python 3.11 or later, Xcode Command Line Tools, Rust through rustup, and [just](https://github.com/casey/just). The repository pins Rust and downloads a checksum-verified Zig toolchain into `.cache`.
 
 ```sh
 just dev           # Build and launch the macOS app

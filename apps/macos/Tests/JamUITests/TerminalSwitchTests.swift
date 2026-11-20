@@ -72,6 +72,7 @@ struct WorktreeListFixture: View {
     checkEmptyWorkspaceNames()
     checkCoordinatorStateMigration()
     checkContextRequestRouting()
+    try checkUpgradeConsent()
     try checkWorktreeNavigation()
     _ = nativeString(jam_start(""))
     defer { _ = rpc("Stop") }
@@ -1166,6 +1167,176 @@ struct WorktreeListFixture: View {
     }
     print(
       "Activity indicators passed: pane-to-tab-to-workspace priority, hollow cleared status, mixed tabs, and label geometry."
+    )
+  }
+
+  static func checkUpgradeConsent() throws {
+    precondition(ProcessInfo.processInfo.environment["JAM_DEFAULTS_SUITE"] != nil)
+    JamDefaults.shared.removeObject(forKey: "appUpgradeState")
+    defer { JamDefaults.shared.removeObject(forKey: "appUpgradeState") }
+    let lock = NSLock()
+    var actions: [(String, Bool)] = []
+    var interrupted = true
+    let expectedSessions = ["live-pane": "generation-before-confirmation"]
+    var launchedSessions: [String: String]?
+    let release = AppRelease(
+      schema: 1, version: "0.0.3", protocol: "jam/test", minMacOS: "14.0", assets: [])
+    func recorded(_ name: String) -> [(String, Bool)] {
+      lock.lock()
+      defer { lock.unlock() }
+      return actions.filter { $0.0 == name }
+    }
+    let controller = AppUpgradeController { request in
+      let action = request["action"] as? String ?? ""
+      lock.lock()
+      actions.append((action, request["confirmed"] as? Bool == true))
+      let pending = interrupted
+      if action == "recover" { interrupted = false }
+      if action == "launch" {
+        let plan = request["plan"] as? [String: Any]
+        let targets = plan?["targets"] as? [[String: Any]]
+        launchedSessions = targets?.first?["sessions"] as? [String: String]
+        assert(targets?.first?["panes"] as? [String] == ["live-pane"])
+      }
+      lock.unlock()
+      let reply: Any
+      switch action {
+      case "eligibility": reply = ["installation": "/tmp/Jam.app"]
+      case "check":
+        reply = [
+          "current": "0.0.2", "available": true,
+          "release": try JSONSerialization.jsonObject(with: JSONEncoder().encode(release)),
+        ]
+      case "pending":
+        reply =
+          pending
+          ? [
+            ["journal": "/tmp/journal", "version": "0.0.3", "phase": "prepared", "error": NSNull()]
+          ] : []
+      case "recover", "launch": reply = ["journal": "/tmp/journal"]
+      case "status":
+        reply = [
+          "version": "0.0.3", "phase": recorded("launch").isEmpty ? "recovered" : "complete",
+          "error": "Local installation recovered. Remote updates require fresh confirmation.",
+        ]
+      case "stage":
+        reply = [
+          "staged": [
+            "directory": "/tmp/stage", "archive": "/tmp/stage/Jam.zip",
+            "release": try JSONSerialization.jsonObject(with: JSONEncoder().encode(release)),
+          ],
+          "plan": [
+            "installation": "/tmp/Jam.app", "local_running": true,
+            "targets": [
+              [
+                "endpoint": "", "name": "Local", "panes": ["live-pane"],
+                "sessions": expectedSessions, "incarnation": "fixture-incarnation",
+                "build": "fixture-build", "version": "0.0.1",
+              ]
+            ],
+            "offline": ["Build server"], "app_pids": [],
+          ],
+        ]
+      default: throw NSError(domain: "Unexpected updater action: " + action, code: 1)
+      }
+      return try AppUpgradeResponse.validate(
+        JSONSerialization.data(withJSONObject: reply), action: action)
+    }
+    controller.configure(automatic: false)
+    try wait("interrupted upgrade discovery") { controller.pendingRecoveries.count == 1 }
+    assert(
+      recorded("recover").isEmpty && recorded("launch").isEmpty,
+      "Startup discovery must never repair or interrupt")
+    controller.recovery = controller.pendingRecoveries.first
+    assert(recorded("recover").isEmpty, "Opening recovery details is not interruption approval")
+    controller.recovery = nil
+    assert(recorded("recover").isEmpty, "Cancelling recovery must leave its transaction untouched")
+    controller.recovery = controller.pendingRecoveries.first
+    controller.recover()
+    try wait("confirmed recovery") {
+      controller.phase == .idle && controller.pendingRecoveries.isEmpty
+    }
+    assert(
+      recorded("recover").count == 1 && recorded("recover")[0].1,
+      "Only the explicit recovery action sends confirmed=true")
+    controller.available = release
+    controller.prepare()
+    try wait("verified upgrade staging") { controller.phase == .ready }
+    assert(
+      recorded("launch").isEmpty,
+      "Downloading and displaying affected machines must not start installation")
+    assert(controller.staged?.plan.offline == ["Build server"])
+    assert(controller.staged?.plan.targets.first?.sessions == expectedSessions)
+    controller.cancel()
+    assert(recorded("launch").isEmpty, "Cancelling the staged upgrade must not launch the helper")
+    controller.prepare()
+    try wait("second verified staging") { controller.phase == .ready }
+    controller.launch()
+    try wait("confirmed upgrade") {
+      controller.phase == .idle && !controller.notice.isEmpty && recorded("launch").count == 1
+    }
+    assert(recorded("launch")[0].1)
+    lock.lock()
+    let preservedSessions = launchedSessions
+    lock.unlock()
+    assert(
+      preservedSessions == expectedSessions,
+      "Confirmed launch must preserve the staged live-session identities")
+    controller.requireClientUpgrade(endpoint: "newer", minimum: "0.0.10", manual: true)
+    try wait("unsatisfied newer remote") { controller.phase == .idle && !controller.error.isEmpty }
+    assert(controller.available == nil)
+    controller.forgetRequirement(endpoint: "newer")
+    assert(controller.requiredMinimum == nil && controller.error.isEmpty)
+    assert(
+      controller.available == release, "Removed remote must not hide an eligible cached update")
+    controller.skip()
+    controller.requireClientUpgrade(endpoint: "newer", minimum: "0.0.10", manual: true)
+    try wait("second newer remote check") { controller.phase == .idle && !controller.error.isEmpty }
+    controller.forgetRequirement(endpoint: "newer")
+    assert(controller.available == nil, "Removing a requirement must preserve exact-version Skip")
+
+    let heldScan = DispatchSemaphore(value: 0)
+    let raceStage = controller.staged!
+    var raceLaunches = 0
+    let racing = AppUpgradeController { request in
+      switch request["action"] as? String {
+      case "eligibility": return Data("{}".utf8)
+      case "pending":
+        guard heldScan.wait(timeout: .now() + 5) == .success else {
+          throw NSError(domain: "Timed out waiting for recovery race", code: 1)
+        }
+        return try JSONSerialization.data(withJSONObject: [
+          [
+            "journal": "/tmp/earlier-cli-journal", "version": "0.0.3",
+            "phase": "recovering_previous", "error": NSNull(),
+          ]
+        ])
+      case "stage": return try JSONEncoder().encode(raceStage)
+      case "launch":
+        lock.lock()
+        raceLaunches += 1
+        lock.unlock()
+        return Data("{\"journal\":\"/tmp/unexpected\"}".utf8)
+      default: throw NSError(domain: "Unexpected recovery race action", code: 1)
+      }
+    }
+    racing.configure(automatic: false)
+    try wait("recovery race eligibility") { racing.managed }
+    racing.available = release
+    racing.prepare()
+    try wait("recovery race staging") { racing.phase == .ready }
+    assert(!racing.canLaunch, "Unfinished discovery must block final launch")
+    heldScan.signal()
+    try wait("late interrupted transaction") { racing.pendingRecoveries.count == 1 }
+    assert(racing.phase == .idle && racing.staged == nil && !racing.showSheet)
+    racing.launch()
+    lock.lock()
+    let unexpectedLaunches = raceLaunches
+    lock.unlock()
+    assert(
+      unexpectedLaunches == 0, "Late discovery must revoke readiness and reject launch in code")
+    print(
+      "Upgrade consent passed: read-only crash discovery, cancel without actions, explicit recovery approval, staged-before-consent, and lossless confirmed launch with a live session."
     )
   }
 

@@ -78,10 +78,22 @@ fn pending_at(directory: &Path) -> Result<Vec<Pending>> {
             Err(error) => return Err(error.into()),
         }
     }
+    pending_entries(directory, None)
+}
+/// Called only while the installer holds install.lock. Never reacquire that
+/// lock: active-helper discovery intentionally hides unfinished transactions.
+pub(super) fn pending_locked(directory: &Path, current: Option<&Path>) -> Result<Vec<Pending>> {
+    pending_entries(directory, current)
+}
+fn pending_entries(directory: &Path, current: Option<&Path>) -> Result<Vec<Pending>> {
+    private_directory(directory)?;
     let mut result = vec![];
     for entry in fs::read_dir(directory)? {
         let path = entry?.path().join("journal.json");
-        if transaction_at(&path, directory).is_err() || !path.exists() {
+        if current == Some(path.as_path())
+            || transaction_at(&path, directory).is_err()
+            || !path.exists()
+        {
             continue;
         }
         let journal = read_journal(&path)?;
@@ -722,16 +734,33 @@ mod tests {
             while done.load(Ordering::SeqCst) {
                 match listener.accept() {
                     Ok((mut stream, _)) => {
-                        stream.set_nonblocking(false).unwrap();
-                        stream
-                            .set_read_timeout(Some(Duration::from_millis(100)))
-                            .unwrap();
+                        // The identity probe may have already disconnected.
+                        // On Darwin SO_RCVTIMEO can then fail with EINVAL. Read
+                        // nonblocking instead and reject even a partial request,
+                        // rather than only detecting fully decoded Stop frames.
+                        use std::io::Read;
+                        stream.set_nonblocking(true).unwrap();
                         let _ = crate::write_frame(
                             &mut stream,
                             &crate::Message::Hello(crate::VERSION.into()),
                         );
-                        if let Ok(request) = crate::read_frame::<crate::Request>(&mut stream) {
-                            sent.send(request).unwrap();
+                        let deadline = std::time::Instant::now() + Duration::from_millis(100);
+                        let mut bytes = [0; 1024];
+                        loop {
+                            match stream.read(&mut bytes) {
+                                Ok(0) => break,
+                                Ok(count) => {
+                                    sent.send(bytes[..count].to_vec()).unwrap();
+                                    break;
+                                }
+                                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                                    if std::time::Instant::now() >= deadline {
+                                        break;
+                                    }
+                                    std::thread::sleep(Duration::from_millis(1));
+                                }
+                                Err(error) => panic!("{error}"),
+                            }
                         }
                     }
                     Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
@@ -752,7 +781,7 @@ mod tests {
         );
         assert!(
             received.try_iter().next().is_none(),
-            "No request, particularly Stop, may reach the foreign kernel"
+            "No request bytes, particularly Stop, may reach the foreign kernel"
         );
         assert_eq!(
             installed_version(&journal.plan.installation)

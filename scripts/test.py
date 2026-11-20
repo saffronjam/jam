@@ -26,6 +26,7 @@ def macos_tests():
     sources = ROOT / 'apps/macos/Sources/Jam'
     dependencies = [
         'LaunchDirectory.swift', 'SplitLayout.swift', 'Node.swift', 'RequestRouting.swift',
+        'AppUpgradeState.swift',
         'PaneLayout.swift', 'ReorderSession.swift', 'WorkspaceCell.swift',
         'GitSummaryValue.swift', 'WorkspaceSelection.swift', 'WorkspaceName.swift', 'WarningToast.swift',
         'WorkspaceCreation.swift',

@@ -101,6 +101,7 @@ struct RepositoryContext: Decodable {
 }
 enum TerminalInputGate { static var blocked = false }
 final class Store: ObservableObject {
+  let appUpgrade = AppUpgradeController()
   @Published var remotes: [RemoteMachine] = []
   @Published var editingRemote: RemoteMachine?
   var pendingRenames: [String: PendingRename] = [:]
@@ -948,6 +949,7 @@ final class Store: ObservableObject {
       .unifiedCompact
     ).commands {
       CommandGroup(after: .appSettings) {
+        Button("Check for Updates…") { store.appUpgrade.check() }
         Button("Settings…") { store.execute("settings") }.keyboardShortcut(",", modifiers: .command)
         Button("Agent Integrations…") { store.execute("agent_integrations") }
       }
@@ -1162,17 +1164,8 @@ struct ContentView: View {
       }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(Color(nsColor: .windowBackgroundColor))
         .overlay(alignment: .bottomTrailing) {
-          if !store.error.isEmpty {
-            WarningToast(
-              message: store.error,
-              retry: store.connected ? nil : { store.start() },
-              dismiss: { store.dismissWarning() }
-            )
-            .padding(12)
-            .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
-          }
+          AppStatusOverlay(store: store, controller: store.appUpgrade)
         }
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: store.error.isEmpty)
         .overlay(alignment: .topTrailing) {
           if store.showFind {
             WorkspaceFindBar(finder: store.finder).padding(.top, 38).padding(.trailing, 12)

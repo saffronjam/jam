@@ -35,10 +35,12 @@ struct JamConfig: Codable, Equatable {
     case closeEmptyTabs = "close_empty_tabs"
     case allowWorkspaceDeletion = "allow_workspace_deletion"
     case copyOnSelect = "copy_on_select"
+    case automaticCheckUpdates = "automatic_check_updates"
   }
   var worktreesDirectory: String
   var bindings: [String: [String]]
   var copyOnSelect: Bool = false
+  var automaticCheckUpdates = true
   var enabledAgents = ["claude", "codex"]
   var agentModels: [String: AgentModelSettings] = [:]
   var maxAgentsPerCoordinator = 8
@@ -326,6 +328,7 @@ extension Store {
       let c = try JamConfig.load()
       if c != config {
         config = c
+        appUpgrade.configure(automatic: c.automaticCheckUpdates)
         NSApp.appearance =
           c.appearance == "dark"
           ? NSAppearance(named: .darkAqua)

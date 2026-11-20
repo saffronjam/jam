@@ -25,6 +25,7 @@ func remoteCommand(_ command: [String: String]) -> [String: Any] {
 }
 extension Store {
   func disconnectRemote(_ id: String) {
+    appUpgrade.forgetRequirement(endpoint: id)
     remoteConnectionGenerations[id, default: 0] &+= 1
     remoteConnecting.remove(id)
     remoteLoading.remove(id)
@@ -51,6 +52,7 @@ extension Store {
   func reloadRemotes() {
     let text = nativeString(jam_remote("{\"action\":\"list\"}"))
     remotes = (try? JSONDecoder().decode([RemoteMachine].self, from: Data(text.utf8))) ?? []
+    appUpgrade.retainRequirements(endpoints: Set(remotes.map(\.id)))
     for remote in remotes {
       if !workspaces.contains(where: { $0.id.hasPrefix(remote.id + "|") }),
         let data = JamDefaults.shared.data(forKey: "remoteState." + remote.id),
@@ -68,6 +70,7 @@ extension Store {
           self.error = error
           return
         }
+        self.appUpgrade.forgetRequirement(endpoint: id)
         self.workspaces.removeAll { $0.id.hasPrefix(id + "|") }
         self.workspaceCreations.removeValue(forKey: id)
         self.loadedRemotes.remove(id)
@@ -102,10 +105,16 @@ extension Store {
         self.remoteLoading.remove(id)
         self.remoteConnecting.remove(id)
         self.remoteMessages[id] = result["error"] as? String ?? "Connected"
+        if let required = result["upgrade_required"] as? [String: Any],
+          let minimum = required["minimum"] as? String
+        {
+          self.appUpgrade.requireClientUpgrade(endpoint: id, minimum: minimum, manual: true)
+        }
         if let persistent = result["persistent"] as? Bool {
           self.remotePersistence[id] = persistent
         }
         if result["error"] == nil {
+          self.appUpgrade.forgetRequirement(endpoint: id)
           self.observeServer(result["HostInfo"] as? [String: Any], endpoint: id)
         }
         self.remoteNext[id] = .distantPast
@@ -146,12 +155,19 @@ extension Store {
           self.remoteConnecting.remove(remote.id)
           guard self.remotes.contains(where: { $0.id == remote.id }) else { return }
           if let error = state["error"] as? String {
+            if let required = connection["upgrade_required"] as? [String: Any],
+              let minimum = required["minimum"] as? String
+            {
+              self.appUpgrade.requireClientUpgrade(
+                endpoint: remote.id, minimum: minimum, manual: false)
+            }
             self.remoteMessages[remote.id] = error
             let delay = min(30, (self.remoteDelay[remote.id] ?? 0.5) * 2)
             self.remoteDelay[remote.id] = delay
             self.remoteNext[remote.id] = Date().addingTimeInterval(
               delay * Double.random(in: 0.8...1.2))
           } else {
+            self.appUpgrade.forgetRequirement(endpoint: remote.id)
             self.remoteMessages[remote.id] = "Connected"
             if let agents, self.availableAgents[remote.id] != agents {
               self.availableAgents[remote.id] = agents

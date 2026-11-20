@@ -27,6 +27,7 @@ impl AgentModels {
 pub struct Config {
     pub worktrees_directory: String,
     pub copy_on_select: bool,
+    pub automatic_check_updates: bool,
     pub enabled_agents: Vec<String>,
     #[serde(default)]
     pub agent_models: BTreeMap<String, AgentModels>,
@@ -44,6 +45,7 @@ impl Default for Config {
         Self {
             worktrees_directory: crate::worktree_template::DEFAULT.into(),
             copy_on_select: false,
+            automatic_check_updates: true,
             enabled_agents: vec!["claude".into(), "codex".into()],
             agent_models: BTreeMap::new(),
             max_agents_per_coordinator: 8,
