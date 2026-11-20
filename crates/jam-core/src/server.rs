@@ -35,7 +35,7 @@ impl Process {
             owned_group: group,
         }
     }
-    fn poll_exit(&mut self) -> Result<bool> {
+    fn exited_without_reaping(&mut self) -> Result<bool> {
         let Some(pid) = self.child.process_id() else {
             return Ok(self.child.try_wait()?.is_some());
         };
@@ -49,15 +49,19 @@ impl Process {
             )
         } != 0
         {
-            return Err(std::io::Error::last_os_error().into());
+            return Err(std::io::Error::last_os_error()).with_context(|| {
+                format!("Could not observe terminal child {pid} exit without reaping")
+            });
         }
         #[cfg(target_os = "macos")]
         let exited = info.si_pid != 0;
         #[cfg(target_os = "linux")]
         let exited = unsafe { info.si_pid() } != 0;
+        Ok(exited)
+    }
+    fn poll_exit(&mut self) -> Result<bool> {
+        let exited = self.exited_without_reaping()?;
         if exited {
-            // A terminal session ends with its root. Stop any same-group jobs
-            // that ignored SIGHUP before reaping the leader and losing ownership.
             self.terminate()?;
         }
         Ok(exited)
@@ -65,24 +69,120 @@ impl Process {
     fn terminate(&mut self) -> Result<()> {
         if let Some(group) = self.owned_group.take()
             && unsafe { libc::killpg(group, libc::SIGKILL) } < 0
-            && std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH)
         {
-            self.owned_group = Some(group);
-            return Err(std::io::Error::last_os_error().into());
+            let error = std::io::Error::last_os_error();
+            let harmless = error.raw_os_error() == Some(libc::ESRCH);
+            #[cfg(target_os = "macos")]
+            let harmless = if error.raw_os_error() == Some(libc::EPERM) {
+                let inspected = (|| -> Result<bool> {
+                    if !self.exited_without_reaping()? {
+                        return Ok(false);
+                    }
+                    // XNU reports EPERM for zombie-only groups. A live or
+                    // uninspectable member must retain the permission error.
+                    group_has_no_live_members(group, self.child.process_id().unwrap() as i32)
+                })();
+                match inspected {
+                    Ok(empty) => empty,
+                    Err(error) => {
+                        self.owned_group = Some(group);
+                        return Err(error)
+                            .context("Could not verify terminal process-group cleanup");
+                    }
+                }
+            } else {
+                harmless
+            };
+            if !harmless {
+                self.owned_group = Some(group);
+                return Err(error)
+                    .with_context(|| format!("Could not stop terminal process group {group}"));
+            }
         }
         if self.child.try_wait()?.is_none() {
             if let Some(pid) = self.child.process_id() {
                 if unsafe { libc::kill(pid as i32, libc::SIGKILL) } < 0
                     && std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH)
                 {
-                    return Err(std::io::Error::last_os_error().into());
+                    return Err(std::io::Error::last_os_error())
+                        .with_context(|| format!("Could not stop terminal child {pid}"));
                 }
             } else {
-                self.child.kill()?;
+                self.child
+                    .kill()
+                    .context("Could not stop terminal child without a PID")?;
             }
-            self.child.wait()?;
+            self.child
+                .wait()
+                .context("Could not reap terminal child after stopping it")?;
         }
         Ok(())
+    }
+}
+// Called only after WNOWAIT proved the unreaped root exited. The retained
+// root PID prevents the group ID from being recycled during this inspection.
+#[cfg(target_os = "macos")]
+fn group_has_no_live_members(group: libc::pid_t, root: libc::pid_t) -> Result<bool> {
+    const PROC_PGRP_ONLY: u32 = 2; // sys/proc_info.h
+    let mut pids = vec![0i32; 64];
+    loop {
+        unsafe {
+            *libc::__error() = 0;
+        }
+        let bytes = unsafe {
+            libc::proc_listpids(
+                PROC_PGRP_ONLY,
+                group as u32,
+                pids.as_mut_ptr().cast(),
+                (pids.len() * std::mem::size_of::<i32>()) as i32,
+            )
+        };
+        if bytes <= 0 {
+            let error = std::io::Error::last_os_error();
+            if bytes == 0 && matches!(error.raw_os_error(), Some(0) | Some(libc::ESRCH)) {
+                return Ok(true);
+            }
+            return Err(error)
+                .with_context(|| format!("Could not inspect terminal process group {group}"));
+        }
+        let count = bytes as usize / std::mem::size_of::<i32>();
+        if count >= pids.len() {
+            if pids.len() >= 1024 * 1024 {
+                bail!("Terminal process group membership exceeds inspection limit");
+            }
+            pids.resize(pids.len() * 2, 0);
+            continue;
+        }
+        for pid in pids[..count]
+            .iter()
+            .copied()
+            .filter(|pid| *pid > 0 && *pid != root)
+        {
+            let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
+            let size = std::mem::size_of_val(&info) as i32;
+            let read = unsafe {
+                libc::proc_pidinfo(
+                    pid,
+                    libc::PROC_PIDTBSDINFO,
+                    0,
+                    (&mut info as *mut libc::proc_bsdinfo).cast(),
+                    size,
+                )
+            };
+            if read != size {
+                let error = std::io::Error::last_os_error();
+                if error.raw_os_error() == Some(libc::ESRCH) {
+                    continue;
+                }
+                return Err(error).with_context(|| {
+                    format!("Could not inspect terminal process {pid} in group {group}")
+                });
+            }
+            if info.pbi_pgid == group as u32 && info.pbi_status != libc::SZOMB {
+                return Ok(false);
+            }
+        }
+        return Ok(true);
     }
 }
 impl Drop for Process {
@@ -610,6 +710,7 @@ fn spawn(mut pane: Pane) -> Result<Handle> {
                                         && let Some(pg) = pair.master.process_group_leader()
                                         && pg > 1
                                         && pg != unsafe { libc::getpgrp() }
+                                        && Some(pg) != child.owned_group
                                     {
                                         unsafe {
                                             libc::killpg(pg, libc::SIGKILL);
@@ -2578,6 +2679,49 @@ pub fn serve() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn darwin_zombie_only_group_eperm_is_verified_before_reaping() {
+        let pair = native_pty_system().openpty(PtySize::default()).unwrap();
+        let mut command = CommandBuilder::new("/bin/sh");
+        command.args(["-c", "exit 0"]);
+        let mut process = Process::new(pair.slave.spawn_command(command).unwrap());
+        drop(pair.slave);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while !process.exited_without_reaping().unwrap() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "fixture root did not exit"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        let pid = process.child.process_id().unwrap() as i32;
+        assert_eq!(process.owned_group, Some(pid));
+        // Reproduce the hosted failure against an actual unreaped Darwin child.
+        assert_eq!(unsafe { libc::killpg(pid, libc::SIGKILL) }, -1);
+        assert_eq!(
+            std::io::Error::last_os_error().raw_os_error(),
+            Some(libc::EPERM)
+        );
+        assert!(group_has_no_live_members(pid, pid).unwrap());
+        process.terminate().unwrap();
+        assert!(process.owned_group.is_none());
+        assert!(process.child.try_wait().unwrap().is_some());
+    }
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn darwin_live_group_member_prevents_empty_group_classification() {
+        let pair = native_pty_system().openpty(PtySize::default()).unwrap();
+        let mut command = CommandBuilder::new("/bin/sh");
+        command.args(["-c", "sleep 60 & wait"]);
+        let mut process = Process::new(pair.slave.spawn_command(command).unwrap());
+        drop(pair.slave);
+        let pid = process.child.process_id().unwrap() as i32;
+        // Passing no excluded root lets the real running leader prove that a
+        // live group must not be confused with the zombie-only kernel case.
+        assert!(!group_has_no_live_members(pid, -1).unwrap());
+        process.terminate().unwrap();
+    }
     #[test]
     fn upgrade_lease_expiry_reopens_admission_but_cannot_authorize_stop() {
         let mut server = Server {

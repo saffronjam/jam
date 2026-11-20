@@ -132,8 +132,8 @@ impl Fixture {
         let contents = dir.path().join("Jam.app/Contents");
         std::fs::create_dir_all(contents.join("MacOS")).unwrap();
         std::fs::create_dir_all(contents.join("Resources/bin")).unwrap();
-        std::fs::hard_link(env!("CARGO_BIN_EXE_jamd"), contents.join("MacOS/jamd")).unwrap();
-        std::fs::hard_link(
+        std::fs::copy(env!("CARGO_BIN_EXE_jamd"), contents.join("MacOS/jamd")).unwrap();
+        std::fs::copy(
             env!("CARGO_BIN_EXE_jam"),
             contents.join("Resources/bin/jam"),
         )
@@ -163,8 +163,16 @@ impl Fixture {
             std::thread::sleep(Duration::from_millis(30));
         }
     }
+    #[track_caller]
     fn rpc(&self, r: Request) -> Message {
-        call_at(&self.socket, r).unwrap()
+        let description = match &r {
+            Request::Coordination(value) => format!(
+                "Coordination action={} agent={}",
+                value["action"], value["agent"]
+            ),
+            other => format!("{other:?}"),
+        };
+        call_at(&self.socket, r).unwrap_or_else(|error| panic!("{description} failed: {error:#}"))
     }
     fn coord(&self, v: Value) -> Value {
         let Message::Coordination(v) = self.rpc(Request::Coordination(v)) else {
