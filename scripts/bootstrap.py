@@ -12,7 +12,7 @@ hashes = {
 }
 name = f'zig-{arch}-{os_name}-0.17.0'
 cache = pathlib.Path(os.environ.get('JAM_BOOTSTRAP_CACHE', root / '.cache'))
-cache.mkdir(exist_ok=True)
+cache.mkdir(parents=True, exist_ok=True)
 directory = cache / name
 if not (directory / 'zig').exists():
     data = urllib.request.urlopen(f'https://ziglang.org/download/0.17.0/{name}.tar.xz', timeout=120).read()
