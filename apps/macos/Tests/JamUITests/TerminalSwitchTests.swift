@@ -1,6 +1,7 @@
 import AppKit
 import CJam
 import SwiftUI
+import Vision
 
 struct ServerSheetFixture: View {
   @ObservedObject var store: Store
@@ -77,6 +78,7 @@ struct WorktreeListFixture: View {
     _ = nativeString(jam_start(""))
     defer { _ = rpc("Stop") }
     let store = Store()
+    try checkUpgradeNotifications(store: store)
     try checkSettings(store: store)
     let directory = ProcessInfo.processInfo.environment["JAM_STATE_DIR"]!
     for name in ["first", "second"] {
@@ -773,6 +775,39 @@ struct WorktreeListFixture: View {
     )
   }
 
+  static func checkUpgradeNotifications(store: Store) throws {
+    let controller = AppUpgradeController { _ in Data("{}".utf8) }
+    controller.available = AppRelease(
+      schema: 1, version: "0.0.4", protocol: "jam/test", minMacOS: "14.0", assets: [])
+    let previousError = store.error
+    defer { store.error = previousError }
+    store.error = "incompatible jam daemon; update the server from Machines"
+    let window = NSWindow(
+      contentRect: NSRect(x: -3000, y: -3000, width: 700, height: 600),
+      styleMask: [.titled], backing: .buffered, defer: false)
+    let host = NSHostingView(rootView: AppStatusOverlay(store: store, controller: controller))
+    window.contentView = host
+    window.orderFront(nil)
+    defer { window.orderOut(nil) }
+    RunLoop.current.run(until: Date().addingTimeInterval(0.3))
+    // Inspect the rendered overlay: SwiftUI's lazy AX tree is unavailable to
+    // in-process traversal without an external accessibility client.
+    let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
+    host.cacheDisplay(in: host.bounds, to: bitmap)
+    let recognition = VNRecognizeTextRequest()
+    recognition.recognitionLevel = .accurate
+    recognition.minimumTextHeight = 0.005
+    recognition.usesLanguageCorrection = false
+    try VNImageRequestHandler(cgImage: bitmap.cgImage!).perform([recognition])
+    let text = (recognition.results ?? []).compactMap { $0.topCandidates(1).first?.string }
+      .joined(separator: " ")
+    assert(
+      text.contains("Jam 0.0.4 is available") && text.contains("Upgrade")
+        && text.contains("Retry") && text.contains("The Jam server needs an update"),
+      "The rendered overlay must show both the warning and upgrade action: \(text)")
+    print("Update notification stays visible alongside an incompatible-server warning.")
+  }
+
   static func checkServerRecovery(
     store: Store, destinations: [(String, String, [String])], window: NSWindow
   ) throws {
@@ -790,20 +825,19 @@ struct WorktreeListFixture: View {
 
     // Restart only this fixture's daemon. Its socket and state live in a private
     // temporary directory, never in the user's running Jam instance.
-    let request: [String: Any] = [
-      "action": "restart", "endpoint": "", "force": true,
-      "daemon": FileManager.default.currentDirectoryPath + "/target/debug/jamd",
-    ]
-    let data = try JSONSerialization.data(withJSONObject: request)
-    let result = nativeString(jam_server(String(decoding: data, as: UTF8.self)))
-    let reply = try JSONSerialization.jsonObject(with: Data(result.utf8)) as! [String: Any]
-    assert(reply["error"] == nil, "Private server restart failed: \(reply)")
+    // Exercise the same Store action as the Machines confirmation, including
+    // recovery when an incompatible initial connection never became ready.
+    store.ready = false
+    store.connected = false
+    store.connectionError = "incompatible jam daemon; update the server from Machines"
+    store.error = store.connectionError
+    store.paneErrors[visible[0]] = "Reconnecting to terminal…"
+    store.performServerAction("", kind: .restart, force: true, interactive: false)
+    try wait("confirmed machine restart") { !store.serverBusy.contains("") }
+    assert(store.ready && store.connected, "A verified update left startup blocked")
+    try wait("obsolete connection warning clears") { store.error.isEmpty }
     let newHost = rpc("HostInfo")["HostInfo"] as! [String: Any]
     assert(newHost["incarnation"] as! String != oldIncarnation)
-    store.paneErrors[visible[0]] = "Reconnecting to terminal…"
-    store.observeServer(newHost, endpoint: "")
-    apply(rpc("State"), to: store)
-    assert(visible.allSatisfy { store.restartingPanes.contains($0) })
     try wait("visible panes recover after server restart") {
       visible.allSatisfy { store.panes[$0]?.exited == false && !store.restartingPanes.contains($0) }
     }

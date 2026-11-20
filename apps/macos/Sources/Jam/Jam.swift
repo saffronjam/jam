@@ -379,6 +379,7 @@ final class Store: ObservableObject {
           as? [String: Any], let error = values["error"] as? String
         {
           self.starting = false
+          self.connectionError = error
           self.error = error
           self.connected = false
         } else {

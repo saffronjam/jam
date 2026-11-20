@@ -13,7 +13,10 @@ struct WarningContentTests {
     assert(WarningContent(long).details == long, "Long messages must remain available in full")
     let mismatch =
       "incompatible jam daemon; finish active work, then explicitly run jam daemon stop before upgrading"
-    assert(WarningContent(mismatch).summary.contains("needs an update"))
+    assert(
+      WarningContent(mismatch).summary == "The Jam server needs an update. Update it from Machines."
+    )
+    assert(!WarningContent(mismatch).summary.contains("Finish active work"))
     assert(WarningContent(mismatch).details == mismatch)
     let timeout = "SSH setup check: ssh: connect to host dev-server port 22:\nOperation timed out"
     assert(WarningContent(timeout).summary.contains("network or VPN"))

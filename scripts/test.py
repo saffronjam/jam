@@ -79,6 +79,7 @@ def macos_ui_tests():
         shell.write_text("#!/bin/sh\nPS1='jam-test> ' exec /bin/bash --noprofile --norc -i\n")
         shell.chmod(0o700)
         env = dict(os.environ, JAM_SOCKET=str(socket), JAM_STATE_DIR=str(state), SHELL=str(shell),
+                   JAM_DAEMON=str(ROOT / 'target/debug/jamd'),
                    XDG_CONFIG_HOME=str(directory / 'config'),
                    JAM_DEFAULTS_SUITE='dev.saffronjam.fixture.' + directory.name)
         daemon = subprocess.Popen([str(ROOT / 'target/debug/jamd')], env=env)

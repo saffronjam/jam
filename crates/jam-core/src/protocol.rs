@@ -484,9 +484,7 @@ pub fn connect_to(path: &std::path::Path) -> Result<UnixStream> {
     s.set_read_timeout(Some(std::time::Duration::from_secs(10)))?;
     match read_frame::<Message>(&mut s)? {
         Message::Hello(v) if v == VERSION => Ok(s),
-        _ => bail!(
-            "incompatible jam daemon; finish active work, then explicitly run jam daemon stop before upgrading"
-        ),
+        _ => bail!("incompatible jam daemon; update the server from Machines"),
     }
 }
 pub fn client_id() -> &'static str {
@@ -544,6 +542,7 @@ fn stop_with_fallback(path: &std::path::Path, local: bool) -> Result<Message> {
                     || v == "jam/3:ghostty/483ea3d:text"
                     || v == "jam/4:ghostty/483ea3d:text"
                     || v == "jam/5:ghostty/483ea3d:text"
+                    || v == "jam/6:ghostty/483ea3d:text"
                     || v == VERSION => {}
             _ => bail!("unrecognized daemon protocol"),
         }
@@ -735,6 +734,46 @@ mod tests {
 mod upgrade_tests {
     use super::*;
     #[test]
+    fn incompatible_protocols_never_receive_ordinary_requests_or_unknown_shutdowns() {
+        for version in [
+            "jam/6:ghostty/483ea3d:text",
+            "jam/8:ghostty/483ea3d:text",
+            "jam/6:ghostty/unknown:text",
+            "unrelated-service",
+        ] {
+            for stop in [false, true] {
+                // Only the known v6 Stop codec is compatible. Even v6 must
+                // reject ordinary calls, and future/unknown peers receive no bytes.
+                if stop && version == "jam/6:ghostty/483ea3d:text" {
+                    continue;
+                }
+                let dir = tempfile::tempdir().unwrap();
+                let path = dir.path().join("incompatible.sock");
+                let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+                let server = std::thread::spawn(move || {
+                    let (mut stream, _) = listener.accept().unwrap();
+                    stream
+                        .set_read_timeout(Some(std::time::Duration::from_secs(2)))
+                        .unwrap();
+                    write_frame(&mut stream, &Message::Hello(version.into())).unwrap();
+                    let mut byte = [0];
+                    assert_eq!(
+                        stream.read(&mut byte).unwrap(),
+                        0,
+                        "incompatible peer received a command"
+                    );
+                });
+                let result = if stop {
+                    stop_local_at(&path)
+                } else {
+                    call_at(&path, Request::State)
+                };
+                assert!(result.is_err());
+                server.join().unwrap();
+            }
+        }
+    }
+    #[test]
     fn local_stop_never_terminates_an_unverified_peer() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("unrelated.sock");
@@ -754,7 +793,15 @@ mod upgrade_tests {
     }
     #[test]
     fn explicit_stop_can_reach_earlier_versions_without_permitting_other_requests() {
-        for version in ["jam/1:ghostty/1.0.1:text", "jam/5:ghostty/483ea3d:text"] {
+        for version in [
+            "jam/1:ghostty/1.0.1:text",
+            "jam/2:ghostty/1.0.1:text",
+            "jam/3:ghostty/483ea3d:text",
+            "jam/4:ghostty/483ea3d:text",
+            "jam/5:ghostty/483ea3d:text",
+            "jam/6:ghostty/483ea3d:text",
+            VERSION,
+        ] {
             let dir = tempfile::tempdir().unwrap();
             let path = dir.path().join("v1.sock");
             let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();

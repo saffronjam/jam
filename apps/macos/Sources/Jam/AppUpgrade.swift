@@ -656,7 +656,8 @@ struct AppStatusOverlay: View {
         .padding(12)
         .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
       }
-      AppUpgradeOverlay(controller: controller, showsNotification: store.error.isEmpty)
+      // Connection errors must not hide the action that can resolve them.
+      AppUpgradeOverlay(controller: controller)
     }.animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: store.error.isEmpty)
   }
 }

@@ -96,6 +96,80 @@ impl Drop for Daemon {
 }
 
 #[test]
+fn confirmed_server_update_from_v6_preserves_layout_without_replaying_commands() {
+    let mut d = Daemon::start();
+    let initial = d.create();
+    let pane = initial.panes[0].id.clone();
+    d.send(&pane, "cd /; printf '\\033]7;file://localhost/\\007'\r");
+    d.until(|| d.state().panes[0].cwd == "/");
+    let saved = d.state();
+    assert!(matches!(d.request(Request::Stop), Message::Ok));
+    assert!(d.child.wait().unwrap().success());
+
+    // A wire-level v6 fixture exposes only the historical Hello/Stop/Ok
+    // contract. Normal calls and unconfirmed updates must leave it untouched.
+    let _ = std::fs::remove_file(&d.socket);
+    let listener = std::os::unix::net::UnixListener::bind(&d.socket).unwrap();
+    let socket = d.socket.clone();
+    let legacy = thread::spawn(move || {
+        loop {
+            let (mut stream, _) = listener.accept().unwrap();
+            if write_frame(
+                &mut stream,
+                &Message::Hello("jam/6:ghostty/483ea3d:text".into()),
+            )
+            .is_err()
+            {
+                continue; // Liveness probes close without reading a greeting.
+            }
+            match read_frame::<Request>(&mut stream) {
+                Err(_) => continue,
+                Ok(Request::Stop) => {
+                    drop(listener);
+                    std::fs::remove_file(socket).unwrap();
+                    write_frame(&mut stream, &Message::Ok).unwrap();
+                    return;
+                }
+                Ok(request) => {
+                    panic!("Legacy daemon received an incompatible request: {request:?}")
+                }
+            }
+        }
+    });
+    let mut request = serde_json::json!({"action":"status", "daemon":env!("CARGO_BIN_EXE_jamd")});
+    let manage = |request: &serde_json::Value| {
+        server_control::manage_at(request, &d.socket, &d.dir.path().join("state"))
+    };
+    let status = manage(&request).unwrap();
+    assert_eq!(status["running"], true);
+    assert_eq!(status["compatible"], false);
+    assert_eq!(status["update_available"], true);
+    request["action"] = "update".into();
+    assert!(
+        manage(&request).is_err(),
+        "Unconfirmed update stopped the legacy daemon"
+    );
+    assert!(UnixStream::connect(&d.socket).is_ok());
+    request["force"] = true.into();
+    assert_eq!(manage(&request).unwrap()["ok"], true);
+    legacy.join().unwrap();
+    let restored = d.state();
+    assert_eq!(restored.workspaces[0].id, saved.workspaces[0].id);
+    assert_eq!(restored.workspaces[0].name, saved.workspaces[0].name);
+    assert_eq!(
+        restored.workspaces[0].tabs[0].id,
+        saved.workspaces[0].tabs[0].id
+    );
+    assert_eq!(restored.panes[0].id, pane);
+    assert_eq!(restored.panes[0].cwd, "/");
+    assert!(
+        restored.panes[0].exited,
+        "Update must not replay old commands"
+    );
+    assert!(matches!(d.request(Request::Stop), Message::Ok));
+}
+
+#[test]
 fn server_management_detects_builds_defers_active_sessions_and_restarts_explicitly() {
     let d = Daemon::start();
     let initial = d.create();

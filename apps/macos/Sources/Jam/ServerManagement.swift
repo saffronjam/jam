@@ -38,7 +38,8 @@ extension Store {
   ) -> [String: Any] {
     var request: [String: Any] = [
       "action": action, "endpoint": endpoint, "force": force,
-      "daemon": Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/jamd").path,
+      "daemon": ProcessInfo.processInfo.environment["JAM_DAEMON"]
+        ?? Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/jamd").path,
       "artifacts": Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/remote").path,
     ]
     if interactive { request["askpass"] = Bundle.main.executableURL?.path }
@@ -133,6 +134,9 @@ extension Store {
             self.pendingServerRecovery.insert(endpoint)
             self.capabilitiesByEndpoint.removeValue(forKey: endpoint)
             if endpoint.isEmpty {
+              // Initial startup can fail against an older protocol. A verified
+              // replacement must enable refresh even if startup never reached ready.
+              self.ready = true
               self.connected = true
               self.refresh()
             } else {
