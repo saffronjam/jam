@@ -19,6 +19,7 @@ RUN if [ -n "$(getcap /usr/bin/kwin_wayland)" ]; then setcap -r /usr/bin/kwin_wa
 RUN python3 -m venv --system-site-packages /opt/atspi \
     && /opt/atspi/bin/pip install Flask==3.0.0 Appium-Python-Client==4.5.1 selenium==4.29.0 uv==0.13.5
 COPY allow-gtk.patch /opt/allow-gtk.patch
+COPY gtk_geometry.py /usr/local/share/selenium-webdriver-at-spi/gtk_geometry.py
 RUN git init /opt/atspi-src \
     && git -C /opt/atspi-src fetch --depth=1 https://github.com/KDE/selenium-webdriver-at-spi.git "$ATSPI_REV" \
     && git -C /opt/atspi-src checkout --detach FETCH_HEAD \

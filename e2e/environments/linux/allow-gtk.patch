@@ -4,12 +4,25 @@ diff --git a/selenium-webdriver-at-spi.py b/selenium-webdriver-at-spi.py
 @@ -98,2 +98,0 @@
 -    if accessible.toolkitName != "Qt" and accessible.toolkitName != "at-spi-registry":
 -        return
+@@ -509,0 +508,9 @@
++    if element.toolkitName.lower().startswith("gtk"):
++        from gtk_geometry import window_origin
++        window = element
++        while window.parent and window.parent.getRole() != pyatspi.ROLE_APPLICATION:
++            window = window.parent
++        origin = window_origin(element.get_process_id(), window.name)
++        x, y = element.queryComponent().getPosition(pyatspi.XY_WINDOW)
++        x += origin['x']
++        y += origin['y']
 @@ -798 +796 @@
 -            subprocess.run(["selenium-webdriver-at-spi-inputsynth", file.name])
 +            subprocess.run(["selenium-webdriver-at-spi-inputsynth", file.name], check=True)
-@@ -867,0 +866,2 @@
+@@ -866 +873 @@
+-                            stdout=subprocess.PIPE)
++                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+@@ -867,0 +875,2 @@
 +    if proc.returncode:
-+        raise RuntimeError(f"Wayland screenshot helper exited with {proc.returncode}")
++        raise RuntimeError(f"Wayland screenshot helper exited with {proc.returncode}: {err.decode('utf-8', errors='replace')}")
 @@ -1007 +1005 @@
 -            subprocess.run(["selenium-webdriver-at-spi-inputsynth", fp.name])
 +            subprocess.run(["selenium-webdriver-at-spi-inputsynth", fp.name], check=True)
@@ -28,3 +41,12 @@ diff --git a/run.rb b/run.rb
 @@ -292 +292 @@
 -ENV['PYTHONUNBUFFERED'] = '0' # same for python subprocesses
 +ENV['PYTHONUNBUFFERED'] = '1' # flush diagnostics before the supervised driver exits
+diff --git a/inputsynth/interaction.cpp b/inputsynth/interaction.cpp
+--- a/inputsynth/interaction.cpp
++++ b/inputsynth/interaction.cpp
+@@ -480 +480 @@
+-        if (m_pointerType == PointerKind::Mouse) {
++        if (m_origin == Origin::Pointer) {
+@@ -496 +496 @@
+-        *lastPosIt = m_pos;
++        *lastPosIt = QPoint(wl_fixed_to_int(lastX), wl_fixed_to_int(lastY));
