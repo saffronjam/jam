@@ -192,6 +192,7 @@ struct WorkspaceFindBar: View {
       finder.message.isEmpty ? "Searches the history of every pane in this tab" : finder.message
     )
     .onAppear { DispatchQueue.main.async { focused = true } }
+    .onDisappear { finder.store?.focusTerminal() }
     .onExitCommand { finder.close() }
   }
 }

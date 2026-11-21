@@ -486,10 +486,6 @@ pub unsafe extern "C" fn jam_view_action(
                 )
             }
             "copy" => return Ok(serde_json::json!({"text":v.mirror.selected_text()})),
-            "text" => {
-                let display = v.mirror.display.lock().unwrap();
-                return Ok(serde_json::json!({"text":frame_text(&display.frame)}));
-            }
             _ => anyhow::bail!("unknown view action"),
         };
         Ok(serde_json::json!({"ok":true}))

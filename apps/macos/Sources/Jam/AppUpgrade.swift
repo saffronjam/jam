@@ -617,6 +617,7 @@ struct AppUpdateSettings: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
       Toggle("Automatically check for updates", isOn: $automatic)
+        .accessibilityLabel("Automatically check for updates")
       HStack {
         Text("Jam \(controller.currentVersion)").foregroundStyle(.secondary)
         Spacer()
