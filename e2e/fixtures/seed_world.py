@@ -11,13 +11,17 @@ from ssh_service import engine_environment
 
 
 def call(*args):
-    result = subprocess.run(
-        [os.environ["JAM_E2E_CLI"], "--json", *map(str, args)],
-        check=True,
-        text=True,
-        capture_output=True,
-        timeout=20,
-    )
+    try:
+        result = subprocess.run(
+            [os.environ["JAM_E2E_CLI"], "--json", *map(str, args)],
+            check=True,
+            text=True,
+            capture_output=True,
+            timeout=20,
+        )
+    except subprocess.CalledProcessError as error:
+        error.add_note("Public CLI setup error: " + error.stderr)
+        raise
     return json.loads(result.stdout)
 
 
@@ -113,6 +117,7 @@ def seed(root, recipe):
         "acknowledged-task",
         "failed-task",
         "completed-task",
+        "archived-task",
     ):
         provider = "claude" if recipe == "waiting-agent" else "codex"
         owner = call("coordinate", "start", "--workspace", workspace, "--provider", provider)[
@@ -164,7 +169,7 @@ def seed(root, recipe):
                     for t in call("coordinate", "list")["Coordination"]["tasks"]
                     if t["id"] == task
                 )
-                if recipe == "completed-task":
+                if recipe in ("completed-task", "archived-task"):
                     return record.get("result") == "fixture-result"
                 expected = {
                     "accepted-task": "transport_accepted",
@@ -174,10 +179,50 @@ def seed(root, recipe):
                 return record.get("delivery_status") == expected
 
             wait(delivered, "task fixture delivery state")
+        if recipe == "archived-task":
+            reviewer = call(
+                "coordinate",
+                "start",
+                "--workspace",
+                workspace,
+                "--provider",
+                provider,
+                "--role",
+                "reviewer",
+                "--parent",
+                owner,
+            )["Coordination"]["agent"]["id"]
+            review = call(
+                "coordinate",
+                "task",
+                "--owner",
+                owner,
+                "--review-of",
+                task,
+                "Fixture independent review",
+            )["Coordination"]["id"]
+            call("coordinate", "assign", "--task", review, "--agent", reviewer)
+            wait(
+                lambda: any(
+                    t["id"] == review and t["state"] == "done"
+                    for t in call("coordinate", "list", "--all")["Coordination"]["tasks"]
+                ),
+                "fixture independent review completion",
+            )
+            call(
+                "coordinate",
+                "complete",
+                "--task",
+                task,
+                "--agent",
+                owner,
+                "Fixture independent review evidence",
+            )
     if recipe in (
         "stopped-coordinator",
         "codex-conversations",
         "provider-launch-failed",
+        "single-coordinator",
     ) or recipe.startswith(("usage-", "delivery-", "task-")):
         providers = ("claude", "codex") if recipe == "usage-two-providers" else ("codex",)
         if recipe == "stopped-coordinator":

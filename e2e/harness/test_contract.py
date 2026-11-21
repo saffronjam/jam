@@ -37,6 +37,9 @@ def test_unique_cases_have_assertions():
                 "probe_mouse_events",
                 "field_value",
                 "file_exists",
+                "agent_field",
+                "same_agent_session",
+                "provider_inputs_unchanged",
             }
             for step in case.steps
         )

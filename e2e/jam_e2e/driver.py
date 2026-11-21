@@ -1,6 +1,7 @@
 """Native drivers share WebDriver operations, not product decision logic."""
 
 import json
+import plistlib
 import shlex
 import subprocess
 import time
@@ -48,10 +49,13 @@ class Desktop:
         options = AppiumOptions()
         arguments = ["--directory", str(directory or self.profile.repo)]
         if self.platform == "macos":
+            with (self.app / "Contents/Info.plist").open("rb") as info:
+                bundle_id = plistlib.load(info)["CFBundleIdentifier"]
             caps = {
                 "platformName": "mac",
                 "appium:automationName": "mac2",
                 "appium:appPath": str(self.app),
+                "appium:bundleId": bundle_id,
                 "appium:arguments": arguments,
                 "appium:environment": self.profile.env,
             }

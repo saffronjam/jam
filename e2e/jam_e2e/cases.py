@@ -39,6 +39,12 @@ case(
 )
 case("TERM-005", "Large output reaches its final line", ("run", "seq 1 10000"), ("output", "10000"))
 case(
+    "TERM-009",
+    "Accessible terminal text updates after a shell command",
+    ("run", "printf '\\naccessible-output\\n'"),
+    ("visible", "accessible-output"),
+)
+case(
     "TERM-006",
     "Terminal geometry reaches the PTY",
     ("run", "stty size"),
@@ -319,6 +325,17 @@ case(
     ("key", "ESCAPE"),
     ("run", "printf after-find"),
     ("output", "after-find"),
+)
+case(
+    "FIND-007",
+    "Find follows a query across a soft-wrapped terminal line",
+    (
+        "run",
+        "cols=$(stty size); cols=${cols##* }; printf '%*s%s\\n' \"$((cols-4))\" '' 'boundary-search'",
+    ),
+    ("command", "Find in Tab History"),
+    ("fill", "Find in tab history", "boundary-search"),
+    ("visible", "1/1"),
 )
 
 for i, (branch, base) in enumerate(
@@ -763,3 +780,58 @@ INTEGRATION = [
 ]
 for id, recipe, steps in INTEGRATION:
     case(id, recipe.replace("-", " ") + " external user workflow", *steps, fixture=recipe)
+
+for i, provider in enumerate(("Claude", "Codex"), 7):
+    case(
+        f"COORD-{i:03}",
+        f"Start a {provider} coordinator through its workspace menu",
+        ("context", "Fixture"),
+        ("click", "Add Coordinator"),
+        ("click", provider),
+        ("visible", "fixture-agent-resumed"),
+        ("agent_field", "provider", provider.lower()),
+        fixture="provider-detected",
+    )
+
+case(
+    "COORD-009",
+    "Pause a coordinator through Tasks and Agents",
+    ("settings", "Tasks and Agents"),
+    ("click", "Pause"),
+    ("visible", "Resume"),
+    ("agent_field", "paused", True),
+    fixture="single-coordinator",
+)
+case(
+    "COORD-010",
+    "Resume retains the conversation without submitting input",
+    ("remember_agent_session",),
+    ("remember_provider_inputs",),
+    ("settings", "Tasks and Agents"),
+    ("click", "Pause"),
+    ("visible", "Resume"),
+    ("click", "Resume"),
+    ("agent_field", "paused", False),
+    ("agent_field", "ready", True),
+    ("same_agent_session",),
+    ("provider_inputs_unchanged",),
+    fixture="single-coordinator",
+)
+case(
+    "COORD-011",
+    "Instructions include the workspace's actual instruction file",
+    ("settings", "Tasks and Agents"),
+    ("click", "Instructions"),
+    ("visible", "Fixture instruction: preserve user work."),
+    fixture="single-coordinator",
+)
+case(
+    "COORD-012",
+    "Finished reviewed work is hidden until archived history is requested",
+    ("settings", "Tasks and Agents"),
+    ("absent", "Fixture task objective"),
+    ("click", "Include archived"),
+    ("visible", "Fixture task objective"),
+    ("visible", "Archived · done"),
+    fixture="archived-task",
+)

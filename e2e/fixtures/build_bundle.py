@@ -27,6 +27,8 @@ LOCAL = (
     "acknowledged-task",
     "failed-task",
     "completed-task",
+    "archived-task",
+    "single-coordinator",
 )
 HTTPS = (
     "usage-two-providers",

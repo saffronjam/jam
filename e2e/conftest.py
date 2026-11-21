@@ -97,6 +97,11 @@ def capture(item, jam):
     log = jam.profile.state / "jamd.log"
     if log.exists():
         shutil.copyfile(log, folder / "jamd.log")
+    try:
+        for pane in jam.profile.layout()["panes"]:
+            (folder / ("pane-" + pane["id"] + ".txt")).write_text(jam.profile.capture(pane["id"]))
+    except Exception as error:  # noqa: BLE001 - diagnostics must not mask the test failure
+        errors.append(f"pane captures: {error}")
     for source in (
         *jam.profile.root.glob("fixture-service-*.log"),
         *jam.profile.root.glob("*.events"),

@@ -230,6 +230,7 @@ def interactive():
             hook("SessionEnd", session)
             return
         if line.strip():
+            record({"input": line.strip()})
             hook("UserPromptSubmit", session, line.strip())
             hook("Stop", session)
 

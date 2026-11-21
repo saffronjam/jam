@@ -22,7 +22,7 @@ class Jam:
         self.terminal()
         # New panes have fresh shell settings. Disable echo in a separate turn
         # so the command under assertion cannot appear merely as typed input.
-        self._shell("stty -echo")
+        self._shell("stty -echo; PS1='$ '; PS2='> '; PROMPT_COMMAND=''")
         self._shell(command)
 
     def _shell(self, command):

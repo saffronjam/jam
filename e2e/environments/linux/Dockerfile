@@ -24,10 +24,11 @@ RUN git init /opt/atspi-src \
 RUN useradd --create-home --uid 1000 tester \
     && mkdir -p /tmp/driver-runtime && chmod 700 /tmp/driver-runtime \
     && chown tester:tester /tmp/driver-runtime
-ENV PATH="/opt/atspi/bin:/usr/local/bin:$PATH" \
+ENV PATH="/opt/atspi/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
     XDG_RUNTIME_DIR=/tmp/driver-runtime \
     LIBGL_ALWAYS_SOFTWARE=1 USE_CUSTOM_BUS=1 \
     TEST_WITH_CLEAN_HOME=0 TEST_WITH_VIDEO_RECORDER=0
+RUN ruby --version && /opt/atspi/bin/flask --version
 USER tester
 WORKDIR /work
 ENTRYPOINT ["selenium-webdriver-at-spi-run"]

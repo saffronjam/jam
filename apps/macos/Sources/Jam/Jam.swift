@@ -1443,6 +1443,7 @@ final class TerminalNSView: NSView, NSTextInputClient, NSMenuItemValidation {
     setAccessibilityElement(true)
     setAccessibilityRole(.textArea)
     setAccessibilityLabel("Terminal")
+    setAccessibilityIdentifier("terminal.\(pane)")
     composition.font = .monospacedSystemFont(ofSize: 14, weight: .regular)
     composition.textColor = .labelColor
     composition.backgroundColor = .textBackgroundColor
@@ -1534,7 +1535,10 @@ final class TerminalNSView: NSView, NSTextInputClient, NSMenuItemValidation {
         lastError = ""
         onError?(nil)
       }
-      if let text = values["text"] as? String { setAccessibilityValue(text) }
+      if let text = values["text"] as? String, (accessibilityValue() as? String) != text {
+        setAccessibilityValue(text)
+        NSAccessibility.post(element: self, notification: .valueChanged)
+      }
       updateComposition()
     }
   }

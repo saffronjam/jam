@@ -18,6 +18,8 @@ from jam_e2e.profile import Profile
         ("acknowledged-task", "acknowledged"),
         ("failed-task", "delivery_failed"),
         ("completed-task", "result"),
+        ("archived-task", "archived"),
+        ("single-coordinator", "ready"),
         ("stopped-coordinator", "stopped"),
         ("codex-conversations", "stopped"),
         ("provider-launch-failed", "launch_error"),
@@ -43,9 +45,18 @@ def test_prepared_world(request, recipe, expected):
                 if expected == "launch_error":
                     assert "fixture-launch-error" in panes[0]["launch_error"]
             else:
-                board = profile.call("coordinate", "list")["Coordination"]
+                board = profile.call("coordinate", "list", "--all")["Coordination"]
                 if expected == "result":
                     assert any(t.get("result") == "fixture-result" for t in board["tasks"])
+                elif expected == "archived":
+                    assert any(
+                        t.get("archived")
+                        and t["state"] == "done"
+                        and t.get("result") == "fixture-result"
+                        for t in board["tasks"]
+                    )
+                elif expected == "ready":
+                    assert len(board["agents"]) == 1 and board["agents"][0]["ready"]
                 else:
                     assert any(t.get("delivery_status") == expected for t in board["tasks"])
         finally:

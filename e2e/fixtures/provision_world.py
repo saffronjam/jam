@@ -19,12 +19,15 @@ def prepare(root, recipe):
     world = {
         "acknowledge": recipe not in ("delivery-unacknowledged", "accepted-task", "queued-task"),
         "hold_delivery": recipe == "delivery-pending",
-        "report_result": recipe in ("task-results", "task-archive", "completed-task"),
+        "report_result": recipe
+        in ("task-results", "task-archive", "completed-task", "archived-task"),
         "helper_failure": recipe == "provider-launch-failed",
         "queue_failure": recipe == "failed-task",
         "hold_readiness": recipe == "waiting-agent",
     }
     write(home / "fixture-world.json", world)
+    if recipe == "single-coordinator":
+        (repo / "AGENTS.md").write_text("Fixture instruction: preserve user work.\n")
     # Install provider programs through the same standalone provisioner.
     subprocess.run(
         [

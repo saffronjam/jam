@@ -1,6 +1,6 @@
 # Desktop acceptance cases
 
-196 cases; identical collection on macOS and Linux. No skips or expected failures.
+204 cases; identical collection on macOS and Linux. No skips or expected failures.
 
 Each numbered step is performed externally. Fixture names identify required setup recipes, not alternate assertions.
 
@@ -38,6 +38,13 @@ Fixture: `isolated local installation`.
 
 1. `('run', 'seq 1 10000')`
 2. `('output', '10000')`
+
+## TERM-009: Accessible terminal text updates after a shell command
+
+Fixture: `isolated local installation`.
+
+1. `('run', "printf '\\naccessible-output\\n'")`
+2. `('visible', 'accessible-output')`
 
 ## TERM-006: Terminal geometry reaches the PTY
 
@@ -636,6 +643,15 @@ Fixture: `isolated local installation`.
 2. `('key', 'ESCAPE')`
 3. `('run', 'printf after-find')`
 4. `('output', 'after-find')`
+
+## FIND-007: Find follows a query across a soft-wrapped terminal line
+
+Fixture: `isolated local installation`.
+
+1. `('run', 'cols=$(stty size); cols=${cols##* }; printf \'%*s%s\\n\' "$((cols-4))" \'\' \'boundary-search\'')`
+2. `('command', 'Find in Tab History')`
+3. `('fill', 'Find in tab history', 'boundary-search')`
+4. `('visible', '1/1')`
 
 ## WT-001: Create worktree feature/one through the UI
 
@@ -1798,3 +1814,65 @@ Fixture: `provider-foreign`.
 2. `('visible', 'will be preserved')`
 3. `('disabled', 'integration.claude.install')`
 4. `('home_file_text', '.claude/skills/jam/SKILL.md', 'User-owned foreign skill. Preserve these bytes.\n')`
+
+## COORD-007: Start a Claude coordinator through its workspace menu
+
+Fixture: `provider-detected`.
+
+1. `('context', 'Fixture')`
+2. `('click', 'Add Coordinator')`
+3. `('click', 'Claude')`
+4. `('visible', 'fixture-agent-resumed')`
+5. `('agent_field', 'provider', 'claude')`
+
+## COORD-008: Start a Codex coordinator through its workspace menu
+
+Fixture: `provider-detected`.
+
+1. `('context', 'Fixture')`
+2. `('click', 'Add Coordinator')`
+3. `('click', 'Codex')`
+4. `('visible', 'fixture-agent-resumed')`
+5. `('agent_field', 'provider', 'codex')`
+
+## COORD-009: Pause a coordinator through Tasks and Agents
+
+Fixture: `single-coordinator`.
+
+1. `('settings', 'Tasks and Agents')`
+2. `('click', 'Pause')`
+3. `('visible', 'Resume')`
+4. `('agent_field', 'paused', True)`
+
+## COORD-010: Resume retains the conversation without submitting input
+
+Fixture: `single-coordinator`.
+
+1. `('remember_agent_session',)`
+2. `('remember_provider_inputs',)`
+3. `('settings', 'Tasks and Agents')`
+4. `('click', 'Pause')`
+5. `('visible', 'Resume')`
+6. `('click', 'Resume')`
+7. `('agent_field', 'paused', False)`
+8. `('agent_field', 'ready', True)`
+9. `('same_agent_session',)`
+10. `('provider_inputs_unchanged',)`
+
+## COORD-011: Instructions include the workspace's actual instruction file
+
+Fixture: `single-coordinator`.
+
+1. `('settings', 'Tasks and Agents')`
+2. `('click', 'Instructions')`
+3. `('visible', 'Fixture instruction: preserve user work.')`
+
+## COORD-012: Finished reviewed work is hidden until archived history is requested
+
+Fixture: `archived-task`.
+
+1. `('settings', 'Tasks and Agents')`
+2. `('absent', 'Fixture task objective')`
+3. `('click', 'Include archived')`
+4. `('visible', 'Fixture task objective')`
+5. `('visible', 'Archived · done')`

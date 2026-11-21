@@ -86,6 +86,36 @@ def execute(jam, step, memory):
         wait(lambda: ui.field_value(args[0]) == args[1], "field value")
     elif op == "file_exists":
         assert (profile.repo / args[0]).is_file()
+    elif op == "agent_field":
+
+        def matches():
+            agents = profile.call("coordinate", "list")["Coordination"]["agents"]
+            return len(agents) == 1 and agents[0].get(args[0]) == args[1]
+
+        wait(matches, f"single agent {args[0]}={args[1]}")
+    elif op in ("remember_agent_session", "same_agent_session"):
+        agents = profile.call("coordinate", "list")["Coordination"]["agents"]
+        assert len(agents) == 1 and agents[0]["session"]
+        current = (agents[0]["id"], agents[0]["session"])
+        if op == "remember_agent_session":
+            memory["agent_session"] = current
+        else:
+            assert current == memory["agent_session"], "Resume replaced the saved conversation"
+    elif op in ("remember_provider_inputs", "provider_inputs_unchanged"):
+
+        def inputs():
+            path = profile.home / "provider-events.jsonl"
+            return [line for line in path.read_text().splitlines() if "input" in json.loads(line)]
+
+        if op == "remember_provider_inputs":
+            memory["provider_inputs"] = inputs()
+        else:
+            until = time.monotonic() + 2
+            while time.monotonic() < until:
+                assert inputs() == memory["provider_inputs"], (
+                    "Resume submitted unintended provider input"
+                )
+                time.sleep(0.1)
     elif op == "probe":
         output = profile.repo / "probe.json"
         probe = Path(__file__).with_name("terminal_probe.py")

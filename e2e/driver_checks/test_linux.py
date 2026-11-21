@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 from types import SimpleNamespace
 
-from jam_e2e.driver import Desktop
+from jam_e2e.driver import Desktop, wait
 
 
 def test_native_wayland_driver(request, tmp_path):
@@ -23,6 +23,7 @@ def test_native_wayland_driver(request, tmp_path):
         ui.click("Increment", "button")
         ui.expect("Count: 1")
         ui.fill("Probe text", "日本語 café")
+        wait(lambda: ui.field_value("Probe text") == "日本語 café", "Unicode field input")
         ui.chord("ctrl+a")
         ui.type("Replacement")
         assert ui.field_value("Probe text") == "Replacement"
@@ -30,7 +31,12 @@ def test_native_wayland_driver(request, tmp_path):
         assert ui.clipboard() == "native clipboard 日本語"
         assert ui.session.save_screenshot(str(artifacts / "gtk.png"))
     finally:
-        if ui.session:
-            (artifacts / "ui.xml").write_text(ui.tree())
-        ui.restore_clipboard()
-        ui.quit()
+        try:
+            if ui.session:
+                (artifacts / "ui.xml").write_text(ui.tree())
+        except Exception as error:  # noqa: BLE001 - diagnostics preserve the primary failure
+            (artifacts / "diagnostics-error.txt").write_text(str(error))
+        try:
+            ui.restore_clipboard()
+        finally:
+            ui.quit()
