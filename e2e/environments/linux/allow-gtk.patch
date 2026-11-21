@@ -5,7 +5,7 @@ diff --git a/selenium-webdriver-at-spi.py b/selenium-webdriver-at-spi.py
 -    if accessible.toolkitName != "Qt" and accessible.toolkitName != "at-spi-registry":
 -        return
 @@ -509,0 +508,9 @@
-+    if element.toolkitName.lower().startswith("gtk"):
++    if (session.browsing_context.toolkitName or "").lower().startswith("gtk"):
 +        from gtk_geometry import window_origin
 +        window = element
 +        while window.parent and window.parent.getRole() != pyatspi.ROLE_APPLICATION:

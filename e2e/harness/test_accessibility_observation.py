@@ -16,6 +16,7 @@ def test_hidden_mac_menu_titles_cannot_satisfy_visible_assertions():
       <MenuItem title="Open Release Notes" width="140" height="20"/>
     </Application>"""
     )
+    ui.session.find_elements.return_value = []
     assert ui.has("Currently running")
     assert ui.has("Open Release Notes")
     assert not ui.has("Upgrade and Restart")
@@ -56,3 +57,14 @@ def test_adjacent_text_does_not_make_a_semantic_control_ambiguous():
     assert ui.element("Tab 1") is button
     root.remove(root[0])
     assert ui.element("Tab 1") is label
+
+
+def test_mac_text_reads_the_full_payload_beyond_the_snapshot_limit():
+    ui = Desktop("macos", "unused", Mock(), Mock())
+    ui.session = Mock(
+        page_source='<Application><XCUIElementTypeTextView value="prefix"/></Application>'
+    )
+    terminal = Mock(text="prefix" + " " * 600 + "actual updated output")
+    terminal.is_displayed.return_value = True
+    ui.session.find_elements.return_value = [terminal]
+    assert ui.has("actual updated output")

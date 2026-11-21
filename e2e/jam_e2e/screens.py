@@ -44,7 +44,9 @@ class Jam:
         )
 
     def settings(self, category="General"):
-        self.command("Settings")
+        # Settings must remain reachable while testing palette reassignment
+        # and unbinding, through each desktop's ordinary settings entry.
+        self.ui.open_settings()
         self.ui.click(category, "button")
 
     def save(self):

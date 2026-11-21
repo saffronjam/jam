@@ -51,6 +51,20 @@ def test_linux_click_injects_pointer_input_at_accessible_center():
     assert down["type"] == "pointerDown" and up["type"] == "pointerUp"
 
 
+def test_empty_field_input_deletes_the_selection_without_an_empty_action_request():
+    ui = Desktop("macos", "unused", Mock(), Mock())
+    ui.session = Mock()
+    ui.element = Mock(return_value=Mock())
+    ui.fill("Shortcut", "")
+    calls = ui.session.execute.call_args_list
+    assert len(calls) == 2
+    last = calls[-1].args[1]["actions"][0]["actions"]
+    assert last == [
+        {"type": "keyDown", "value": "\ue003"},
+        {"type": "keyUp", "value": "\ue003"},
+    ]
+
+
 def test_macos_drag_uses_native_gesture_with_accessible_coordinates():
     ui = Desktop("macos", "unused", Mock(), Mock())
     ui.session = Mock()

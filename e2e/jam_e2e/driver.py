@@ -88,6 +88,7 @@ class Desktop:
             self.session.execute("atspiImplicitWait", {"ms": 100})
         else:
             self.session.implicitly_wait(0)
+            self.session.update_settings({"fetchFullText": True})
 
     def quit(self):
         if self.session is not None:
@@ -120,6 +121,13 @@ class Desktop:
             # KDE's XML snapshot omits the AT-SPI Text interface contents.
             # Read visible text widgets through the driver's standard API.
             for element in self.session.find_elements(By.XPATH, "//text | //entry"):
+                if element.is_displayed():
+                    values.append(element.text)
+        else:
+            # XCTest's ordinary snapshots truncate text values at 512
+            # characters. Mac2's full-text setting applies to element.text.
+            query = "//XCUIElementTypeTextView | //XCUIElementTypeStaticText[string-length(@value)>=512]"
+            for element in self.session.find_elements(By.XPATH, query):
                 if element.is_displayed():
                     values.append(element.text)
         return "\n".join(values)
@@ -190,6 +198,7 @@ class Desktop:
         field = self.element(name, "field")
         self._click_element(field)
         self.chord("cmd+a" if self.platform == "macos" else "ctrl+a")
+        self.key("BACKSPACE")
         self.type(text)
 
     def field_value(self, name):
@@ -197,9 +206,17 @@ class Desktop:
         return field.text if self.platform == "linux" else field.get_attribute("value")
 
     def type(self, text):
+        if not text:
+            return
         actions = ActionBuilder(self.session)
         actions.key_action.send_keys(text)
         actions.perform()
+
+    def open_settings(self):
+        if self.platform == "macos":
+            self.chord("cmd+,")
+        else:
+            self.click("settings.open", "button")
 
     def chord(self, chord):
         parts = chord.split("+")

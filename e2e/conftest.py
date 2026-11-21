@@ -119,6 +119,8 @@ def capture(item, jam):
     log = jam.profile.state / "jamd.log"
     if log.exists():
         shutil.copyfile(log, folder / "jamd.log")
+    if jam.profile.config.exists():
+        shutil.copyfile(jam.profile.config, folder / "config.toml")
     try:
         for transaction in (jam.profile.state / "upgrades").glob("apply-*"):
             for source in transaction.iterdir():
