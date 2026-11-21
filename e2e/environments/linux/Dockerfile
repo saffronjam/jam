@@ -1,6 +1,8 @@
-FROM registry.fedoraproject.org/fedora:44
+FROM registry.fedoraproject.org/fedora:42
 ARG ATSPI_REV=4199d3ea3ccdcaa175b5a06ed3ad8f1af498f38a
-RUN dnf install -y --setopt=install_weak_deps=False \
+COPY fedora-42.repo /etc/yum.repos.d/jam-fixture.repo
+RUN dnf --disablerepo='*' --enablerepo=jam-fixture-base --enablerepo=jam-fixture-updates \
+      install -y --setopt=install_weak_deps=False \
       git cmake ninja-build gcc-c++ extra-cmake-modules \
       qt6-qtbase-devel qt6-qtbase-private-devel qt6-qtwayland-devel \
       kf6-kwindowsystem-devel kf6-kcoreaddons-devel kwayland-devel kpipewire-devel \
@@ -10,7 +12,7 @@ RUN dnf install -y --setopt=install_weak_deps=False \
       ruby ruby-bundled-gems which libcap dbus-daemon dbus-tools pipewire wireplumber \
       mesa-dri-drivers mesa-vulkan-drivers dejavu-sans-fonts vulkan-loader \
     && dnf clean all \
-    && ln -s /usr/bin/ruby-mri /usr/local/bin/ruby
+    && if ! command -v ruby >/dev/null; then ln -s /usr/bin/ruby-mri /usr/local/bin/ruby; fi
 # Fedora's compositor requests file capabilities outside Docker's bounding
 # set. The virtual test compositor needs no real-time scheduling privilege.
 RUN if [ -n "$(getcap /usr/bin/kwin_wayland)" ]; then setcap -r /usr/bin/kwin_wayland; fi
@@ -33,6 +35,7 @@ RUN useradd --create-home --uid 1000 tester \
 ENV PATH="/opt/atspi/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
     XDG_RUNTIME_DIR=/tmp/driver-runtime \
     LIBGL_ALWAYS_SOFTWARE=1 USE_CUSTOM_BUS=1 \
+    KWIN_COMPOSE=Q \
     TEST_WITH_CLEAN_HOME=0 TEST_WITH_VIDEO_RECORDER=0
 RUN ruby -rfileutils -rlogger -rshellwords -rtmpdir -rnet/http -e 'puts RUBY_VERSION' \
     && which pip3 \

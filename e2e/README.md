@@ -28,15 +28,17 @@ must have `KWIN_PID` configured; an Xvfb-only session is not equivalent. Follow
 Provision software Vulkan (Mesa Lavapipe) or a working physical GPU for the real
 terminal renderer. The app must not use a replacement renderer for these tests.
 
-`environments/linux/Dockerfile` provides a pinned AT-SPI driver with KWin and
-software graphics. Its small patch removes an upstream Qt-only tree filter so
+`environments/linux/Dockerfile` provides a pinned AT-SPI driver with KWin 6.6
+from Fedora 42's signed archived packages. It uses KWin's supported QPainter
+virtual Wayland compositor, allowing the GTK driver proof without kernel GPU
+devices. Its small patch removes an upstream Qt-only tree filter so
 GTK widgets can be inspected. `Linux automation proof` verifies real GTK4
 controls, input, clipboard and screenshots in this environment. This low-level
 probe is separate from Jam acceptance and cannot satisfy a product scenario.
-KWin also requires a real render node or the kernel's `/dev/udmabuf` device;
-software Mesa alone does not provide compositor DMA buffers. CI loads the
-`udmabuf` module on its disposable runner and exposes only that device to the
-container. The image removes KWin's real-time scheduling file capability.
+Newer KWin versions require a render node or the kernel's `/dev/udmabuf`
+device, which hosted CI kernels do not consistently provide. The image removes
+KWin's real-time scheduling file capability and needs no host module changes.
+This GTK control proof does not establish Jam's GPU renderer compatibility.
 
 ```sh
 uv run pytest --app /absolute/path/to/Jam.app --platform macos \
