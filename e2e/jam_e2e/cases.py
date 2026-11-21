@@ -28,7 +28,9 @@ case("TERM-002", "Shell starts in the opened directory", ("run", "pwd"), ("outpu
 case(
     "TERM-003",
     "Unicode and combining text survives the terminal",
-    ("run", "printf '日本語 café é 🚀'"),
+    # Emit exact UTF-8 bytes through ASCII shell input. Physical text entry has
+    # separate INPUT cases, including ordinary clipboard paste below.
+    ("run", "printf '" + "".join(f"\\{byte:03o}" for byte in "日本語 café é 🚀".encode()) + "'"),
     ("output", "日本語 café é 🚀"),
 )
 case(
@@ -67,7 +69,9 @@ case(
     ("output", "before-alt"),
 )
 
-for i, text in enumerate(("ascii paste", "日本語 café", "spaces  and\ttabs", "first\nsecond"), 1):
+for i, text in enumerate(
+    ("ascii paste", "日本語 café", "spaces  and\ttabs", "first\nsecond", "é 🚀 👨‍👩‍👧‍👦"), 1
+):
     case(
         f"CLIP-{i:03}",
         f"Clipboard paste preserves {text!r}",
@@ -733,10 +737,13 @@ INTEGRATION = [
     (
         "UPDATE-007",
         "update-bad-signature",
-        [("settings", "General"), ("click", "Check for Updates…"), ("visible", "signature")],
+        [("settings", "General"), ("click", "Check for Updates…"),
+         ("click", "Details", "disclosure"), ("visible", "signature")],
     ),
-    ("UPDATE-008", "update-bad-checksum", [("click", "Upgrade…"), ("visible", "checksum")]),
-    ("UPDATE-009", "update-download-failed", [("click", "Upgrade…"), ("visible", "download")]),
+    ("UPDATE-008", "update-bad-checksum", [
+        ("click", "Upgrade…"), ("click", "Details", "disclosure"), ("visible", "checksum")]),
+    ("UPDATE-009", "update-download-failed", [
+        ("click", "Upgrade…"), ("click", "Details", "disclosure"), ("visible", "download")]),
     (
         "UPDATE-010",
         "update-available",
@@ -837,6 +844,8 @@ INTEGRATION = [
     ),
 ]
 for id, recipe, steps in INTEGRATION:
+    if id.startswith("RECOVERY-"):
+        steps = [("click", "Coordinator", "row"), *steps]
     case(id, recipe.replace("-", " ") + " external user workflow", *steps, fixture=recipe)
 
 for i, provider in enumerate(("Claude", "Codex"), 7):

@@ -1,6 +1,6 @@
 # Desktop acceptance cases
 
-211 cases; identical collection on macOS and Linux. No skips or expected failures.
+212 cases; identical collection on macOS and Linux. No skips or expected failures.
 
 Each numbered step is performed externally. Fixture names identify required setup recipes, not alternate assertions.
 
@@ -22,7 +22,7 @@ Fixture: `isolated local installation`.
 
 Fixture: `isolated local installation`.
 
-1. `('run', "printf '日本語 café é 🚀'")`
+1. `('run', "printf '\\346\\227\\245\\346\\234\\254\\350\\252\\236\\040\\143\\141\\146\\303\\251\\040\\145\\314\\201\\040\\360\\237\\232\\200'")`
 2. `('output', '日本語 café é 🚀')`
 
 ## TERM-004: ANSI colors do not corrupt captured text
@@ -118,6 +118,18 @@ Fixture: `isolated local installation`.
 5. `('chord', 'ctrl+d')`
 6. `('chord', 'ctrl+d')`
 7. `('file_text', 'pasted.txt', 'first\nsecond\n')`
+
+## CLIP-005: Clipboard paste preserves 'é 🚀 👨\u200d👩\u200d👧\u200d👦'
+
+Fixture: `isolated local installation`.
+
+1. `('clipboard', 'é 🚀 👨\u200d👩\u200d👧\u200d👦')`
+2. `('begin_input', 'cat > pasted.txt')`
+3. `('paste',)`
+4. `('key', 'ENTER')`
+5. `('chord', 'ctrl+d')`
+6. `('chord', 'ctrl+d')`
+7. `('file_text', 'pasted.txt', 'é 🚀 👨\u200d👩\u200d👧\u200d👦\n')`
 
 ## NAV-001: New Tab creates exactly one object
 
@@ -1608,37 +1620,42 @@ Fixture: `isolated local installation`.
 
 Fixture: `stopped-coordinator`.
 
-1. `('click', 'Recover Conversation…')`
-2. `('visible', 'Recover Coordinator')`
+1. `('click', 'Coordinator', 'row')`
+2. `('click', 'Recover Conversation…')`
+3. `('visible', 'Recover Coordinator')`
 
 ## RECOVERY-002: codex conversations external user workflow
 
 Fixture: `codex-conversations`.
 
-1. `('click', 'Recover Conversation…')`
-2. `('visible', 'Jam coordinator')`
+1. `('click', 'Coordinator', 'row')`
+2. `('click', 'Recover Conversation…')`
+3. `('visible', 'Jam coordinator')`
 
 ## RECOVERY-003: codex conversations external user workflow
 
 Fixture: `codex-conversations`.
 
-1. `('click', 'Recover Conversation…')`
-2. `('click', 'Cancel')`
-3. `('visible', 'Coordinator stopped')`
+1. `('click', 'Coordinator', 'row')`
+2. `('click', 'Recover Conversation…')`
+3. `('click', 'Cancel')`
+4. `('visible', 'Coordinator stopped')`
 
 ## RECOVERY-004: stopped coordinator external user workflow
 
 Fixture: `stopped-coordinator`.
 
-1. `('click', 'Resume')`
-2. `('visible', 'fixture-agent-resumed')`
+1. `('click', 'Coordinator', 'row')`
+2. `('click', 'Resume')`
+3. `('visible', 'fixture-agent-resumed')`
 
 ## RECOVERY-005: provider launch failed external user workflow
 
 Fixture: `provider-launch-failed`.
 
-1. `('visible', 'Resume')`
-2. `('visible', 'fixture-launch-error')`
+1. `('click', 'Coordinator', 'row')`
+2. `('visible', 'Resume')`
+3. `('visible', 'fixture-launch-error')`
 
 ## USAGE-001: usage two providers external user workflow
 
@@ -1769,21 +1786,24 @@ Fixture: `update-bad-signature`.
 
 1. `('settings', 'General')`
 2. `('click', 'Check for Updates…')`
-3. `('visible', 'signature')`
+3. `('click', 'Details', 'disclosure')`
+4. `('visible', 'signature')`
 
 ## UPDATE-008: update bad checksum external user workflow
 
 Fixture: `update-bad-checksum`.
 
 1. `('click', 'Upgrade…')`
-2. `('visible', 'checksum')`
+2. `('click', 'Details', 'disclosure')`
+3. `('visible', 'checksum')`
 
 ## UPDATE-009: update download failed external user workflow
 
 Fixture: `update-download-failed`.
 
 1. `('click', 'Upgrade…')`
-2. `('visible', 'download')`
+2. `('click', 'Details', 'disclosure')`
+3. `('visible', 'download')`
 
 ## UPDATE-010: update available external user workflow
 

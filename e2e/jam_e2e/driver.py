@@ -151,6 +151,11 @@ class Desktop:
             "field": ("XCUIElementTypeTextField", "*[self::text or self::entry]"),
             "terminal": ("XCUIElementTypeTextView", "text"),
             "menu": ("XCUIElementTypeMenuItem", "menu_item"),
+            "row": ("XCUIElementTypeCell", "*[self::list_item or self::tree_item or self::table_cell]"),
+            "disclosure": (
+                "XCUIElementTypeDisclosureTriangle",
+                "*[self::toggle_button or self::push_button or self::button]",
+            ),
             "toggle": (
                 "*[self::XCUIElementTypeSwitch or self::XCUIElementTypeCheckBox]",
                 "*[self::check_box or self::toggle_button]",
