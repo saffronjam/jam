@@ -1,0 +1,10 @@
+FROM jam-e2e-wayland
+USER root
+RUN dnf --disablerepo='*' --enablerepo=jam-fixture-base --enablerepo=jam-fixture-updates \
+      install -y --setopt=install_weak_deps=False \
+      openssh-clients openssl qemu-system-aarch64-core qemu-img edk2-aarch64 xorriso \
+    && dnf clean all \
+    && test -f /usr/share/edk2/aarch64/QEMU_EFI.fd \
+    && qemu-system-aarch64 --version \
+    && xorriso -version
+USER tester

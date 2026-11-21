@@ -3,6 +3,12 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        required: false
+        default: ''
 permissions:
   contents: read
 concurrency:
@@ -11,6 +17,8 @@ concurrency:
 jobs:
   fixtures:
     uses: ./.github/workflows/e2e-release-fixtures.yml
+    with:
+      ref: ${{ inputs.ref || github.ref }}
   desktop:
     needs: fixtures
     if: ${{ !cancelled() }}
@@ -25,6 +33,8 @@ jobs:
       APPIUM_HOME: ${{ github.workspace }}/.cache/appium-home
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ inputs.ref || github.ref }}
       - name: Install fixture prerequisites
         shell: bash
         env:
@@ -32,14 +42,26 @@ jobs:
         run: |
           python3 -m venv .cache/e2e-bootstrap
           .cache/e2e-bootstrap/bin/python -m pip install uv==0.13.5
+          python3 e2e/fixtures/fetch_vm_image.py .cache/debian-bookworm-arm64.qcow2
+          mkdir -p .cache/previous-server
+          gh release download v0.0.4 --repo saffronjam/jam --pattern jam-v0.0.4-linux-aarch64.tar.gz --dir .cache/previous-server
           if [[ "$RUNNER_OS" == macOS ]]; then
             brew list openssl@3 >/dev/null 2>&1 || brew install openssl@3
             brew list qemu >/dev/null 2>&1 || brew install qemu
             echo "$(brew --prefix openssl@3)/bin" >> "$GITHUB_PATH"
-            python3 e2e/fixtures/fetch_vm_image.py .cache/debian-bookworm-arm64.qcow2
-            mkdir -p .cache/previous-server
-            gh release download v0.0.4 --repo saffronjam/jam --pattern jam-v0.0.4-linux-aarch64.tar.gz --dir .cache/previous-server
           fi
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        if: runner.os == 'Linux'
+        with:
+          repository: KDE/selenium-webdriver-at-spi
+          ref: 4199d3ea3ccdcaa175b5a06ed3ad8f1af498f38a
+          path: e2e/environments/linux/upstream
+          persist-credentials: false
+      - name: Build the isolated Linux desktop and SSH environment
+        if: runner.os == 'Linux'
+        run: |
+          docker build --memory=2g --build-arg TEST_UID="$(id -u)" -t jam-e2e-wayland e2e/environments/linux
+          docker build --memory=2g -f e2e/environments/linux/Dockerfile.acceptance -t jam-e2e-acceptance e2e/environments/linux
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: fixture-release-bundle
@@ -147,9 +169,12 @@ jobs:
             platform=macos
             binaries=()
           else
-            app="$PWD/build/linux/bin/Jam"
-            platform=linux
-            binaries=(--cli "$E2E_CLI" --daemon "$E2E_DAEMON")
+            mkdir -p e2e/artifacts
+            docker run --rm --memory=2g --cpus=2 -v "$PWD:/work" \
+              -e UV_PROJECT_ENVIRONMENT=/tmp/jam-e2e-venv \
+              -e APPIUM_ARTIFACT_OUTPUT_PATH=/work/e2e/artifacts/linux-desktop \
+              jam-e2e-acceptance sh e2e/environments/linux/run-acceptance.sh
+            exit $?
           fi
           .cache/e2e-bootstrap/bin/uv run --project e2e --locked pytest -c e2e/pyproject.toml e2e/tests \
             --app "$app" --platform "$platform" "${binaries[@]}" \

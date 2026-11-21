@@ -1,5 +1,6 @@
 FROM registry.fedoraproject.org/fedora:42
 ARG ATSPI_REV=4199d3ea3ccdcaa175b5a06ed3ad8f1af498f38a
+ARG TEST_UID=1000
 COPY fedora-42.repo /etc/yum.repos.d/jam-fixture.repo
 RUN dnf --disablerepo='*' --enablerepo=jam-fixture-base --enablerepo=jam-fixture-updates \
       install -y --setopt=install_weak_deps=False \
@@ -35,7 +36,7 @@ RUN test "$(git -C /opt/atspi-src rev-parse HEAD)" = "$ATSPI_REV" \
          -DCMAKE_INSTALL_PREFIX=/usr/local -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release \
     && cmake --build /opt/atspi-build --parallel 1 \
     && cmake --install /opt/atspi-build
-RUN useradd --create-home --uid 1000 tester \
+RUN useradd --create-home --uid "$TEST_UID" tester \
     && mkdir -p /tmp/driver-runtime && chmod 700 /tmp/driver-runtime \
     && chown tester:tester /tmp/driver-runtime
 ENV PATH="/opt/atspi/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
