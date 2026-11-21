@@ -126,7 +126,14 @@ class Desktop:
         else:
             # XCTest's ordinary snapshots truncate text values at 512
             # characters. Mac2's full-text setting applies to element.text.
-            query = "//XCUIElementTypeTextView | //XCUIElementTypeStaticText[string-length(@value)>=512]"
+            queries = ["//XCUIElementTypeTextView"]
+            for value in {
+                node.attrib["value"]
+                for node in root.iter("XCUIElementTypeStaticText")
+                if len(node.attrib.get("value", "")) >= 512
+            }:
+                queries.append(f"//XCUIElementTypeStaticText[@value={literal(value)}]")
+            query = " | ".join(queries)
             for element in self.session.find_elements(By.XPATH, query):
                 if element.is_displayed():
                     values.append(element.text)
@@ -209,7 +216,18 @@ class Desktop:
         if not text:
             return
         actions = ActionBuilder(self.session)
-        actions.key_action.send_keys(text)
+        if self.platform == "linux":
+            # KWin synthesizes the fixture's US physical keymap. GTK's normal
+            # Unicode compose sequence commits characters absent from that map.
+            for character in text:
+                if character.isascii() or 0xE000 <= ord(character) <= 0xF8FF:
+                    actions.key_action.send_keys(character)
+                else:
+                    actions.key_action.key_down(Keys.CONTROL).key_down(Keys.SHIFT)
+                    actions.key_action.send_keys("u").key_up(Keys.SHIFT).key_up(Keys.CONTROL)
+                    actions.key_action.send_keys(f"{ord(character):x}").send_keys(Keys.ENTER)
+        else:
+            actions.key_action.send_keys(text)
         actions.perform()
 
     def open_settings(self):

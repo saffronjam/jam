@@ -39,10 +39,15 @@ git clone --no-checkout https://github.com/KDE/selenium-webdriver-at-spi.git env
 git -C environments/linux/upstream checkout --detach 4199d3ea3ccdcaa175b5a06ed3ad8f1af498f38a
 ```
 
-KWin 6.6 comes from Fedora 42's signed archived packages. It uses the supported QPainter
-virtual Wayland compositor, allowing the GTK driver proof without kernel GPU
-devices. Its small patch removes an upstream Qt-only tree filter so
-GTK widgets can be inspected. `Linux automation proof` verifies real GTK4
+KWin 6.6 comes from Fedora 42's signed archived packages. Its QPainter Wayland
+compositor runs inside a private Xvfb host window, allowing the GTK driver proof
+without kernel GPU devices. The application and input driver still use Wayland.
+Screenshots capture the compositor's actual output window; the OpenGL-only
+KWin screenshot API is unavailable with QPainter. GTK bounds combine its
+window-relative AT-SPI coordinates with the position read from the owned
+compositor. The image uses GTK's built-in Unicode compose input with a US keymap.
+Its patch removes an upstream Qt-only tree filter so GTK widgets can be inspected.
+`Linux automation proof` exercises real GTK4
 controls, a physical slider drag, input, clipboard and screenshots in this environment. This low-level
 probe is separate from Jam acceptance and cannot satisfy a product scenario.
 Newer KWin versions require a render node or the kernel's `/dev/udmabuf`

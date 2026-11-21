@@ -1,7 +1,7 @@
 diff --git a/selenium-webdriver-at-spi.py b/selenium-webdriver-at-spi.py
 --- a/selenium-webdriver-at-spi.py
 +++ b/selenium-webdriver-at-spi.py
-@@ -98,2 +98,0 @@
+@@ -98,2 +97,0 @@
 -    if accessible.toolkitName != "Qt" and accessible.toolkitName != "at-spi-registry":
 -        return
 @@ -509,0 +508,9 @@
@@ -14,16 +14,21 @@ diff --git a/selenium-webdriver-at-spi.py b/selenium-webdriver-at-spi.py
 +        x, y = element.queryComponent().getPosition(pyatspi.XY_WINDOW)
 +        x += origin['x']
 +        y += origin['y']
-@@ -798 +796 @@
+@@ -798 +805 @@
 -            subprocess.run(["selenium-webdriver-at-spi-inputsynth", file.name])
 +            subprocess.run(["selenium-webdriver-at-spi-inputsynth", file.name], check=True)
-@@ -866 +873 @@
+@@ -863,0 +871,4 @@
++    if os.environ.get('JAM_E2E_NESTED_X11'):
++        from headless_screenshot import screenshot
++        return json.dumps({'value': screenshot()}), 200, {'content-type': 'application/json'}
++
+@@ -866 +877 @@
 -                            stdout=subprocess.PIPE)
 +                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-@@ -867,0 +875,2 @@
+@@ -867,0 +879,2 @@
 +    if proc.returncode:
 +        raise RuntimeError(f"Wayland screenshot helper exited with {proc.returncode}: {err.decode('utf-8', errors='replace')}")
-@@ -1007 +1005 @@
+@@ -1007 +1020 @@
 -            subprocess.run(["selenium-webdriver-at-spi-inputsynth", fp.name])
 +            subprocess.run(["selenium-webdriver-at-spi-inputsynth", fp.name], check=True)
 diff --git a/run.rb b/run.rb
@@ -32,13 +37,20 @@ diff --git a/run.rb b/run.rb
 @@ -113 +113 @@
 -    ENV['KWIN_PID'] = pid.to_s
 +    ENV['KWIN_PID'] = Process.pid.to_s
-@@ -129 +129 @@
+@@ -122 +122,5 @@
+-    extra_args << '--virtual' if ENV['LIBGL_ALWAYS_SOFTWARE']
++    if ENV['JAM_E2E_NESTED_X11']
++      extra_args << '--x11-display=' + ENV.fetch('JAM_E2E_HOST_DISPLAY')
++    elsif ENV['LIBGL_ALWAYS_SOFTWARE']
++      extra_args << '--virtual'
++    end
+@@ -129 +133 @@
 -         '--exit-with-session', "#{__FILE__} #{ARGV.shelljoin}", out: artifact_path("appium_artifact_#{File.basename(ARGV[0])}_kwin_stdout.log"))
 +         '--exit-with-session', "#{__FILE__} #{ARGV.shelljoin}", out: artifact_path("appium_artifact_#{File.basename(ARGV[0])}_kwin_stdout.log"), err: [:child, :out])
-@@ -266 +266 @@
+@@ -266 +270 @@
 -                  out: artifact_path("appium_artifact_#{File.basename(ARGV[0])}_webdriver_stdout.log"))
 +                  out: artifact_path("appium_artifact_#{File.basename(ARGV[0])}_webdriver_stdout.log"), err: [:child, :out])
-@@ -292 +292 @@
+@@ -292 +296 @@
 -ENV['PYTHONUNBUFFERED'] = '0' # same for python subprocesses
 +ENV['PYTHONUNBUFFERED'] = '1' # flush diagnostics before the supervised driver exits
 diff --git a/inputsynth/interaction.cpp b/inputsynth/interaction.cpp

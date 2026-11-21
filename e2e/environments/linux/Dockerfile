@@ -8,7 +8,8 @@ RUN dnf --disablerepo='*' --enablerepo=jam-fixture-base --enablerepo=jam-fixture
       kf6-kwindowsystem-devel kf6-kcoreaddons-devel kwayland-devel kpipewire-devel \
       plasma-wayland-protocols-devel wayland-devel libxkbcommon-devel \
       kwin at-spi2-core gtk3 gtk4 libadwaita \
-      python3 python3-pip python3-pyatspi python3-gobject python3-lxml python3-numpy \
+      python3 python3-pip python3-pyatspi python3-gobject python3-lxml python3-numpy python3-pillow \
+      xorg-x11-server-Xvfb \
       ruby ruby-bundled-gems which libcap dbus-daemon dbus-tools pipewire wireplumber \
       mesa-dri-drivers mesa-vulkan-drivers dejavu-sans-fonts vulkan-loader \
     && dnf clean all \
@@ -20,6 +21,9 @@ RUN python3 -m venv --system-site-packages /opt/atspi \
     && /opt/atspi/bin/pip install Flask==3.0.0 Appium-Python-Client==4.5.1 selenium==4.29.0 uv==0.13.5
 COPY allow-gtk.patch /opt/allow-gtk.patch
 COPY gtk_geometry.py /usr/local/share/selenium-webdriver-at-spi/gtk_geometry.py
+COPY headless_screenshot.py /usr/local/share/selenium-webdriver-at-spi/headless_screenshot.py
+COPY run-wayland.sh /usr/local/bin/jam-e2e-wayland-run
+RUN chmod 755 /usr/local/bin/jam-e2e-wayland-run
 COPY upstream /opt/atspi-src
 RUN test "$(git -C /opt/atspi-src rev-parse HEAD)" = "$ATSPI_REV" \
     && /opt/atspi/bin/pip install -r /opt/atspi-src/requirements.txt \
@@ -37,11 +41,11 @@ RUN useradd --create-home --uid 1000 tester \
 ENV PATH="/opt/atspi/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
     XDG_RUNTIME_DIR=/tmp/driver-runtime \
     LIBGL_ALWAYS_SOFTWARE=1 USE_CUSTOM_BUS=1 \
-    KWIN_COMPOSE=Q \
+    KWIN_COMPOSE=Q GTK_IM_MODULE=gtk-im-context-simple \
     TEST_WITH_CLEAN_HOME=0 TEST_WITH_VIDEO_RECORDER=0
 RUN ruby -rfileutils -rlogger -rshellwords -rtmpdir -rnet/http -e 'puts RUBY_VERSION' \
     && which pip3 \
     && /opt/atspi/bin/flask --version
 USER tester
 WORKDIR /work
-ENTRYPOINT ["selenium-webdriver-at-spi-run"]
+ENTRYPOINT ["jam-e2e-wayland-run"]
