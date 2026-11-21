@@ -1,15 +1,17 @@
 """Native drivers share WebDriver operations, not product decision logic."""
 
+import json
 import shlex
 import subprocess
 import time
+from pathlib import Path
 from xml.etree import ElementTree
 
 from appium import webdriver
 from appium.options.common import AppiumOptions
 from appium.webdriver.client_config import AppiumClientConfig
 from selenium.common.exceptions import NoSuchElementException, StaleElementReferenceException
-from selenium.webdriver.common.action_chains import ActionChains
+from selenium.webdriver.common.actions.action_builder import ActionBuilder
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 
@@ -70,7 +72,14 @@ class Desktop:
         # Initial WDA compilation has its own larger budget. An unavailable
         # driver must not leave diagnostics and teardown waiting indefinitely.
         config.timeout = 30
-        self.session.implicitly_wait(0)
+        if self.platform == "linux":
+            # The pinned KDE driver exposes the legacy timeout endpoint.
+            self.session.command_executor.add_command(
+                "atspiImplicitWait", "POST", "/session/$sessionId/timeouts/implicit_wait"
+            )
+            self.session.execute("atspiImplicitWait", {"ms": 100})
+        else:
+            self.session.implicitly_wait(0)
 
     def quit(self):
         if self.session is not None:
@@ -97,15 +106,15 @@ class Desktop:
 
     def element(self, name, role=None, index=None):
         roles = {
-            "button": ("XCUIElementTypeButton", "push_button"),
-            "field": ("XCUIElementTypeTextField", "text"),
+            "button": ("XCUIElementTypeButton", "*[self::push_button or self::button]"),
+            "field": ("XCUIElementTypeTextField", "*[self::text or self::entry]"),
             "terminal": ("XCUIElementTypeTextView", "text"),
             "menu": ("XCUIElementTypeMenuItem", "menu_item"),
             "toggle": ("XCUIElementTypeSwitch", "check_box"),
         }
         tag = roles[role][self.platform == "linux"] if role else "*"
         value = literal(name)
-        query = f"//{tag}[@name={value} or @label={value} or @identifier={value} or @description={value} or @placeholderValue={value}]"
+        query = f"//{tag}[@name={value} or @label={value} or @identifier={value} or @accessibility-id={value} or @description={value} or @placeholderValue={value}]"
 
         def find():
             matches = [e for e in self.session.find_elements(By.XPATH, query) if e.is_displayed()]
@@ -126,8 +135,14 @@ class Desktop:
         self.chord("cmd+a" if self.platform == "macos" else "ctrl+a")
         self.type(text)
 
+    def field_value(self, name):
+        field = self.element(name, "field")
+        return field.text if self.platform == "linux" else field.get_attribute("value")
+
     def type(self, text):
-        ActionChains(self.session).send_keys(text).perform()
+        actions = ActionBuilder(self.session)
+        actions.key_action.send_keys(text)
+        actions.perform()
 
     def chord(self, chord):
         parts = chord.split("+")
@@ -137,24 +152,33 @@ class Desktop:
             "alt": Keys.ALT,
             "shift": Keys.SHIFT,
         }
-        action = ActionChains(self.session)
+        actions = ActionBuilder(self.session)
         for modifier in parts[:-1]:
-            action.key_down(modifiers[modifier])
-        action.send_keys(parts[-1])
+            actions.key_action.key_down(modifiers[modifier])
+        actions.key_action.send_keys(parts[-1])
         for modifier in reversed(parts[:-1]):
-            action.key_up(modifiers[modifier])
-        action.perform()
+            actions.key_action.key_up(modifiers[modifier])
+        actions.perform()
 
     def key(self, name):
         self.type(getattr(Keys, name))
 
     def context(self, name):
-        ActionChains(self.session).context_click(self.element(name)).perform()
+        actions = ActionBuilder(self.session)
+        actions.pointer_action.move_to(self.element(name)).click(button=2)
+        actions.perform()
+
+    def middle(self, name):
+        actions = ActionBuilder(self.session)
+        actions.pointer_action.move_to(self.element(name)).click(button=1)
+        actions.perform()
 
     def drag(self, source, target, x=0, y=0):
-        ActionChains(self.session).move_to_element(self.element(source)).click_and_hold().pause(
-            0.5
-        ).move_to_element_with_offset(self.element(target), x, y).pause(0.6).release().perform()
+        actions = ActionBuilder(self.session)
+        actions.pointer_action.move_to(self.element(source)).pointer_down().pause(0.5).move_to(
+            self.element(target), x, y
+        ).pause(0.6).pointer_up()
+        actions.perform()
 
     def clipboard(self, text=None):
         if text is None:
@@ -164,7 +188,10 @@ class Desktop:
                 ).stdout
             return self.session.get_clipboard_text()
         if self.saved_clipboard is None:
-            self.saved_clipboard = self.clipboard()
+            if self.platform == "macos":
+                self.saved_clipboard = self._mac_clipboard("capture")
+            else:
+                self.saved_clipboard = self.clipboard()
         if self.platform == "macos":
             subprocess.run(["/usr/bin/pbcopy"], input=text, text=True, check=True, timeout=10)
             return
@@ -172,5 +199,20 @@ class Desktop:
 
     def restore_clipboard(self):
         if self.saved_clipboard is not None:
-            self.clipboard(self.saved_clipboard)
+            if self.platform == "macos":
+                self._mac_clipboard("restore", self.saved_clipboard)
+            else:
+                self.clipboard(self.saved_clipboard)
             self.saved_clipboard = None
+
+    def _mac_clipboard(self, action, data=None):
+        helper = Path(__file__).parents[1] / "native/macos/clipboard.swift"
+        result = subprocess.run(
+            ["/usr/bin/swift", str(helper), action],
+            input=json.dumps(data) if data is not None else None,
+            text=True,
+            capture_output=True,
+            check=True,
+            timeout=30,
+        )
+        return json.loads(result.stdout) if action == "capture" else None

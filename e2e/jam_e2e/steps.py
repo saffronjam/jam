@@ -4,8 +4,6 @@ import sys
 import time
 from pathlib import Path
 
-from selenium.webdriver.common.action_chains import ActionChains
-
 from .driver import wait
 
 
@@ -81,13 +79,11 @@ def execute(jam, step, memory):
     elif op == "paste":
         ui.chord("cmd+v" if ui.platform == "macos" else "ctrl+shift+v")
     elif op == "middle":
-        chain = ActionChains(ui.session).move_to_element(ui.element(args[0]))
-        chain.w3c_actions.pointer_action.click(button=1)
-        chain.perform()
+        ui.middle(*args)
     elif op == "drag":
         ui.drag(*args)
     elif op == "field_value":
-        wait(lambda: ui.element(args[0], "field").get_attribute("value") == args[1], "field value")
+        wait(lambda: ui.field_value(args[0]) == args[1], "field value")
     elif op == "file_exists":
         assert (profile.repo / args[0]).is_file()
     elif op == "probe":

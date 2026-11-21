@@ -5,7 +5,9 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from urllib.parse import urlsplit
 
+from fixtures.prepare_trust import generate
 from fixtures.services import load_config, signed_manifest
 from jam_e2e.driver import wait
 
@@ -65,6 +67,34 @@ def test_fixture_release_trust_and_bad_signature(request, tmp_path):
             '"path": "/releases/download/v0.0.5/manifest.sig"'
             in ready.with_suffix(".events").read_text()
         )
+        process.terminate()
+        process.wait(timeout=5)
+        ready.unlink()
+        untrusted = tmp_path / "untrusted"
+        generate(untrusted, port=urlsplit(config["origin"]).port)
+        scenario.write_text('{"version":"0.0.5"}')
+        process = subprocess.Popen(
+            [
+                sys.executable,
+                str(bundle / "services.py"),
+                "--config",
+                str(untrusted / "services.json"),
+                "--scenario",
+                str(scenario),
+                "--releases",
+                str(releases),
+                "--ready",
+                str(ready),
+            ],
+            stdout=log,
+            stderr=log,
+        )
+        wait(ready.exists, "untrusted fixture HTTPS service")
+        result = subprocess.run(
+            command, env=env, text=True, capture_output=True, check=False, timeout=15
+        )
+        assert result.returncode != 0
+        assert "certificate" in result.stderr.lower(), result.stderr
     finally:
         process.terminate()
         process.wait(timeout=5)

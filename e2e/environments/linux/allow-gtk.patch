@@ -1,0 +1,6 @@
+diff --git a/selenium-webdriver-at-spi.py b/selenium-webdriver-at-spi.py
+--- a/selenium-webdriver-at-spi.py
++++ b/selenium-webdriver-at-spi.py
+@@ -98,2 +98,0 @@
+-    if accessible.toolkitName != "Qt" and accessible.toolkitName != "at-spi-registry":
+-        return

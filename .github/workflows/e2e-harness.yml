@@ -27,6 +27,9 @@ jobs:
           .cache/e2e-bootstrap/bin/uv run --project e2e --locked pytest -c e2e/pyproject.toml e2e/harness --allow-subset --junitxml=e2e/artifacts/harness.xml
           cd e2e
           ../.cache/e2e-bootstrap/bin/uv run --locked python -m jam_e2e.catalog --check
+      - name: Type-check native clipboard preservation helper
+        if: runner.os == 'macOS'
+        run: swiftc -typecheck e2e/native/macos/clipboard.swift
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:

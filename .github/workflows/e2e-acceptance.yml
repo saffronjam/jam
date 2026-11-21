@@ -97,6 +97,27 @@ jobs:
           name: native-automation-probe
           path: e2e/artifacts/
           if-no-files-found: error
+      - name: Fetch the published stock macOS release
+        if: always() && runner.os == 'macOS'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p .cache/stock
+          gh release download v0.0.4 --repo saffronjam/jam --pattern Jam-v0.0.4-macos-arm64.zip --dir .cache/stock
+          ditto -xk .cache/stock/Jam-v0.0.4-macos-arm64.zip .cache/stock
+          codesign --verify --deep --strict .cache/stock/Jam.app
+      - name: Smoke the unmodified installed stock artifact
+        if: always() && runner.os == 'macOS'
+        run: |
+          .cache/e2e-bootstrap/bin/uv run --project e2e --locked pytest -c e2e/pyproject.toml e2e/installed \
+            --app "$PWD/.cache/stock/Jam.app" --platform macos \
+            --artifacts-dir e2e/artifacts/stock --junitxml=e2e/artifacts/stock.xml
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always() && runner.os == 'macOS'
+        with:
+          name: stock-macos-smoke
+          path: e2e/artifacts/stock*
+          if-no-files-found: error
       - name: Run the complete shared desktop contract
         if: always()
         shell: bash

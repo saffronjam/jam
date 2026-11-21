@@ -28,6 +28,12 @@ must have `KWIN_PID` configured; an Xvfb-only session is not equivalent. Follow
 Provision software Vulkan (Mesa Lavapipe) or a working physical GPU for the real
 terminal renderer. The app must not use a replacement renderer for these tests.
 
+`environments/linux/Dockerfile` provides a pinned AT-SPI driver with KWin and
+software graphics. Its small patch removes an upstream Qt-only tree filter so
+GTK widgets can be inspected. `Linux automation proof` verifies real GTK4
+controls, input, clipboard and screenshots in this environment. This low-level
+probe is separate from Jam acceptance and cannot satisfy a product scenario.
+
 ```sh
 uv run pytest --app /absolute/path/to/Jam.app --platform macos \
   --fixture-bundle /absolute/path/to/fixture-bundle/manifest.json \
@@ -46,6 +52,12 @@ run only against isolated fixture accounts and services, never a personal profil
 No Linux executable exists in Jam yet: supplying a missing app produces setup
 errors and a nonzero exit. It never skips, xfails, or substitutes macOS assertions.
 MacOS results are not claimed until the actual application is driven on a Mac.
+
+The separate `installed/` smoke suite must receive an unmodified installed stock
+release as `--app`, with its own bundled CLI and daemon. Report its results
+separately from fixture builds. Clipboard cases save and restore every available
+macOS pasteboard representation; snapshots larger than 16 MiB fail before any
+clipboard mutation, so a dedicated automation user is preferable.
 
 ## Test policy
 
