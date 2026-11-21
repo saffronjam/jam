@@ -28,8 +28,18 @@ must have `KWIN_PID` configured; an Xvfb-only session is not equivalent. Follow
 Provision software Vulkan (Mesa Lavapipe) or a working physical GPU for the real
 terminal renderer. The app must not use a replacement renderer for these tests.
 
-`environments/linux/Dockerfile` provides a pinned AT-SPI driver with KWin 6.6
-from Fedora 42's signed archived packages. It uses KWin's supported QPainter
+`environments/linux/Dockerfile` builds the AT-SPI driver from an external checkout
+of revision `4199d3ea3ccdcaa175b5a06ed3ad8f1af498f38a`
+under `environments/linux/upstream`. CI checks it out with credentials disabled;
+the image verifies the revision before applying its GTK compatibility patches.
+For a local image build, prepare that checkout first:
+
+```sh
+git clone --no-checkout https://github.com/KDE/selenium-webdriver-at-spi.git environments/linux/upstream
+git -C environments/linux/upstream checkout --detach 4199d3ea3ccdcaa175b5a06ed3ad8f1af498f38a
+```
+
+KWin 6.6 comes from Fedora 42's signed archived packages. It uses the supported QPainter
 virtual Wayland compositor, allowing the GTK driver proof without kernel GPU
 devices. Its small patch removes an upstream Qt-only tree filter so
 GTK widgets can be inspected. `Linux automation proof` verifies real GTK4

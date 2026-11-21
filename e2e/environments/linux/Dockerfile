@@ -20,14 +20,13 @@ RUN python3 -m venv --system-site-packages /opt/atspi \
     && /opt/atspi/bin/pip install Flask==3.0.0 Appium-Python-Client==4.5.1 selenium==4.29.0 uv==0.13.5
 COPY allow-gtk.patch /opt/allow-gtk.patch
 COPY gtk_geometry.py /usr/local/share/selenium-webdriver-at-spi/gtk_geometry.py
-RUN git init /opt/atspi-src \
-    && git -C /opt/atspi-src fetch --depth=1 https://github.com/KDE/selenium-webdriver-at-spi.git "$ATSPI_REV" \
-    && git -C /opt/atspi-src checkout --detach FETCH_HEAD \
+COPY upstream /opt/atspi-src
+RUN test "$(git -C /opt/atspi-src rev-parse HEAD)" = "$ATSPI_REV" \
     && /opt/atspi/bin/pip install -r /opt/atspi-src/requirements.txt \
     && touch /tmp/selenium-requirements-installed \
     && git -C /opt/atspi-src apply --unidiff-zero /opt/allow-gtk.patch \
     && ruby -c /opt/atspi-src/run.rb \
-    && /opt/atspi/bin/python -m py_compile /opt/atspi-src/selenium-webdriver-at-spi.py \
+    && /opt/atspi/bin/python -m py_compile /opt/atspi-src/selenium-webdriver-at-spi.py /usr/local/share/selenium-webdriver-at-spi/gtk_geometry.py \
     && PATH="/opt/atspi/bin:$PATH" cmake -S /opt/atspi-src -B /opt/atspi-build -G Ninja \
          -DCMAKE_INSTALL_PREFIX=/usr/local -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release \
     && cmake --build /opt/atspi-build --parallel 1 \

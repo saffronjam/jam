@@ -5,12 +5,21 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: linux-driver-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 jobs:
   wayland-driver:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          repository: KDE/selenium-webdriver-at-spi
+          ref: 4199d3ea3ccdcaa175b5a06ed3ad8f1af498f38a
+          path: e2e/environments/linux/upstream
+          persist-credentials: false
       - name: Build pinned AT-SPI and KWin environment
         run: docker build --memory=2g -t jam-e2e-wayland e2e/environments/linux
       - name: Verify the driver against real GTK4 widgets

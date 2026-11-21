@@ -16,6 +16,9 @@ on:
 permissions:
   contents: read
   actions: read
+concurrency:
+  group: macos-driver-${{ github.event.pull_request.number || github.ref }}-${{ inputs.fixture_run || 'stock' }}-${{ inputs.cases || 'default' }}
+  cancel-in-progress: true
 jobs:
   native-driver:
     runs-on: macos-15
