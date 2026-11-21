@@ -18,8 +18,10 @@ def interrupt(root):
     )
     reply = json.loads(result.stdout)
     assert reply.get("started") is True, reply
-    journal = Path(reply["journal"]).resolve()
-    assert journal.is_relative_to((root / "state/upgrades").resolve()), journal
+    # Match the path the public CLI passed to exec. On macOS /var and
+    # /private/var name the same files but remain distinct argv strings.
+    journal = Path(reply["journal"])
+    assert journal.resolve().is_relative_to((root / "state/upgrades").resolve()), journal
     helper = journal.parent / "jam-updater"
     expected = f"{helper} __upgrade-apply {journal}"
     deadline = time.monotonic() + 5
