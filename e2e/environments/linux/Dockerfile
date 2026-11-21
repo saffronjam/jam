@@ -7,7 +7,7 @@ RUN dnf install -y --setopt=install_weak_deps=False \
       plasma-wayland-protocols-devel wayland-devel libxkbcommon-devel \
       kwin at-spi2-core gtk3 gtk4 libadwaita \
       python3 python3-pip python3-pyatspi python3-gobject python3-lxml python3-numpy \
-      ruby ruby-bundled-gems dbus-daemon dbus-tools pipewire wireplumber \
+      ruby ruby-bundled-gems which dbus-daemon dbus-tools pipewire wireplumber \
       mesa-dri-drivers mesa-vulkan-drivers dejavu-sans-fonts vulkan-loader \
     && dnf clean all \
     && ln -s /usr/bin/ruby-mri /usr/local/bin/ruby
@@ -17,6 +17,8 @@ COPY allow-gtk.patch /opt/allow-gtk.patch
 RUN git init /opt/atspi-src \
     && git -C /opt/atspi-src fetch --depth=1 https://github.com/KDE/selenium-webdriver-at-spi.git "$ATSPI_REV" \
     && git -C /opt/atspi-src checkout --detach FETCH_HEAD \
+    && /opt/atspi/bin/pip install -r /opt/atspi-src/requirements.txt \
+    && touch /tmp/selenium-requirements-installed \
     && git -C /opt/atspi-src apply --unidiff-zero /opt/allow-gtk.patch \
     && PATH="/opt/atspi/bin:$PATH" cmake -S /opt/atspi-src -B /opt/atspi-build -G Ninja \
          -DCMAKE_INSTALL_PREFIX=/usr/local -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release \
@@ -29,7 +31,8 @@ ENV PATH="/opt/atspi/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
     XDG_RUNTIME_DIR=/tmp/driver-runtime \
     LIBGL_ALWAYS_SOFTWARE=1 USE_CUSTOM_BUS=1 \
     TEST_WITH_CLEAN_HOME=0 TEST_WITH_VIDEO_RECORDER=0
-RUN ruby -rfileutils -rlogger -rshellwords -rtmpdir -e 'puts RUBY_VERSION' \
+RUN ruby -rfileutils -rlogger -rshellwords -rtmpdir -rnet/http -e 'puts RUBY_VERSION' \
+    && which pip3 \
     && /opt/atspi/bin/flask --version
 USER tester
 WORKDIR /work
