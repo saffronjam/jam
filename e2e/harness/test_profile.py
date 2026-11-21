@@ -66,8 +66,8 @@ def test_json_cli_error_never_counts_as_success(tmp_path, monkeypatch):
 
 
 def test_cleanup_accepts_an_already_reaped_owned_daemon(tmp_path):
-    profile = Profile(tmp_path, Path("/bin/false"), Path("/bin/false"))
-    child = subprocess.Popen(["/bin/true"])
+    profile = Profile(tmp_path, Path(sys.executable), Path(sys.executable))
+    child = subprocess.Popen([sys.executable, "-c", "pass"])
     child.wait(timeout=5)
     with socket.socket(socket.AF_UNIX) as listener:
         listener.bind(str(profile.socket))

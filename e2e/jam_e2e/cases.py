@@ -520,7 +520,7 @@ for i, (source, destination) in enumerate((("Tab 1", "Tab 2"), ("Tab 2", "Tab 1"
         ("count", "panes", 2),
         ("remember_tab_order",),
         ("remember_pids",),
-        ("drag", source, destination),
+        ("drag", source, destination, 0.75 if i == 1 else 0.25),
         ("count", "tabs", 2),
         ("tab_order_reversed",),
         ("same_pids",),
@@ -839,3 +839,35 @@ case(
     ("visible", "Archived · done"),
     fixture="archived-task",
 )
+
+USER_HOOK_SETTINGS = {
+    "fixture_user_setting": {"keep": True},
+    "hooks": {
+        "SessionStart": [
+            {
+                "matcher": "",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "printf fixture-user-hook",
+                    }
+                ],
+            }
+        ]
+    },
+}
+for index, (provider, settings_path) in enumerate(
+    (("claude", ".claude/settings.json"), ("codex", ".codex/hooks.json")), 9
+):
+    case(
+        f"AGENT-{index:03}",
+        f"Installing and removing {provider} integration preserves the user's hooks and settings",
+        ("command", "Agent Integrations"),
+        ("click", f"integration.{provider}.install"),
+        ("visible", f"integration.{provider}.remove"),
+        ("home_json_contains", settings_path, USER_HOOK_SETTINGS),
+        ("click", f"integration.{provider}.remove"),
+        ("visible", f"integration.{provider}.install"),
+        ("home_json_equals", settings_path, USER_HOOK_SETTINGS),
+        fixture="provider-custom-hooks",
+    )

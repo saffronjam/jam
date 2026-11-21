@@ -1,5 +1,6 @@
 """Prove scenario worlds reach their requested state through installed artifacts."""
 
+import json
 import tempfile
 from pathlib import Path
 
@@ -59,6 +60,36 @@ def test_prepared_world(request, recipe, expected):
                     assert len(board["agents"]) == 1 and board["agents"][0]["ready"]
                 else:
                     assert any(t.get("delivery_status") == expected for t in board["tasks"])
+        finally:
+            profile.stop()
+            resources.stop()
+
+
+@pytest.mark.parametrize(
+    "provider,path", [("claude", ".claude/settings.json"), ("codex", ".codex/hooks.json")]
+)
+def test_custom_hook_world_preserves_the_user_document(request, provider, path):
+    cli, daemon, manifest = (
+        request.config.getoption(name) for name in ("--cli", "--daemon", "--fixture-bundle")
+    )
+    assert cli and daemon and manifest, "Supply fixture-configured artifacts and their bundle"
+    with tempfile.TemporaryDirectory(prefix="jeh-") as directory:
+        profile = Profile(Path(directory), Path(cli).resolve(), Path(daemon).resolve())
+        resources = prepare(manifest, "provider-custom-hooks", profile)
+        try:
+            settings = profile.home / path
+            original = json.loads(settings.read_text())
+            assert (
+                original["hooks"]["SessionStart"][0]["hooks"][0]["command"]
+                == "printf fixture-user-hook"
+            )
+            installed = profile.call("skill", "setup", "--agent", provider)
+            assert installed[0]["skill"] == "current" and installed[0]["hook"] == "current"
+            updated = json.loads(settings.read_text())
+            assert updated["fixture_user_setting"] == {"keep": True}
+            assert original["hooks"]["SessionStart"][0] in updated["hooks"]["SessionStart"]
+            profile.call("skill", "remove", "--agent", provider)
+            assert json.loads(settings.read_text()) == original
         finally:
             profile.stop()
             resources.stop()

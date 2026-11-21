@@ -75,6 +75,27 @@ def prepare(root, recipe):
         (repo / "foreign-skill-marker").write_text(
             "User-owned foreign skill. Preserve these bytes.\n"
         )
+    if recipe == "provider-custom-hooks":
+        for path in (home / ".claude/settings.json", home / ".codex/hooks.json"):
+            write(
+                path,
+                {
+                    "fixture_user_setting": {"keep": True},
+                    "hooks": {
+                        "SessionStart": [
+                            {
+                                "matcher": "",
+                                "hooks": [
+                                    {
+                                        "type": "command",
+                                        "command": "printf fixture-user-hook",
+                                    }
+                                ],
+                            }
+                        ]
+                    },
+                },
+            )
     if recipe == "git-diff":
         # The fixture commit has two lines; replace both with three new lines.
         (repo / "tracked.txt").write_text("one\ntwo\nthree\n")

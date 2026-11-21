@@ -150,6 +150,32 @@ def execute(jam, step, memory):
     elif op in ("file_text", "home_file_text"):
         path = (profile.repo if op == "file_text" else profile.home) / args[0]
         wait(lambda: path.exists() and path.read_text() == args[1], f"file {args[0]} content")
+    elif op in ("home_json_contains", "home_json_equals"):
+        path = profile.home / args[0]
+
+        def contains(actual, expected):
+            if isinstance(expected, dict):
+                return isinstance(actual, dict) and all(
+                    key in actual and contains(actual[key], value)
+                    for key, value in expected.items()
+                )
+            if isinstance(expected, list):
+                return isinstance(actual, list) and all(
+                    any(contains(value, item) for value in actual) for item in expected
+                )
+            return type(actual) is type(expected) and actual == expected
+
+        def matches():
+            if not path.exists():
+                return False
+            value = json.loads(path.read_text())
+            return (
+                json.dumps(value, sort_keys=True) == json.dumps(args[1], sort_keys=True)
+                if op == "home_json_equals"
+                else contains(value, args[1])
+            )
+
+        wait(matches, f"preserved user JSON {args[0]}")
     elif op in {"output", "output_repo", "output_regex", "no_output"}:
         import re
 

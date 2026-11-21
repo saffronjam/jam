@@ -1,6 +1,6 @@
 # Desktop acceptance cases
 
-204 cases; identical collection on macOS and Linux. No skips or expected failures.
+206 cases; identical collection on macOS and Linux. No skips or expected failures.
 
 Each numbered step is performed externally. Fixture names identify required setup recipes, not alternate assertions.
 
@@ -1440,7 +1440,7 @@ Fixture: `isolated local installation`.
 4. `('count', 'panes', 2)`
 5. `('remember_tab_order',)`
 6. `('remember_pids',)`
-7. `('drag', 'Tab 1', 'Tab 2')`
+7. `('drag', 'Tab 1', 'Tab 2', 0.75)`
 8. `('count', 'tabs', 2)`
 9. `('tab_order_reversed',)`
 10. `('same_pids',)`
@@ -1455,7 +1455,7 @@ Fixture: `isolated local installation`.
 4. `('count', 'panes', 2)`
 5. `('remember_tab_order',)`
 6. `('remember_pids',)`
-7. `('drag', 'Tab 2', 'Tab 1')`
+7. `('drag', 'Tab 2', 'Tab 1', 0.25)`
 8. `('count', 'tabs', 2)`
 9. `('tab_order_reversed',)`
 10. `('same_pids',)`
@@ -1884,3 +1884,27 @@ Fixture: `archived-task`.
 3. `('click', 'Include archived')`
 4. `('visible', 'Fixture task objective')`
 5. `('visible', 'Archived · done')`
+
+## AGENT-009: Installing and removing claude integration preserves the user's hooks and settings
+
+Fixture: `provider-custom-hooks`.
+
+1. `('command', 'Agent Integrations')`
+2. `('click', 'integration.claude.install')`
+3. `('visible', 'integration.claude.remove')`
+4. `('home_json_contains', '.claude/settings.json', {'fixture_user_setting': {'keep': True}, 'hooks': {'SessionStart': [{'matcher': '', 'hooks': [{'type': 'command', 'command': 'printf fixture-user-hook'}]}]}})`
+5. `('click', 'integration.claude.remove')`
+6. `('visible', 'integration.claude.install')`
+7. `('home_json_equals', '.claude/settings.json', {'fixture_user_setting': {'keep': True}, 'hooks': {'SessionStart': [{'matcher': '', 'hooks': [{'type': 'command', 'command': 'printf fixture-user-hook'}]}]}})`
+
+## AGENT-010: Installing and removing codex integration preserves the user's hooks and settings
+
+Fixture: `provider-custom-hooks`.
+
+1. `('command', 'Agent Integrations')`
+2. `('click', 'integration.codex.install')`
+3. `('visible', 'integration.codex.remove')`
+4. `('home_json_contains', '.codex/hooks.json', {'fixture_user_setting': {'keep': True}, 'hooks': {'SessionStart': [{'matcher': '', 'hooks': [{'type': 'command', 'command': 'printf fixture-user-hook'}]}]}})`
+5. `('click', 'integration.codex.remove')`
+6. `('visible', 'integration.codex.install')`
+7. `('home_json_equals', '.codex/hooks.json', {'fixture_user_setting': {'keep': True}, 'hooks': {'SessionStart': [{'matcher': '', 'hooks': [{'type': 'command', 'command': 'printf fixture-user-hook'}]}]}})`

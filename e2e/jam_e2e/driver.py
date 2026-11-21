@@ -181,27 +181,31 @@ class Desktop:
         actions.pointer_action.move_to(self.element(name)).click(button=1)
         actions.perform()
 
-    def drag(self, source, target, x=0, y=0):
+    def drag(self, source, target, target_x=0.5, target_y=0.5):
+        start_element, end_element = self.element(source), self.element(target)
         if self.platform == "macos":
             # Mac2 4.6.1's W3C pointer-move synthesizer loops indefinitely
             # when the preceding item is a pause. Use its native XCTest
             # gesture, resolving both accessible rectangles before pressing.
-            start, end = self.element(source).rect, self.element(target).rect
+            start, end = start_element.rect, end_element.rect
             self.session.execute_script(
                 "macos: clickAndDragAndHold",
                 {
                     "startX": start["x"] + start["width"] / 2,
                     "startY": start["y"] + start["height"] / 2,
-                    "endX": end["x"] + end["width"] / 2 + x,
-                    "endY": end["y"] + end["height"] / 2 + y,
+                    "endX": end["x"] + end["width"] * target_x,
+                    "endY": end["y"] + end["height"] * target_y,
                     "duration": 0.5,
                     "holdDuration": 0.6,
                 },
             )
             return
         actions = ActionBuilder(self.session)
-        actions.pointer_action.move_to(self.element(source)).pointer_down().pause(0.5).move_to(
-            self.element(target), x, y
+        end = end_element.rect
+        actions.pointer_action.move_to(start_element).pointer_down().pause(0.5).move_to(
+            end_element,
+            round(end["width"] * (target_x - 0.5)),
+            round(end["height"] * (target_y - 0.5)),
         ).pause(0.6).pointer_up()
         actions.perform()
 

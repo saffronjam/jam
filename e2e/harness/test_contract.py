@@ -29,6 +29,8 @@ def test_unique_cases_have_assertions():
                 "config_default",
                 "same_pids",
                 "file_text",
+                "home_json_contains",
+                "home_json_equals",
                 "git_branch",
                 "git_no_branch",
                 "symlink_preserved",

@@ -12,6 +12,7 @@ LOCAL = (
     "provider-installed",
     "provider-outdated",
     "provider-foreign",
+    "provider-custom-hooks",
     "stopped-coordinator",
     "codex-conversations",
     "provider-launch-failed",
