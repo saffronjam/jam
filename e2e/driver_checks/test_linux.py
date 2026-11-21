@@ -1,6 +1,7 @@
 """Low-level Linux driver proof against GTK widgets, separate from Jam acceptance."""
 
 import os
+import re
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -22,6 +23,14 @@ def test_native_wayland_driver(request, tmp_path):
         ui.launch()
         ui.click("Increment", "button")
         ui.expect("Count: 1")
+        ui.expect("Slider: 50")
+        ui.drag("Probe slider", "Probe slider", target_x=0.85)
+
+        def dragged():
+            values = re.findall(r"Slider:\s*(\d+)", ui.texts())
+            return values and 70 <= int(values[-1]) <= 95
+
+        wait(dragged, "real Wayland pointer drag changes a GTK slider")
         ui.fill("Probe text", "日本語 café")
         wait(lambda: ui.field_value("Probe text") == "日本語 café", "Unicode field input")
         ui.chord("ctrl+a")

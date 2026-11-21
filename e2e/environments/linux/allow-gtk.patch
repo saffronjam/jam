@@ -4,3 +4,9 @@ diff --git a/selenium-webdriver-at-spi.py b/selenium-webdriver-at-spi.py
 @@ -98,2 +98,0 @@
 -    if accessible.toolkitName != "Qt" and accessible.toolkitName != "at-spi-registry":
 -        return
+diff --git a/run.rb b/run.rb
+--- a/run.rb
++++ b/run.rb
+@@ -113 +113 @@
+-    ENV['KWIN_PID'] = pid.to_s
++    ENV['KWIN_PID'] = Process.pid.to_s

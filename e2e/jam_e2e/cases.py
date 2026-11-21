@@ -764,7 +764,7 @@ INTEGRATION = [
         [
             ("command", "Agent Integrations"),
             ("click", "integration.claude.remove"),
-            ("visible", "integration.claude.install"),
+            ("target_visible", "integration.claude.install"),
         ],
     ),
     (
@@ -864,10 +864,10 @@ for index, (provider, settings_path) in enumerate(
         f"Installing and removing {provider} integration preserves the user's hooks and settings",
         ("command", "Agent Integrations"),
         ("click", f"integration.{provider}.install"),
-        ("visible", f"integration.{provider}.remove"),
+        ("target_visible", f"integration.{provider}.remove"),
         ("home_json_contains", settings_path, USER_HOOK_SETTINGS),
         ("click", f"integration.{provider}.remove"),
-        ("visible", f"integration.{provider}.install"),
+        ("target_visible", f"integration.{provider}.install"),
         ("home_json_equals", settings_path, USER_HOOK_SETTINGS),
         fixture="provider-custom-hooks",
     )

@@ -32,7 +32,9 @@ jobs:
           .cache/e2e-bootstrap/bin/python -m pip install uv==0.13.5
           if [[ "$RUNNER_OS" == macOS ]]; then
             brew list openssl@3 >/dev/null 2>&1 || brew install openssl@3
+            brew list qemu >/dev/null 2>&1 || brew install qemu
             echo "$(brew --prefix openssl@3)/bin" >> "$GITHUB_PATH"
+            python3 e2e/fixtures/fetch_vm_image.py .cache/debian-bookworm-arm64.qcow2
           fi
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
@@ -43,11 +45,18 @@ jobs:
         run: |
           mkdir -p .cache/e2e-bundle
           tar -xzf build/fixture-release-bundle.tar.gz -C .cache/e2e-bundle
+          ssh_fixture=()
           if [[ "$RUNNER_OS" == macOS ]]; then
             app="$PWD/.cache/e2e-bundle/installation/Jam.app"
             codesign --verify --deep --strict "$app"
             echo "E2E_CLI=$app/Contents/Resources/bin/jam" >> "$GITHUB_ENV"
             echo "E2E_DAEMON=$app/Contents/MacOS/jamd" >> "$GITHUB_ENV"
+            ssh_fixture=(
+              --remote-archive "$PWD/.cache/e2e-bundle/releases/v0.0.4/jam-v0.0.4-linux-aarch64.tar.gz"
+              --vm-image "$PWD/.cache/debian-bookworm-arm64.qcow2"
+              --qemu "$(command -v qemu-system-aarch64)" --qemu-img "$(command -v qemu-img)"
+              --vm-firmware "$(brew --prefix qemu)/share/qemu/edk2-aarch64-code.fd"
+            )
           else
             mkdir -p build/fixture-server
             tar -xzf .cache/e2e-bundle/releases/v0.0.4/jam-v0.0.4-linux-x86_64.tar.gz -C build/fixture-server
@@ -55,7 +64,7 @@ jobs:
             echo "E2E_DAEMON=$PWD/build/fixture-server/jamd" >> "$GITHUB_ENV"
           fi
           python3 e2e/fixtures/build_bundle.py .cache/current-bundle \
-            --trust .cache/e2e-bundle/trust --releases .cache/e2e-bundle/releases
+            --trust .cache/e2e-bundle/trust --releases .cache/e2e-bundle/releases "${ssh_fixture[@]}"
       - name: Verify external provider and release dependencies
         shell: bash
         run: |

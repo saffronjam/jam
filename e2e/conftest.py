@@ -82,22 +82,6 @@ def capture(item, jam):
     folder = Path(item.config.getoption("--artifacts-dir")).resolve() / item.name.replace("/", "_")
     folder.mkdir(parents=True, exist_ok=True)
     errors = []
-    for name, operation in (
-        ("ui.xml", jam.ui.tree),
-        ("visible.txt", jam.ui.texts),
-        ("layout.json", lambda: json.dumps(jam.profile.layout(), indent=2)),
-    ):
-        try:
-            (folder / name).write_text(operation())
-        except Exception as error:  # noqa: BLE001 - diagnostics must not mask the test failure
-            errors.append(f"{name}: {type(error).__name__}: {error}")
-    try:
-        jam.ui.session.save_screenshot(str(folder / "screen.png"))
-    except Exception as error:  # noqa: BLE001 - diagnostics must not mask the test failure
-        errors.append(f"screenshot: {error}")
-    log = jam.profile.state / "jamd.log"
-    if log.exists():
-        shutil.copyfile(log, folder / "jamd.log")
     receipt = jam.profile.socket.parent / "release.json"
     if receipt.is_file():
         shutil.copyfile(receipt, folder / "daemon-release.json")
@@ -119,6 +103,22 @@ def capture(item, jam):
                 )
             except Exception as error:  # noqa: BLE001 - preserve the original failure
                 errors.append(f"daemon sample: {error}")
+    for name, operation in (
+        ("ui.xml", jam.ui.tree),
+        ("visible.txt", jam.ui.texts),
+        ("layout.json", lambda: json.dumps(jam.profile.layout(), indent=2)),
+    ):
+        try:
+            (folder / name).write_text(operation())
+        except Exception as error:  # noqa: BLE001 - diagnostics must not mask the test failure
+            errors.append(f"{name}: {type(error).__name__}: {error}")
+    try:
+        jam.ui.session.save_screenshot(str(folder / "screen.png"))
+    except Exception as error:  # noqa: BLE001 - diagnostics must not mask the test failure
+        errors.append(f"screenshot: {error}")
+    log = jam.profile.state / "jamd.log"
+    if log.exists():
+        shutil.copyfile(log, folder / "jamd.log")
     try:
         for pane in jam.profile.layout()["panes"]:
             (folder / ("pane-" + pane["id"] + ".txt")).write_text(jam.profile.capture(pane["id"]))

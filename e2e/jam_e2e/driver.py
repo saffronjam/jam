@@ -99,12 +99,30 @@ class Desktop:
 
     def texts(self):
         root = ElementTree.fromstring(self.tree())
-        return "\n".join(
-            " ".join(
-                node.attrib.get(k, "") for k in ("name", "label", "value", "description", "text")
+        values = []
+        for node in root.iter():
+            attributes = node.attrib
+            if self.platform == "macos":
+                if (
+                    float(attributes.get("width", 0)) <= 0
+                    or float(attributes.get("height", 0)) <= 0
+                ):
+                    continue
+            elif "showing" not in attributes.get("states", "").lower():
+                continue
+            values.append(
+                " ".join(
+                    attributes.get(key, "")
+                    for key in ("name", "label", "title", "value", "description", "text")
+                )
             )
-            for node in root.iter()
-        )
+        if self.platform == "linux":
+            # KDE's XML snapshot omits the AT-SPI Text interface contents.
+            # Read visible text widgets through the driver's standard API.
+            for element in self.session.find_elements(By.XPATH, "//text | //entry"):
+                if element.is_displayed():
+                    values.append(element.text)
+        return "\n".join(values)
 
     def has(self, text):
         return text in self.texts()
@@ -122,7 +140,7 @@ class Desktop:
         }
         tag = roles[role][self.platform == "linux"] if role else "*"
         value = literal(name)
-        query = f"//{tag}[@name={value} or @label={value} or @identifier={value} or @accessibility-id={value} or @description={value} or @placeholderValue={value}]"
+        query = f"//{tag}[@name={value} or @label={value} or @title={value} or @value={value} or @identifier={value} or @accessibility-id={value} or @description={value} or @placeholderValue={value}]"
 
         def find():
             matches = [e for e in self.session.find_elements(By.XPATH, query) if e.is_displayed()]

@@ -33,7 +33,7 @@ from Fedora 42's signed archived packages. It uses KWin's supported QPainter
 virtual Wayland compositor, allowing the GTK driver proof without kernel GPU
 devices. Its small patch removes an upstream Qt-only tree filter so
 GTK widgets can be inspected. `Linux automation proof` verifies real GTK4
-controls, input, clipboard and screenshots in this environment. This low-level
+controls, a physical slider drag, input, clipboard and screenshots in this environment. This low-level
 probe is separate from Jam acceptance and cannot satisfy a product scenario.
 Newer KWin versions require a render node or the kernel's `/dev/udmabuf`
 device, which hosted CI kernels do not consistently provide. The image removes
@@ -151,7 +151,7 @@ itself prove the UI update or rollback scenarios.
 `Desktop acceptance` runs the whole case inventory in CI on macOS and Linux;
 the absent Linux desktop artifact makes that job fail. `E2E harness` checks only
 the automation library and must not be reported as application acceptance.
-The early native probe is an explicitly partial development diagnostic and stops
+The early `Desktop acceptance` probe is an explicitly partial development diagnostic and stops
 after its first failure. The separate complete acceptance run still runs every
 case and does not stop after the first failure.
 
@@ -177,8 +177,10 @@ virtualization. The image URL and SHA-512 digest are pinned in
 `fixtures/fetch_vm_image.py`; each case writes only its private overlay and
 NoCloud seed. Login and host keys are generated per case, and host key
 verification remains strict. Its HTTPS forwarder carries TLS unchanged to the
-host's fixture service. This backend still needs its separate native CI proof;
-it must not yet be reported as working macOS remote acceptance.
+host's fixture service. Its three real-transport checks passed on macOS in
+[run 44909920177](https://github.com/saffronjam/jam/actions/runs/44909920177).
+The full macOS UI workflow now provisions these guests for remote scenarios;
+transport proof alone is not a passing remote UI result.
 
 ```sh
 python fixtures/fetch_vm_image.py /absolute/path/to/debian-arm64.qcow2

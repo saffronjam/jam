@@ -89,7 +89,7 @@ jobs:
           fixture=()
           if [ -n "${PROBE_BUNDLE:-}" ]; then fixture=(--fixture-bundle "$PROBE_BUNDLE"); fi
           .cache/e2e-bootstrap/bin/uv run --project e2e --locked pytest -c e2e/pyproject.toml e2e/tests \
-            --app "$PROBE_APP" --platform macos "${fixture[@]}" --allow-subset --maxfail=1 \
+            --app "$PROBE_APP" --platform macos "${fixture[@]}" --allow-subset \
             -k "$SELECTED_CASES" \
             --artifacts-dir e2e/artifacts/probe --junitxml=e2e/artifacts/probe.xml
       - name: Check the installed stock release

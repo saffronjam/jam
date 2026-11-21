@@ -24,6 +24,7 @@ def test_unique_cases_have_assertions():
                 "count",
                 "settle_count",
                 "visible",
+                "target_visible",
                 "absent",
                 "config",
                 "config_default",

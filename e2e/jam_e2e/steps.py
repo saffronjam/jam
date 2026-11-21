@@ -32,6 +32,8 @@ def execute(jam, step, memory):
         ui.key(*args)
     elif op == "visible":
         ui.expect(*args)
+    elif op == "target_visible":
+        ui.element(*args)
     elif op == "absent":
         wait(lambda: not ui.has(args[0]), f"absence of {args[0]}")
         until = time.monotonic() + 2

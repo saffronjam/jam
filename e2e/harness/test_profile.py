@@ -4,6 +4,7 @@ import pty
 import socket
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -65,11 +66,12 @@ def test_json_cli_error_never_counts_as_success(tmp_path, monkeypatch):
     assert event["reply"] == {"Error": "pane is missing"}
 
 
-def test_cleanup_accepts_an_already_reaped_owned_daemon(tmp_path):
-    profile = Profile(tmp_path, Path(sys.executable), Path(sys.executable))
-    child = subprocess.Popen([sys.executable, "-c", "pass"])
-    child.wait(timeout=5)
-    with socket.socket(socket.AF_UNIX) as listener:
-        listener.bind(str(profile.socket))
-    (profile.socket.parent / "release.json").write_text(json.dumps({"pid": child.pid}))
-    profile.stop()
+def test_cleanup_accepts_an_already_reaped_owned_daemon():
+    with tempfile.TemporaryDirectory(prefix="jhc-") as directory:
+        profile = Profile(Path(directory), Path(sys.executable), Path(sys.executable))
+        child = subprocess.Popen([sys.executable, "-c", "pass"])
+        child.wait(timeout=5)
+        with socket.socket(socket.AF_UNIX) as listener:
+            listener.bind(str(profile.socket))
+        (profile.socket.parent / "release.json").write_text(json.dumps({"pid": child.pid}))
+        profile.stop()

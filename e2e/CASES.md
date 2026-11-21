@@ -1812,7 +1812,7 @@ Fixture: `provider-installed`.
 
 1. `('command', 'Agent Integrations')`
 2. `('click', 'integration.claude.remove')`
-3. `('visible', 'integration.claude.install')`
+3. `('target_visible', 'integration.claude.install')`
 
 ## AGENT-008: provider foreign external user workflow
 
@@ -1891,10 +1891,10 @@ Fixture: `provider-custom-hooks`.
 
 1. `('command', 'Agent Integrations')`
 2. `('click', 'integration.claude.install')`
-3. `('visible', 'integration.claude.remove')`
+3. `('target_visible', 'integration.claude.remove')`
 4. `('home_json_contains', '.claude/settings.json', {'fixture_user_setting': {'keep': True}, 'hooks': {'SessionStart': [{'matcher': '', 'hooks': [{'type': 'command', 'command': 'printf fixture-user-hook'}]}]}})`
 5. `('click', 'integration.claude.remove')`
-6. `('visible', 'integration.claude.install')`
+6. `('target_visible', 'integration.claude.install')`
 7. `('home_json_equals', '.claude/settings.json', {'fixture_user_setting': {'keep': True}, 'hooks': {'SessionStart': [{'matcher': '', 'hooks': [{'type': 'command', 'command': 'printf fixture-user-hook'}]}]}})`
 
 ## AGENT-010: Installing and removing codex integration preserves the user's hooks and settings
@@ -1903,8 +1903,8 @@ Fixture: `provider-custom-hooks`.
 
 1. `('command', 'Agent Integrations')`
 2. `('click', 'integration.codex.install')`
-3. `('visible', 'integration.codex.remove')`
+3. `('target_visible', 'integration.codex.remove')`
 4. `('home_json_contains', '.codex/hooks.json', {'fixture_user_setting': {'keep': True}, 'hooks': {'SessionStart': [{'matcher': '', 'hooks': [{'type': 'command', 'command': 'printf fixture-user-hook'}]}]}})`
 5. `('click', 'integration.codex.remove')`
-6. `('visible', 'integration.codex.install')`
+6. `('target_visible', 'integration.codex.install')`
 7. `('home_json_equals', '.codex/hooks.json', {'fixture_user_setting': {'keep': True}, 'hooks': {'SessionStart': [{'matcher': '', 'hooks': [{'type': 'command', 'command': 'printf fixture-user-hook'}]}]}})`
