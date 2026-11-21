@@ -8,6 +8,25 @@ use std::{
     os::unix::process::CommandExt,
     thread,
 };
+fn frame_text(frame: &jam_core::vt::TerminalFrame) -> String {
+    frame
+        .cells
+        .chunks(frame.cols.max(1) as usize)
+        .map(|row| {
+            row.iter()
+                .filter(|cell| cell.wide < 2)
+                .map(|cell| {
+                    if cell.text.is_empty() {
+                        " "
+                    } else {
+                        &cell.text
+                    }
+                })
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
 fn json_result(f: impl FnOnce() -> anyhow::Result<serde_json::Value>) -> *mut c_char {
     let v = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
     let v = match v {
@@ -409,23 +428,7 @@ pub unsafe extern "C" fn jam_view_draw(
             size,
             std::time::Instant::now(),
         );
-        let screen_text = if ready && d.revision != v.revision {
-            Some(
-                d.frame
-                    .cells
-                    .chunks(d.frame.cols.max(1) as usize)
-                    .map(|row| {
-                        row.iter()
-                            .filter(|c| c.wide < 2)
-                            .map(|c| if c.text.is_empty() { " " } else { &c.text })
-                            .collect::<String>()
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n"),
-            )
-        } else {
-            None
-        };
+        let screen_text = (ready && d.revision != v.revision).then(|| frame_text(&d.frame));
         let meta = serde_json::json!({"text":screen_text,"error":error,"ready":ready,"mouse":d.frame.mouse_tracking,"alternate":d.frame.alternate,"cols":d.frame.cols,"rows":d.frame.rows,"cursor_x":d.frame.cursor.0,"cursor_y":d.frame.cursor.1});
         if !ready {
             return Ok(meta);
@@ -483,6 +486,10 @@ pub unsafe extern "C" fn jam_view_action(
                 )
             }
             "copy" => return Ok(serde_json::json!({"text":v.mirror.selected_text()})),
+            "text" => {
+                let display = v.mirror.display.lock().unwrap();
+                return Ok(serde_json::json!({"text":frame_text(&display.frame)}));
+            }
             _ => anyhow::bail!("unknown view action"),
         };
         Ok(serde_json::json!({"ok":true}))

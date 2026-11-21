@@ -1409,6 +1409,7 @@ final class TerminalNSView: NSView, NSTextInputClient, NSMenuItemValidation {
   var marked = NSAttributedString(string: "")
   var onError: ((String?) -> Void)?
   var meta: [String: Any] = [:]
+  private var lastAccessibilityText = ""
   var lastError = ""
   var fontScale: Double = 1
   var focused = false
@@ -1452,6 +1453,13 @@ final class TerminalNSView: NSView, NSTextInputClient, NSMenuItemValidation {
   }
   required init?(coder: NSCoder) { fatalError("unsupported") }
   override var acceptsFirstResponder: Bool { true }
+  override func isAccessibilityEnabled() -> Bool { !TerminalInputGate.blocked }
+  override func isAccessibilityFocused() -> Bool { window?.firstResponder === self }
+  override func accessibilityValue() -> Any? {
+    let value = action("text")
+    let object = try? JSONSerialization.jsonObject(with: Data(value.utf8)) as? [String: Any]
+    return object?["text"] as? String ?? ""
+  }
   override func viewDidMoveToWindow() {
     super.viewDidMoveToWindow()
     displayClock?.invalidate()
@@ -1535,8 +1543,8 @@ final class TerminalNSView: NSView, NSTextInputClient, NSMenuItemValidation {
         lastError = ""
         onError?(nil)
       }
-      if let text = values["text"] as? String, (accessibilityValue() as? String) != text {
-        setAccessibilityValue(text)
+      if let text = values["text"] as? String, lastAccessibilityText != text {
+        lastAccessibilityText = text
         NSAccessibility.post(element: self, notification: .valueChanged)
       }
       updateComposition()
