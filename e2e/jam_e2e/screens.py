@@ -1,9 +1,9 @@
-import re
 import shlex
 import tomllib
 import uuid
 
 from .driver import wait
+from .processes import pane_processes
 
 
 class Jam:
@@ -77,24 +77,4 @@ class Jam:
         wait(matches, f"{expected} {kind}")
 
     def pids(self):
-        panes = [p for p in self.profile.layout()["panes"] if not p["exited"]]
-        result = {}
-        for pane in panes:
-            marker = "PID_" + uuid.uuid4().hex
-            self.profile.call(
-                "pane",
-                "send",
-                "--pane",
-                pane["id"],
-                "--text",
-                f"printf '\\n{marker}:%s\\n' \"$$\"",
-                "--enter",
-            )
-            values = wait(
-                lambda marker=marker, pane=pane: re.findall(
-                    r"^" + marker + r":(\d+)\s*$", self.profile.capture(pane["id"]), re.MULTILINE
-                ),
-                "shell PID probe",
-            )
-            result[pane["id"]] = values[-1]
-        return result
+        return pane_processes(self.profile)

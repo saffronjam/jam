@@ -7,10 +7,13 @@ RUN dnf install -y --setopt=install_weak_deps=False \
       plasma-wayland-protocols-devel wayland-devel libxkbcommon-devel \
       kwin at-spi2-core gtk3 gtk4 libadwaita \
       python3 python3-pip python3-pyatspi python3-gobject python3-lxml python3-numpy \
-      ruby ruby-bundled-gems which dbus-daemon dbus-tools pipewire wireplumber \
+      ruby ruby-bundled-gems which libcap dbus-daemon dbus-tools pipewire wireplumber \
       mesa-dri-drivers mesa-vulkan-drivers dejavu-sans-fonts vulkan-loader \
     && dnf clean all \
     && ln -s /usr/bin/ruby-mri /usr/local/bin/ruby
+# Fedora's compositor requests file capabilities outside Docker's bounding
+# set. The virtual test compositor needs no real-time scheduling privilege.
+RUN if [ -n "$(getcap /usr/bin/kwin_wayland)" ]; then setcap -r /usr/bin/kwin_wayland; fi
 RUN python3 -m venv --system-site-packages /opt/atspi \
     && /opt/atspi/bin/pip install Flask==3.0.0 Appium-Python-Client==4.5.1 selenium==4.29.0 uv==0.13.5
 COPY allow-gtk.patch /opt/allow-gtk.patch

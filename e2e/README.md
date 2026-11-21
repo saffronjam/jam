@@ -33,6 +33,10 @@ software graphics. Its small patch removes an upstream Qt-only tree filter so
 GTK widgets can be inspected. `Linux automation proof` verifies real GTK4
 controls, input, clipboard and screenshots in this environment. This low-level
 probe is separate from Jam acceptance and cannot satisfy a product scenario.
+KWin also requires a real render node or the kernel's `/dev/udmabuf` device;
+software Mesa alone does not provide compositor DMA buffers. CI loads the
+`udmabuf` module on its disposable runner and exposes only that device to the
+container. The image removes KWin's real-time scheduling file capability.
 
 ```sh
 uv run pytest --app /absolute/path/to/Jam.app --platform macos \
