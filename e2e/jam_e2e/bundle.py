@@ -36,6 +36,25 @@ def expand(text, values):
     return text
 
 
+def service_diagnostics(process, log):
+    """Observe only the owned child, before cleanup destroys the evidence."""
+    destination = Path(log.name).with_suffix(".diagnostics.log")
+    commands = [["/bin/ps", "-ww", "-p", str(process.pid), "-o", "pid=,ppid=,stat=,etime=,args="]]
+    if sys.platform == "darwin" and process.poll() is None:
+        commands.append([
+            "/usr/bin/sample", str(process.pid), "1", "1", "-file",
+            str(Path(log.name).with_suffix(".sample.log")),
+        ])
+    with destination.open("w") as output:
+        for command in commands:
+            output.write("$ " + " ".join(command) + "\n")
+            output.flush()
+            try:
+                subprocess.run(command, stdout=output, stderr=output, timeout=10, check=False)
+            except (OSError, subprocess.TimeoutExpired) as error:
+                output.write(str(error) + "\n")
+
+
 def prepare(manifest, recipe, profile):
     if not manifest:
         raise AssertionError(
@@ -115,15 +134,20 @@ def prepare(manifest, recipe, profile):
             deadline = time.monotonic() + service.get("startup_timeout", 20)
             while not ready.exists():
                 if process.poll() is not None:
+                    service_diagnostics(process, log)
                     raise AssertionError(
                         f"Fixture service exited with {process.returncode}; see {log.name}"
                     )
                 if time.monotonic() >= deadline:
+                    service_diagnostics(process, log)
                     raise AssertionError(f"Fixture service did not become ready; see {log.name}")
                 time.sleep(0.05)
         for index, command in enumerate(spec.get("after_services", [])):
             run_setup(command, "after", index)
         return resources
-    except BaseException:
-        resources.stop()
+    except BaseException as error:
+        try:
+            resources.stop()
+        except Exception as cleanup_error:
+            error.add_note(f"Fixture cleanup also failed: {cleanup_error}")
         raise

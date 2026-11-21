@@ -3,7 +3,6 @@
 import json
 import signal
 import subprocess
-import sys
 import tempfile
 from pathlib import Path
 
@@ -22,10 +21,19 @@ def test_interrupt_uses_the_public_journal_path_in_process_arguments(monkeypatch
         journal.write_text('{"phase":"staged"}')
         # A real child retains the symlink spelling in argv, just like exec
         # through macOS's /var alias. It has no application or updater code.
-        (parent / "__upgrade-apply").write_text("import time; time.sleep(30)\n")
+        helper = journal.parent / "jam-updater"
+        # Darwin's interpreter process title need not preserve a supplied
+        # argv[0]. Use an actual native executable, as the shipped updater is.
+        subprocess.run(
+            ["cc", "-x", "c", "-", "-o", str(helper)],
+            input="#include <unistd.h>\nint main(void) { sleep(30); return 0; }\n",
+            text=True,
+            capture_output=True,
+            check=True,
+            timeout=30,
+        )
         child = subprocess.Popen(
-            [str(journal.parent / "jam-updater"), "__upgrade-apply", str(journal)],
-            executable=sys.executable,
+            [str(helper), "__upgrade-apply", str(journal)],
             cwd=parent,
         )
         run = subprocess.run
