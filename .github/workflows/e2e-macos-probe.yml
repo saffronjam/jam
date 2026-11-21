@@ -3,12 +3,23 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+    inputs:
+      fixture_run:
+        description: Optional completed Fixture release artifacts run
+        type: string
+        required: false
+      cases:
+        description: Explicit partial development selector
+        type: string
+        default: TERM-001 or CFG-001 or DRAG-001 or INPUT-005
+        required: false
 permissions:
   contents: read
+  actions: read
 jobs:
   native-driver:
     runs-on: macos-15
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       APPIUM_HOME: ${{ github.workspace }}/.cache/appium-home
     steps:
@@ -30,6 +41,27 @@ jobs:
           gh release download v0.0.4 --repo saffronjam/jam --pattern Jam-v0.0.4-macos-arm64.zip --dir .cache/stock
           ditto -xk .cache/stock/Jam-v0.0.4-macos-arm64.zip .cache/stock
           codesign --verify --deep --strict .cache/stock/Jam.app
+      - name: Select the fixture installation for an explicit diagnostic run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FIXTURE_RUN: ${{ inputs.fixture_run }}
+        run: |
+          echo "PROBE_APP=$PWD/.cache/stock/Jam.app" >> "$GITHUB_ENV"
+          if [ -n "$FIXTURE_RUN" ]; then
+            gh run view "$FIXTURE_RUN" --json name,conclusion,headSha > fixture-source.json
+            python3 - <<'PY'
+          import json
+          value = json.load(open('fixture-source.json'))
+          assert value['name'] == 'Fixture release artifacts' and value['conclusion'] == 'success', value
+          PY
+            gh run download "$FIXTURE_RUN" -n fixture-release-bundle -D .cache/fixture-input
+            mkdir -p .cache/fixture-bundle e2e/artifacts
+            tar -xzf .cache/fixture-input/fixture-release-bundle.tar.gz -C .cache/fixture-bundle
+            codesign --verify --deep --strict .cache/fixture-bundle/installation/Jam.app
+            echo "PROBE_APP=$PWD/.cache/fixture-bundle/installation/Jam.app" >> "$GITHUB_ENV"
+            echo "PROBE_BUNDLE=$PWD/.cache/fixture-bundle/manifest.json" >> "$GITHUB_ENV"
+            mv fixture-source.json e2e/artifacts/fixture-source.json
+          fi
       - name: Start native WebDriver
         run: |
           mkdir -p e2e/artifacts
@@ -49,10 +81,14 @@ jobs:
                   time.sleep(.2)
           PY
       - name: Probe terminal, settings, dragging and key input
+        env:
+          SELECTED_CASES: ${{ inputs.cases || 'TERM-001 or CFG-001 or DRAG-001 or INPUT-005' }}
         run: |
+          fixture=()
+          if [ -n "${PROBE_BUNDLE:-}" ]; then fixture=(--fixture-bundle "$PROBE_BUNDLE"); fi
           .cache/e2e-bootstrap/bin/uv run --project e2e --locked pytest -c e2e/pyproject.toml e2e/tests \
-            --app "$PWD/.cache/stock/Jam.app" --platform macos --allow-subset --maxfail=1 \
-            -k 'TERM-001 or CFG-001 or DRAG-001 or INPUT-005' \
+            --app "$PROBE_APP" --platform macos "${fixture[@]}" --allow-subset --maxfail=1 \
+            -k "$SELECTED_CASES" \
             --artifacts-dir e2e/artifacts/probe --junitxml=e2e/artifacts/probe.xml
       - name: Check the installed stock release
         if: always()

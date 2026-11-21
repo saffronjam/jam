@@ -98,6 +98,27 @@ def capture(item, jam):
     log = jam.profile.state / "jamd.log"
     if log.exists():
         shutil.copyfile(log, folder / "jamd.log")
+    receipt = jam.profile.socket.parent / "release.json"
+    if receipt.is_file():
+        shutil.copyfile(receipt, folder / "daemon-release.json")
+        if sys.platform == "darwin":
+            try:
+                pid = json.loads(receipt.read_text())["pid"]
+                subprocess.run(
+                    [
+                        "/usr/bin/sample",
+                        str(pid),
+                        "1",
+                        "1",
+                        "-file",
+                        str(folder / "daemon-sample.txt"),
+                    ],
+                    check=True,
+                    capture_output=True,
+                    timeout=10,
+                )
+            except Exception as error:  # noqa: BLE001 - preserve the original failure
+                errors.append(f"daemon sample: {error}")
     try:
         for pane in jam.profile.layout()["panes"]:
             (folder / ("pane-" + pane["id"] + ".txt")).write_text(jam.profile.capture(pane["id"]))

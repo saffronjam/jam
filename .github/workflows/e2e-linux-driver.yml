@@ -15,6 +15,8 @@ jobs:
         run: docker build --memory=2g -t jam-e2e-wayland e2e/environments/linux
       - name: Provide software DMA buffers for the real Wayland compositor
         run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends "linux-modules-extra-$(uname -r)"
           sudo modprobe udmabuf
           test -c /dev/udmabuf
           sudo chmod a+rw /dev/udmabuf
