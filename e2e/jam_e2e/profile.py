@@ -1,6 +1,9 @@
 import json
 import os
+import re
+import signal
 import subprocess
+import time
 import uuid
 from pathlib import Path
 
@@ -114,6 +117,7 @@ class Profile:
 
     def stop(self):
         if self.socket.exists():
+            pid = None
             receipt = self.socket.parent / "release.json"
             if receipt.is_file():
                 pid = json.loads(receipt.read_text())["pid"]
@@ -123,4 +127,53 @@ class Profile:
                     # A failed setup may already have reaped its supervised
                     # daemon. Its stale private socket needs no stop request.
                     return
-            self.call("daemon", "stop")
+            try:
+                self.call("daemon", "stop")
+            except Exception as error:
+                if pid is not None:
+                    try:
+                        self._terminate_owned_daemon(pid)
+                    except (
+                        OSError,
+                        subprocess.SubprocessError,
+                        AssertionError,
+                        ValueError,
+                    ) as cleanup:
+                        error.add_note(f"Owned daemon termination failed: {cleanup}")
+                raise
+
+    def _terminate_owned_daemon(self, pid):
+        def owned_and_alive():
+            value = subprocess.run(
+                ["/bin/ps", "eww", "-p", str(pid), "-o", "stat=,command="],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if value.returncode == 1 and not value.stdout.strip():
+                return False
+            value.check_returncode()
+            status, command = value.stdout.strip().split(None, 1)
+            if status.startswith("Z"):
+                return False
+            for key, expected in (("JAM_SOCKET", self.socket), ("JAM_STATE_DIR", self.state)):
+                assert re.search(
+                    rf"(?:^|\s){key}=" + re.escape(str(expected)) + r"(?:\s|$)", command
+                ), f"Refusing to signal PID {pid}: it does not belong to this private profile"
+            return True
+
+        for request, budget in ((signal.SIGTERM, 3), (signal.SIGKILL, 2)):
+            if not owned_and_alive():
+                return
+            os.kill(pid, request)
+            with (self.root / "cleanup.events").open("a") as log:
+                log.write(json.dumps({"pid": pid, "signal": request.name}) + "\n")
+            deadline = time.monotonic() + budget
+            while owned_and_alive():
+                if time.monotonic() >= deadline:
+                    break
+                time.sleep(0.05)
+            else:
+                return
+        raise AssertionError(f"Owned daemon PID {pid} did not exit after forced cleanup")

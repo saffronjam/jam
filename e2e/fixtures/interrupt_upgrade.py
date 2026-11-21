@@ -25,7 +25,7 @@ def interrupt(root):
     deadline = time.monotonic() + 5
     while True:
         rows = subprocess.run(
-            ["/bin/ps", "-A", "-o", "pid=,args="],
+            ["/bin/ps", "-A", "-ww", "-o", "pid=,args="],
             check=True,
             capture_output=True,
             text=True,

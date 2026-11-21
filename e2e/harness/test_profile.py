@@ -75,3 +75,37 @@ def test_cleanup_accepts_an_already_reaped_owned_daemon():
             listener.bind(str(profile.socket))
         (profile.socket.parent / "release.json").write_text(json.dumps({"pid": child.pid}))
         profile.stop()
+
+
+@pytest.mark.parametrize("belongs", [True, False])
+def test_failed_daemon_stop_cleans_only_the_owned_process(monkeypatch, belongs):
+    with tempfile.TemporaryDirectory(prefix="jhc-") as directory:
+        profile = Profile(Path(directory), Path(sys.executable), Path(sys.executable))
+        child = subprocess.Popen(
+            [sys.executable, "-c", "import sys; sys.stdin.read()"],
+            env=dict(profile.env, JAM_SOCKET=str(profile.socket if belongs else "/foreign/socket")),
+            stdin=subprocess.PIPE,
+        )
+        try:
+            with socket.socket(socket.AF_UNIX) as listener:
+                listener.bind(str(profile.socket))
+            (profile.socket.parent / "release.json").write_text(json.dumps({"pid": child.pid}))
+
+            def failed_stop(*args):
+                raise RuntimeError("public stop failed")
+
+            monkeypatch.setattr(profile, "call", failed_stop)
+            with pytest.raises(RuntimeError, match="public stop failed") as failure:
+                profile.stop()
+            if belongs:
+                child.wait(timeout=5)
+                assert child.returncode != 0
+                assert json.loads((profile.root / "cleanup.events").read_text())["pid"] == child.pid
+            else:
+                assert child.poll() is None, "Another profile's process was signalled"
+                assert "Refusing to signal" in " ".join(failure.value.__notes__)
+        finally:
+            if child.poll() is None:
+                child.kill()
+                child.wait(timeout=5)
+            child.stdin.close()
