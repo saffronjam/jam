@@ -1,8 +1,11 @@
+import json
 import os
 import pty
 import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 from jam_e2e.profile import Profile
 
@@ -44,3 +47,18 @@ def test_terminal_probe_observes_real_pty_input(tmp_path):
             child.wait()
         os.close(master)
         os.close(slave)
+
+
+def test_json_cli_error_never_counts_as_success(tmp_path, monkeypatch):
+    profile = Profile(tmp_path, Path("/bin/true"), Path("/bin/true"))
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(
+            [], 0, stdout='{"Error":"pane is missing"}', stderr=""
+        ),
+    )
+    with pytest.raises(AssertionError, match="pane is missing"):
+        profile.call("pane", "send", "--pane", "missing", "--text", "probe")
+    event = json.loads((tmp_path / "cli-events.jsonl").read_text())
+    assert event["reply"] == {"Error": "pane is missing"}

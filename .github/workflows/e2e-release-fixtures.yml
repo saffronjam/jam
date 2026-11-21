@@ -1,0 +1,140 @@
+name: Fixture release artifacts
+on:
+  workflow_dispatch:
+  workflow_call:
+  push:
+    paths:
+      - scripts/e2e/**
+      - scripts/remote-build.py
+      - scripts/release/build-macos.sh
+      - e2e/fixtures/sign_releases.py
+      - .github/workflows/e2e-release-fixtures.yml
+  pull_request:
+    paths:
+      - scripts/e2e/**
+      - scripts/remote-build.py
+      - scripts/release/build-macos.sh
+      - e2e/fixtures/sign_releases.py
+      - .github/workflows/e2e-release-fixtures.yml
+permissions:
+  contents: read
+env:
+  BASELINE_VERSION: 0.0.4
+  TARGET_VERSION: 0.0.5
+  CARGO_BUILD_JOBS: 2
+jobs:
+  trust:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - run: python3 e2e/fixtures/prepare_trust.py build/e2e-trust
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: fixture-release-trust
+          path: build/e2e-trust/
+          if-no-files-found: error
+  linux:
+    needs: trust
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: x86_64
+          - runner: ubuntu-24.04-arm
+            arch: aarch64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    env:
+      FIXTURE_ARCH: ${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc
+        with:
+          toolchain: 1.97.1
+          components: rustfmt, clippy
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: fixture-release-trust
+          path: build/e2e-trust
+      - name: Prepare the locked release toolchain
+        run: |
+          cargo fetch --locked
+          docker build -t jam-fixture-builder -f scripts/Remote.Dockerfile .
+      - name: Build both real server release versions
+        run: |
+          for version in "$BASELINE_VERSION" "$TARGET_VERSION"; do
+            python3 scripts/e2e/prepare_variant.py --source "$PWD" --output "$PWD/.cache/variants/$version" \
+              --version "$version" --cargo-target "$PWD/.cache/fixture-target"
+            docker run --rm -v "$PWD:/work" -w "/work/.cache/variants/$version" \
+              -e CARGO_BUILD_JOBS=2 -e CARGO_TARGET_DIR=/work/.cache/fixture-target \
+              -e JAM_FIXTURE_ORIGIN=https://localhost:49651 \
+              -e JAM_FIXTURE_CA_FILE=/work/build/e2e-trust/ca.pem \
+              -e JAM_FIXTURE_UPDATE_KEY_FILE=/work/build/e2e-trust/update-public-key.hex \
+              jam-fixture-builder python3 scripts/remote-build.py --fixture-services
+            output="build/e2e-input/v$version"
+            mkdir -p "$output/remote"
+            cp ".cache/variants/$version/build/remote/$FIXTURE_ARCH.tar.gz" "$output/remote/"
+            cp ".cache/variants/$version/build/remote/$FIXTURE_ARCH.json" "$output/remote/"
+            cp ".cache/variants/$version/build/remote/$FIXTURE_ARCH.snapshot" "$output/remote/"
+            cp "$output/remote/$FIXTURE_ARCH.tar.gz" "$output/jam-v$version-linux-$FIXTURE_ARCH.tar.gz"
+          done
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: fixture-remote-${{ matrix.arch }}
+          path: build/e2e-input/
+          if-no-files-found: error
+  macos:
+    needs: [trust, linux]
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc
+        with:
+          toolchain: 1.97.1
+          components: rustfmt, clippy
+      - name: Select OpenSSL for fixture signatures
+        run: |
+          brew list openssl@3 >/dev/null 2>&1 || brew install openssl@3
+          echo "$(brew --prefix openssl@3)/bin" >> "$GITHUB_PATH"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: fixture-release-trust
+          path: build/e2e-trust
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: fixture-remote-*
+          merge-multiple: true
+          path: build/e2e-input
+      - name: Build both managed macOS application versions
+        run: |
+          cargo fetch --locked
+          export JAM_FIXTURE_ORIGIN=https://localhost:49651
+          export JAM_FIXTURE_CA_FILE="$PWD/build/e2e-trust/ca.pem"
+          export JAM_FIXTURE_UPDATE_KEY_FILE="$PWD/build/e2e-trust/update-public-key.hex"
+          for version in "$BASELINE_VERSION" "$TARGET_VERSION"; do
+            variant="$PWD/.cache/variants/$version"
+            python3 scripts/e2e/prepare_variant.py --source "$PWD" --output "$variant" \
+              --version "$version" --cargo-target "$PWD/.cache/fixture-target"
+            mkdir -p "$variant/build/remote"
+            cp "build/e2e-input/v$version/remote/"* "$variant/build/remote/"
+            (cd "$variant" && scripts/release/build-macos.sh --fixture-services)
+            cp "$variant/build/release/Jam-v$version-macos-arm64.zip" "build/e2e-input/v$version/"
+          done
+      - name: Sign and package the complete external release bundle
+        run: |
+          python3 e2e/fixtures/sign_releases.py --artifacts build/e2e-input --trust build/e2e-trust \
+            --versions "$BASELINE_VERSION" "$TARGET_VERSION" \
+            --daemon ".cache/variants/$TARGET_VERSION/build/packaging/Jam.app/Contents/MacOS/jamd"
+          python3 e2e/fixtures/build_bundle.py build/fixture-bundle --trust build/e2e-trust --releases build/e2e-input
+          mkdir -p build/fixture-bundle/installation
+          ditto ".cache/variants/$BASELINE_VERSION/build/packaging/Jam.app" build/fixture-bundle/installation/Jam.app
+          codesign --verify --deep --strict build/fixture-bundle/installation/Jam.app
+          COPYFILE_DISABLE=1 tar -czf build/fixture-release-bundle.tar.gz -C build/fixture-bundle .
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: fixture-release-bundle
+          path: build/fixture-release-bundle.tar.gz
+          if-no-files-found: error

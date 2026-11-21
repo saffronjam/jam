@@ -7,9 +7,10 @@ RUN dnf install -y --setopt=install_weak_deps=False \
       plasma-wayland-protocols-devel wayland-devel libxkbcommon-devel \
       kwin at-spi2-core gtk3 gtk4 libadwaita \
       python3 python3-pip python3-pyatspi python3-gobject python3-lxml python3-numpy \
-      ruby dbus-daemon dbus-tools pipewire wireplumber \
+      ruby ruby-bundled-gems dbus-daemon dbus-tools pipewire wireplumber \
       mesa-dri-drivers mesa-vulkan-drivers dejavu-sans-fonts vulkan-loader \
-    && dnf clean all
+    && dnf clean all \
+    && ln -s /usr/bin/ruby-mri /usr/local/bin/ruby
 RUN python3 -m venv --system-site-packages /opt/atspi \
     && /opt/atspi/bin/pip install Flask==3.0.0 Appium-Python-Client==4.5.1 selenium==4.29.0 uv==0.13.5
 COPY allow-gtk.patch /opt/allow-gtk.patch
@@ -28,7 +29,8 @@ ENV PATH="/opt/atspi/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
     XDG_RUNTIME_DIR=/tmp/driver-runtime \
     LIBGL_ALWAYS_SOFTWARE=1 USE_CUSTOM_BUS=1 \
     TEST_WITH_CLEAN_HOME=0 TEST_WITH_VIDEO_RECORDER=0
-RUN ruby --version && /opt/atspi/bin/flask --version
+RUN ruby -rfileutils -rlogger -rshellwords -rtmpdir -e 'puts RUBY_VERSION' \
+    && /opt/atspi/bin/flask --version
 USER tester
 WORKDIR /work
 ENTRYPOINT ["selenium-webdriver-at-spi-run"]

@@ -90,7 +90,18 @@ class Profile:
         except subprocess.CalledProcessError as error:
             error.add_note("Public CLI error: " + error.stderr)
             raise
-        return json.loads(result.stdout)
+        reply = json.loads(result.stdout)
+        rejected = isinstance(reply, dict) and ("Error" in reply or "error" in reply)
+        if rejected or tuple(args[:2]) not in {
+            ("pane", "capture"),
+            ("workspace", "list"),
+            ("coordinate", "list"),
+        }:
+            with (self.root / "cli-events.jsonl").open("a") as log:
+                log.write(json.dumps({"argv": args, "reply": reply}) + "\n")
+        if rejected:
+            raise AssertionError(f"Public CLI rejected {args!r}: {reply}")
+        return reply
 
     def layout(self):
         return self.call("workspace", "list")["State"]

@@ -107,6 +107,7 @@ def capture(item, jam):
         *jam.profile.root.glob("*.events"),
         jam.profile.home / "provider-events.jsonl",
         jam.profile.root / "fixture-ids.json",
+        jam.profile.root / "cli-events.jsonl",
     ):
         if source.is_file():
             shutil.copyfile(source, folder / source.name)
