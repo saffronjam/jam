@@ -69,6 +69,20 @@ final class AppUpgradeController: ObservableObject {
   var currentVersion: String {
     Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
   }
+  var settingsRelease: AppRelease? {
+    guard let release = available ?? schedule.visibleRelease(manual: true, current: currentVersion)
+    else { return nil }
+    guard let minimum = requiredMinimum else { return release }
+    return AppUpgradeRequirement.satisfies(release.version, minimum: minimum) ? release : nil
+  }
+  var canPrepareUpdate: Bool {
+    managed && !busy && phase == .idle && settingsRelease != nil
+  }
+  func prepareFromSettings() {
+    guard canPrepareUpdate else { return }
+    available = settingsRelease
+    prepare()
+  }
 
   func configure(automatic: Bool) {
     let newlyEnabled = !self.automatic && automatic
@@ -186,10 +200,6 @@ final class AppUpgradeController: ObservableObject {
             manual: manualPresentation, current: self.currentVersion)
           if !self.managed {
             self.available = nil
-            if manualPresentation, let release = value.release, value.available {
-              self.notice =
-                "Jam \(release.version) is available. Install the release Jam.app to use automatic upgrades; development builds are left unchanged."
-            }
           }
           if let minimum = self.requiredMinimum {
             let skippedSatisfiesRequirement =
@@ -483,7 +493,9 @@ struct AppUpgradeOverlay: View {
           .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
       } else if showsNotification && !controller.showSheet && !controller.error.isEmpty {
         WarningToast(message: controller.error, retry: nil, dismiss: { controller.error = "" })
-      } else if showsNotification && !controller.showSheet && !controller.notice.isEmpty {
+      } else if controller.managed && showsNotification && !controller.showSheet
+        && !controller.notice.isEmpty
+      {
         VStack(alignment: .leading, spacing: 12) {
           HStack(alignment: .top) {
             Text(controller.notice).font(.callout)
@@ -500,7 +512,9 @@ struct AppUpgradeOverlay: View {
             }.controlSize(.small)
           }
         }.padding(14).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-      } else if let release = controller.available, showsNotification, !controller.showSheet {
+      } else if let release = controller.available, controller.managed, showsNotification,
+        !controller.showSheet
+      {
         VStack(alignment: .leading, spacing: 12) {
           Text("Jam \(release.version) is available").font(.callout.weight(.semibold))
           if let minimum = controller.requiredMinimum {
@@ -627,12 +641,21 @@ struct AppUpdateSettings: View {
         Button("Recover Interrupted Upgrade…") { controller.recovery = interrupted }
           .disabled(controller.phase == .launching || controller.phase == .applying)
       }
-      if let release = controller.available {
-        Text("Jam \(release.version) is available.").foregroundStyle(.secondary)
+      if let release = controller.settingsRelease {
+        HStack {
+          Text("Jam \(release.version) is available").foregroundStyle(.secondary)
+          Spacer()
+          Button("Upgrade…", action: controller.prepareFromSettings).disabled(
+            !controller.canPrepareUpdate)
+        }
       } else if !controller.notice.isEmpty {
         Text(controller.notice).foregroundStyle(.secondary)
       }
       if !controller.error.isEmpty { ErrorNotice(message: controller.error) }
+    }
+    .sheet(isPresented: $controller.showSheet) { AppUpgradeSheet(controller: controller) }
+    .sheet(item: $controller.recovery) { interrupted in
+      AppUpgradeRecoverySheet(controller: controller, interrupted: interrupted)
     }
   }
 }
@@ -656,8 +679,11 @@ struct AppStatusOverlay: View {
         .padding(12)
         .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
       }
-      // Connection errors must not hide the action that can resolve them.
-      AppUpgradeOverlay(controller: controller)
+      // Settings owns its nested upgrade sheets while it is open.
+      if !store.showSettings {
+        // Connection errors must not hide the action that can resolve them.
+        AppUpgradeOverlay(controller: controller)
+      }
     }.animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: store.error.isEmpty)
   }
 }

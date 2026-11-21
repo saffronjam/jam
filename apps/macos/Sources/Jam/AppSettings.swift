@@ -211,8 +211,11 @@ struct AppSettingsView: View {
       Button {
         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: draft.path)])
       } label: {
-        Label("Settings File", systemImage: "doc.text")
-          .font(.system(size: 12)).foregroundStyle(.secondary)
+        Label {
+          Text("Settings File").font(.system(size: 12))
+        } icon: {
+          Image(systemName: "doc.text").font(.system(size: 13)).frame(width: 20)
+        }.foregroundStyle(.secondary)
           .frame(maxWidth: .infinity, alignment: .leading)
           .padding(.horizontal, 10).frame(height: 32).contentShape(Rectangle())
       }.buttonStyle(.plain).disabled(draft.path.isEmpty).help(draft.path)

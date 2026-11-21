@@ -79,6 +79,7 @@ struct WorktreeListFixture: View {
     defer { _ = rpc("Stop") }
     let store = Store()
     try checkUpgradeNotifications(store: store)
+    try checkUpdateSettingsControls(store: store)
     try checkSettings(store: store)
     let directory = ProcessInfo.processInfo.environment["JAM_STATE_DIR"]!
     for name in ["first", "second"] {
@@ -777,6 +778,7 @@ struct WorktreeListFixture: View {
 
   static func checkUpgradeNotifications(store: Store) throws {
     let controller = AppUpgradeController { _ in Data("{}".utf8) }
+    controller.managed = true
     controller.available = AppRelease(
       schema: 1, version: "0.0.4", protocol: "jam/test", minMacOS: "14.0", assets: [])
     let previousError = store.error
@@ -792,20 +794,119 @@ struct WorktreeListFixture: View {
     RunLoop.current.run(until: Date().addingTimeInterval(0.3))
     // Inspect the rendered overlay: SwiftUI's lazy AX tree is unavailable to
     // in-process traversal without an external accessibility client.
-    let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
-    host.cacheDisplay(in: host.bounds, to: bitmap)
-    let recognition = VNRecognizeTextRequest()
-    recognition.recognitionLevel = .accurate
-    recognition.minimumTextHeight = 0.005
-    recognition.usesLanguageCorrection = false
-    try VNImageRequestHandler(cgImage: bitmap.cgImage!).perform([recognition])
-    let text = (recognition.results ?? []).compactMap { $0.topCandidates(1).first?.string }
-      .joined(separator: " ")
+    func renderedText() throws -> String {
+      let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
+      host.cacheDisplay(in: host.bounds, to: bitmap)
+      let recognition = VNRecognizeTextRequest()
+      recognition.recognitionLevel = .accurate
+      recognition.minimumTextHeight = 0.005
+      recognition.usesLanguageCorrection = false
+      try VNImageRequestHandler(cgImage: bitmap.cgImage!).perform([recognition])
+      return (recognition.results ?? []).compactMap { $0.topCandidates(1).first?.string }
+        .joined(separator: " ")
+    }
+    let text = try renderedText()
     assert(
       text.contains("Jam 0.0.4 is available") && text.contains("Upgrade")
         && text.contains("Retry") && text.contains("The Jam server needs an update"),
       "The rendered overlay must show both the warning and upgrade action: \(text)")
-    print("Update notification stays visible alongside an incompatible-server warning.")
+    controller.managed = false
+    controller.notice = "Jam 0.0.4 is available"
+    RunLoop.current.run(until: Date().addingTimeInterval(0.3))
+    let developmentText = try renderedText()
+    assert(developmentText.contains("The Jam server needs an update"))
+    assert(
+      !developmentText.contains("Jam 0.0.4 is available"),
+      "Development builds showed an update toast")
+    print(
+      "Release update notification stays visible alongside errors; development update toasts stay hidden."
+    )
+  }
+
+  static func checkUpdateSettingsControls(store: Store) throws {
+    JamDefaults.shared.removeObject(forKey: "appUpgradeState")
+    let previousSettings = store.showSettings
+    defer {
+      store.showSettings = previousSettings
+      JamDefaults.shared.removeObject(forKey: "appUpgradeState")
+    }
+    let release = AppRelease(
+      schema: 1, version: "9.0.0", protocol: "jam/test", minMacOS: "14.0", assets: [])
+    for managed in [false, true] {
+      JamDefaults.shared.removeObject(forKey: "appUpgradeState")
+      let controller = AppUpgradeController { request in
+        switch request["action"] as? String {
+        case "eligibility":
+          if !managed { throw NSError(domain: "Development build", code: 1) }
+          return Data("{}".utf8)
+        case "pending": return Data("[]".utf8)
+        case "check":
+          return try JSONEncoder().encode(
+            AppUpgradeCheck(current: "0.0.3", available: true, release: release))
+        case "stage":
+          return try JSONEncoder().encode(
+            AppUpgradeStage(
+              staged: .init(
+                directory: "/tmp/fixture", release: release, archive: "/tmp/fixture.zip"),
+              plan: .init(
+                installation: "/tmp/Jam.app", localRunning: false, targets: [], offline: [],
+                appPIDs: [])))
+        default: throw NSError(domain: "Unexpected settings updater action", code: 1)
+        }
+      }
+      controller.configure(automatic: false)
+      assert(!controller.canPrepareUpdate, "Upgrade was enabled before checking")
+      controller.check()
+      try wait("settings update check") {
+        controller.settingsRelease == release && controller.managed == managed
+      }
+      assert(controller.canPrepareUpdate == managed)
+      controller.requiredMinimum = "10.0.0"
+      assert(controller.settingsRelease == nil && !controller.canPrepareUpdate)
+      controller.requiredMinimum = nil
+      assert(
+        controller.notice.isEmpty, "The available version must not become an explanatory notice")
+      if !managed {
+        assert(controller.available == nil, "Development builds must not offer an update toast")
+        controller.prepareFromSettings()
+        assert(!controller.showSheet, "Development builds must not start an upgrade")
+        continue
+      }
+      controller.skip()
+      assert(controller.available == nil && controller.canPrepareUpdate)
+      assert(
+        controller.settingsRelease == release,
+        "Settings must allow explicitly upgrading a skipped release")
+      let parent = NSWindow(
+        contentRect: NSRect(x: -3000, y: -3000, width: 800, height: 600),
+        styleMask: [.titled], backing: .buffered, defer: false)
+      let settings = NSWindow(
+        contentRect: NSRect(x: 0, y: 0, width: 700, height: 400),
+        styleMask: [.titled], backing: .buffered, defer: false)
+      store.showSettings = true
+      parent.contentView = NSHostingView(
+        rootView: AppStatusOverlay(store: store, controller: controller))
+      settings.contentView = NSHostingView(
+        rootView: AppUpdateSettings(controller: controller, automatic: .constant(true)))
+      parent.orderFront(nil)
+      parent.beginSheet(settings)
+      defer {
+        parent.endSheet(settings)
+        settings.orderOut(nil)
+        parent.orderOut(nil)
+      }
+      controller.prepareFromSettings()
+      try wait("upgrade confirmation inside settings") {
+        controller.phase == .ready && settings.attachedSheet != nil
+      }
+      assert(settings.attachedSheet?.sheetParent === settings)
+      controller.cancel()
+      try wait("cancel settings upgrade") { settings.attachedSheet == nil }
+      assert(parent.attachedSheet === settings, "Cancelling upgrade dismissed the settings draft")
+    }
+    print(
+      "Settings upgrade passed: disabled for development, enabled after release check, nested confirmation preserves Settings on Cancel."
+    )
   }
 
   static func checkServerRecovery(
