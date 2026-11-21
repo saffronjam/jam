@@ -233,7 +233,7 @@ Fixture: `isolated local installation`.
 Fixture: `isolated local installation`.
 
 1. `('settings', 'General')`
-2. `('click', 'Close workspace after its last tab closes')`
+2. `('click', 'Close workspace after its last tab closes', 'toggle')`
 3. `('save',)`
 4. `('config', 'close_empty_workspaces', True)`
 
@@ -242,7 +242,7 @@ Fixture: `isolated local installation`.
 Fixture: `isolated local installation`.
 
 1. `('settings', 'General')`
-2. `('click', 'Close workspace after its last tab closes')`
+2. `('click', 'Close workspace after its last tab closes', 'toggle')`
 3. `('click', 'Cancel')`
 4. `('config_default', 'close_empty_workspaces', False)`
 
@@ -251,7 +251,7 @@ Fixture: `isolated local installation`.
 Fixture: `isolated local installation`.
 
 1. `('settings', 'General')`
-2. `('click', 'Close workspace after its last tab closes')`
+2. `('click', 'Close workspace after its last tab closes', 'toggle')`
 3. `('save',)`
 4. `('relaunch',)`
 5. `('config', 'close_empty_workspaces', True)`
@@ -261,7 +261,7 @@ Fixture: `isolated local installation`.
 Fixture: `isolated local installation`.
 
 1. `('settings', 'General')`
-2. `('click', 'Close tab after its last pane closes')`
+2. `('click', 'Close tab after its last pane closes', 'toggle')`
 3. `('save',)`
 4. `('config', 'close_empty_tabs', False)`
 
@@ -270,7 +270,7 @@ Fixture: `isolated local installation`.
 Fixture: `isolated local installation`.
 
 1. `('settings', 'General')`
-2. `('click', 'Close tab after its last pane closes')`
+2. `('click', 'Close tab after its last pane closes', 'toggle')`
 3. `('click', 'Cancel')`
 4. `('config_default', 'close_empty_tabs', True)`
 
@@ -279,7 +279,7 @@ Fixture: `isolated local installation`.
 Fixture: `isolated local installation`.
 
 1. `('settings', 'General')`
-2. `('click', 'Close tab after its last pane closes')`
+2. `('click', 'Close tab after its last pane closes', 'toggle')`
 3. `('save',)`
 4. `('relaunch',)`
 5. `('config', 'close_empty_tabs', False)`
@@ -289,7 +289,7 @@ Fixture: `isolated local installation`.
 Fixture: `isolated local installation`.
 
 1. `('settings', 'General')`
-2. `('click', 'Allow deleting checkout files')`
+2. `('click', 'Allow deleting checkout files', 'toggle')`
 3. `('save',)`
 4. `('config', 'allow_workspace_deletion', False)`
 
@@ -298,7 +298,7 @@ Fixture: `isolated local installation`.
 Fixture: `isolated local installation`.
 
 1. `('settings', 'General')`
-2. `('click', 'Allow deleting checkout files')`
+2. `('click', 'Allow deleting checkout files', 'toggle')`
 3. `('click', 'Cancel')`
 4. `('config_default', 'allow_workspace_deletion', True)`
 
@@ -307,7 +307,7 @@ Fixture: `isolated local installation`.
 Fixture: `isolated local installation`.
 
 1. `('settings', 'General')`
-2. `('click', 'Allow deleting checkout files')`
+2. `('click', 'Allow deleting checkout files', 'toggle')`
 3. `('save',)`
 4. `('relaunch',)`
 5. `('config', 'allow_workspace_deletion', False)`
@@ -317,7 +317,7 @@ Fixture: `isolated local installation`.
 Fixture: `isolated local installation`.
 
 1. `('settings', 'General')`
-2. `('click', 'Copy text on selection')`
+2. `('click', 'Copy text on selection', 'toggle')`
 3. `('save',)`
 4. `('config', 'copy_on_select', True)`
 
@@ -326,7 +326,7 @@ Fixture: `isolated local installation`.
 Fixture: `isolated local installation`.
 
 1. `('settings', 'General')`
-2. `('click', 'Copy text on selection')`
+2. `('click', 'Copy text on selection', 'toggle')`
 3. `('click', 'Cancel')`
 4. `('config_default', 'copy_on_select', False)`
 
@@ -335,7 +335,7 @@ Fixture: `isolated local installation`.
 Fixture: `isolated local installation`.
 
 1. `('settings', 'General')`
-2. `('click', 'Copy text on selection')`
+2. `('click', 'Copy text on selection', 'toggle')`
 3. `('save',)`
 4. `('relaunch',)`
 5. `('config', 'copy_on_select', True)`
@@ -345,7 +345,7 @@ Fixture: `isolated local installation`.
 Fixture: `isolated local installation`.
 
 1. `('settings', 'General')`
-2. `('click', 'Automatically check for updates')`
+2. `('click', 'Automatically check for updates', 'toggle')`
 3. `('save',)`
 4. `('config', 'automatic_check_updates', False)`
 
@@ -354,7 +354,7 @@ Fixture: `isolated local installation`.
 Fixture: `isolated local installation`.
 
 1. `('settings', 'General')`
-2. `('click', 'Automatically check for updates')`
+2. `('click', 'Automatically check for updates', 'toggle')`
 3. `('click', 'Cancel')`
 4. `('config_default', 'automatic_check_updates', True)`
 
@@ -363,7 +363,7 @@ Fixture: `isolated local installation`.
 Fixture: `isolated local installation`.
 
 1. `('settings', 'General')`
-2. `('click', 'Automatically check for updates')`
+2. `('click', 'Automatically check for updates', 'toggle')`
 3. `('save',)`
 4. `('relaunch',)`
 5. `('config', 'automatic_check_updates', False)`
@@ -373,7 +373,7 @@ Fixture: `isolated local installation`.
 Fixture: `isolated local installation`.
 
 1. `('settings', 'Coordination')`
-2. `('click', 'Automatically resume interrupted work')`
+2. `('click', 'Automatically resume interrupted work', 'toggle')`
 3. `('save',)`
 4. `('config', 'resume_interrupted_work', False)`
 
@@ -382,7 +382,7 @@ Fixture: `isolated local installation`.
 Fixture: `isolated local installation`.
 
 1. `('settings', 'Coordination')`
-2. `('click', 'Automatically resume interrupted work')`
+2. `('click', 'Automatically resume interrupted work', 'toggle')`
 3. `('click', 'Cancel')`
 4. `('config_default', 'resume_interrupted_work', True)`
 
@@ -391,7 +391,7 @@ Fixture: `isolated local installation`.
 Fixture: `isolated local installation`.
 
 1. `('settings', 'Coordination')`
-2. `('click', 'Automatically resume interrupted work')`
+2. `('click', 'Automatically resume interrupted work', 'toggle')`
 3. `('save',)`
 4. `('relaunch',)`
 5. `('config', 'resume_interrupted_work', False)`

@@ -16,7 +16,7 @@ class Jam:
         self.ui.key("ENTER")
 
     def terminal(self):
-        self.ui.element("Terminal", "terminal", index=0).click()
+        self.ui.click("Terminal", "terminal", index=0)
 
     def run(self, command):
         self.terminal()

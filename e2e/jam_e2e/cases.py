@@ -176,7 +176,7 @@ TOGGLES = (
 )
 for index, (section, label, key, default) in enumerate(TOGGLES):
     for action in ("save", "cancel", "reopen"):
-        steps = [("settings", section), ("click", label)]
+        steps = [("settings", section), ("click", label, "toggle")]
         steps += [("click", "Cancel")] if action == "cancel" else [("save",)]
         if action == "reopen":
             steps.append(("relaunch",))

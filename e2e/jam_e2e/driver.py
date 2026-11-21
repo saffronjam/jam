@@ -136,14 +136,26 @@ class Desktop:
             "field": ("XCUIElementTypeTextField", "*[self::text or self::entry]"),
             "terminal": ("XCUIElementTypeTextView", "text"),
             "menu": ("XCUIElementTypeMenuItem", "menu_item"),
-            "toggle": ("XCUIElementTypeSwitch", "check_box"),
+            "toggle": (
+                "*[self::XCUIElementTypeSwitch or self::XCUIElementTypeCheckBox]",
+                "*[self::check_box or self::toggle_button]",
+            ),
         }
         tag = roles[role][self.platform == "linux"] if role else "*"
         value = literal(name)
-        query = f"//{tag}[@name={value} or @label={value} or @title={value} or @value={value} or @identifier={value} or @accessibility-id={value} or @description={value} or @placeholderValue={value}]"
+        query = f"//{tag}[@name={value} or @label={value} or @title={value} or @identifier={value} or @accessibility-id={value} or @description={value} or @placeholderValue={value}]"
 
         def find():
             matches = [e for e in self.session.find_elements(By.XPATH, query) if e.is_displayed()]
+            if not matches:
+                # SwiftUI exposes adjacent text through value and its control
+                # through label. Prefer the semantic control; value is only a
+                # fallback for targets such as standalone text and menu items.
+                matches = [
+                    e
+                    for e in self.session.find_elements(By.XPATH, f"//{tag}[@value={value}]")
+                    if e.is_displayed()
+                ]
             if index is not None:
                 return matches[index] if len(matches) > index else None
             if len(matches) > 1:
@@ -152,8 +164,8 @@ class Desktop:
 
         return wait(find, f"accessible target {name!r} ({role})")
 
-    def click(self, name, role=None):
-        self._click_element(self.element(name, role))
+    def click(self, name, role=None, index=None):
+        self._click_element(self.element(name, role, index=index))
 
     def _click_element(self, element, button=0):
         if self.platform == "macos" and button == 0:

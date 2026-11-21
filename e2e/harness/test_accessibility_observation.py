@@ -2,6 +2,8 @@
 
 from unittest.mock import Mock
 
+from lxml import etree
+
 from jam_e2e.driver import Desktop
 
 
@@ -36,3 +38,21 @@ def test_atspi_visible_text_is_read_through_the_text_interface():
     assert "actual terminal 日本語" in text
     assert "Hidden command" not in text
     assert "hidden editor text" not in text
+
+
+def test_adjacent_text_does_not_make_a_semantic_control_ambiguous():
+    ui = Desktop("macos", "unused", Mock(), Mock())
+    root = etree.fromstring(
+        b'<Application><XCUIElementTypeButton label="Tab 1"/>'
+        b'<XCUIElementTypeStaticText value="Tab 1"/></Application>'
+    )
+    button, label = Mock(), Mock()
+    button.is_displayed.return_value = label.is_displayed.return_value = True
+    nodes = dict(zip(root, (button, label)))
+    ui.session = Mock()
+    ui.session.find_elements.side_effect = lambda _by, query: [
+        nodes[node] for node in root.xpath(query)
+    ]
+    assert ui.element("Tab 1") is button
+    root.remove(root[0])
+    assert ui.element("Tab 1") is label
