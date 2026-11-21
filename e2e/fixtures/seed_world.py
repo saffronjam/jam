@@ -3,6 +3,7 @@
 import argparse
 import json
 import os
+import shlex
 import subprocess
 import time
 from pathlib import Path
@@ -58,6 +59,7 @@ def seed(root, recipe):
         "remote-host-untrusted",
         "remote-update-available",
         "update-required",
+        "remote-incompatible",
     ):
         ssh = [
             "/usr/bin/ssh",
@@ -75,24 +77,22 @@ def seed(root, recipe):
         remote = call("remote", "add", "Fixture", "jam-fixture")
         ids["remote"] = remote["id"]
         call("remote", "install", ids["remote"], os.environ["JAM_E2E_REMOTE_ARCHIVE"])
-        if recipe == "update-required":
-            # An older client must refuse this server. Seed its workspace
-            # through the newer installation's own shipped CLI over real SSH.
+        def installed_call(*args):
+            # Seed through the peer's own public CLI, including when the local
+            # client cannot connect to its release or wire protocol.
             result = subprocess.run(
                 [*ssh, 'export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"; '
-                 'exec "$HOME/.local/share/jam/servers/current/jam" --json workspace create '
-                 '/home/fixture/project --name "Remote project"'],
+                 'exec "$HOME/.local/share/jam/servers/current/jam" --json ' + shlex.join(args)],
                 check=True, capture_output=True, text=True, timeout=20,
             )
-            remote_state = json.loads(result.stdout)
-            assert "State" in remote_state, remote_state
-        else:
-            remote_state = call(
-                "--remote", ids["remote"], "workspace", "create",
-                "/home/fixture/project", "--name", "Remote project",
-            )
+            value = json.loads(result.stdout)
+            assert "Error" not in value and "error" not in value, value
+            return value
+
+        remote_state = installed_call("workspace", "create", "/home/fixture/project",
+                                      "--name", "Remote project")
         ids["remote_workspace"] = remote_state["State"]["workspaces"][0]["id"]
-        info = call("--remote", ids["remote"], "daemon", "info")["HostInfo"]
+        info = installed_call("daemon", "info")["HostInfo"]
         ids["remote_build"] = info["build"]
         ids["remote_incarnation"] = info["incarnation"]
         ids["remote_sessions"] = {

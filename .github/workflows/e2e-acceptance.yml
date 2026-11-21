@@ -59,6 +59,7 @@ jobs:
               --remote-archive "$PWD/.cache/e2e-bundle/releases/v0.0.4/jam-v0.0.4-linux-aarch64.tar.gz"
               --remote-previous-archive "$PWD/.cache/previous-server/jam-v0.0.4-linux-aarch64.tar.gz"
               --remote-next-archive "$PWD/.cache/e2e-bundle/releases/v0.0.5/jam-v0.0.5-linux-aarch64.tar.gz"
+              --remote-incompatible-archive "$PWD/.cache/e2e-bundle/releases/incompatible/jam-incompatible-linux-aarch64.tar.gz"
               --vm-image "$PWD/.cache/debian-bookworm-arm64.qcow2"
               --qemu "$(command -v qemu-system-aarch64)" --qemu-img "$(command -v qemu-img)"
               --vm-firmware "$(brew --prefix qemu)/share/qemu/edk2-aarch64-code.fd"

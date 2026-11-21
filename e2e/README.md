@@ -203,6 +203,10 @@ for update deferral. `--remote-next-archive` supplies a newer release for the
 required-client-upgrade world. That world's workspace is created with the newer
 installation's own CLI over SSH. Dependency checks verify real build versions
 and stable sessions; the shared native UI scenario must prove the upgrade gate.
+`--remote-incompatible-archive` supplies a separately compiled daemon with a
+different wire identity. The fixture producer changes that declaration only in
+an archived source variant and packages it through the normal server builder;
+production source and protocol selection remain unchanged.
 
 ```sh
 python fixtures/fetch_vm_image.py /absolute/path/to/debian-arm64.qcow2

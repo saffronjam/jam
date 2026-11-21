@@ -67,23 +67,34 @@ jobs:
         run: |
           cargo fetch --locked
           docker build -t jam-fixture-builder -f scripts/Remote.Dockerfile .
-      - name: Build both real server release versions
+      - name: Build both releases and the real incompatible server
         run: |
-          for version in "$BASELINE_VERSION" "$TARGET_VERSION"; do
-            python3 scripts/e2e/prepare_variant.py --source "$PWD" --output "$PWD/.cache/variants/$version" \
-              --version "$version" --cargo-target "$PWD/.cache/fixture-target"
-            docker run --rm -v "$PWD:/work" -w "/work/.cache/variants/$version" \
+          for variant in "$BASELINE_VERSION" "$TARGET_VERSION" incompatible; do
+            version="$variant"
+            extra=()
+            if [[ "$variant" == incompatible ]]; then
+              version="$BASELINE_VERSION"
+              extra=(--wire-protocol jam/6:e2e-incompatible)
+            fi
+            python3 scripts/e2e/prepare_variant.py --source "$PWD" --output "$PWD/.cache/variants/$variant" \
+              --version "$version" --cargo-target "$PWD/.cache/fixture-target" "${extra[@]}"
+            docker run --rm -v "$PWD:/work" -w "/work/.cache/variants/$variant" \
               -e CARGO_BUILD_JOBS=2 -e CARGO_TARGET_DIR=/work/.cache/fixture-target \
               -e JAM_FIXTURE_ORIGIN=https://localhost:49651 \
               -e JAM_FIXTURE_CA_FILE=/work/build/e2e-trust/ca.pem \
               -e JAM_FIXTURE_UPDATE_KEY_FILE=/work/build/e2e-trust/update-public-key.hex \
               jam-fixture-builder python3 scripts/remote-build.py --fixture-services
             output="build/e2e-input/v$version"
+            asset="jam-v$version-linux-$FIXTURE_ARCH.tar.gz"
+            if [[ "$variant" == incompatible ]]; then
+              output=build/e2e-input/incompatible
+              asset="jam-incompatible-linux-$FIXTURE_ARCH.tar.gz"
+            fi
             mkdir -p "$output/remote"
-            cp ".cache/variants/$version/build/remote/$FIXTURE_ARCH.tar.gz" "$output/remote/"
-            cp ".cache/variants/$version/build/remote/$FIXTURE_ARCH.json" "$output/remote/"
-            cp ".cache/variants/$version/build/remote/$FIXTURE_ARCH.snapshot" "$output/remote/"
-            cp "$output/remote/$FIXTURE_ARCH.tar.gz" "$output/jam-v$version-linux-$FIXTURE_ARCH.tar.gz"
+            cp ".cache/variants/$variant/build/remote/$FIXTURE_ARCH.tar.gz" "$output/remote/"
+            cp ".cache/variants/$variant/build/remote/$FIXTURE_ARCH.json" "$output/remote/"
+            cp ".cache/variants/$variant/build/remote/$FIXTURE_ARCH.snapshot" "$output/remote/"
+            cp "$output/remote/$FIXTURE_ARCH.tar.gz" "$output/$asset"
           done
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:

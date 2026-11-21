@@ -11,7 +11,7 @@ import tomllib
 from pathlib import Path
 
 
-def prepare(source, output, version, cargo_target, revision="HEAD"):
+def prepare(source, output, version, cargo_target, revision="HEAD", wire_protocol=None):
     if not re.fullmatch(r"\d+\.\d+\.\d+", version):
         raise ValueError("Fixture version must be a stable numeric version")
     if output.exists():
@@ -34,6 +34,21 @@ def prepare(source, output, version, cargo_target, revision="HEAD"):
     output.mkdir(parents=True)
     with tarfile.open(fileobj=io.BytesIO(archive)) as tree:
         tree.extractall(output, filter="data")
+    protocol_file = output / "crates/jam-core/src/protocol.rs"
+    protocol_source = protocol_file.read_text()
+    declaration = r'pub const VERSION: &str = "([^"]+)";'
+    matches = list(re.finditer(declaration, protocol_source))
+    if len(matches) != 1:
+        raise ValueError("Cannot uniquely locate the wire protocol declaration")
+    original_protocol = matches[0].group(1)
+    if wire_protocol is not None:
+        if not re.fullmatch(r"jam/\d+:[A-Za-z0-9:./_-]+", wire_protocol):
+            raise ValueError("Invalid fixture wire protocol")
+        if wire_protocol == original_protocol:
+            raise ValueError("The incompatible fixture must use a different protocol")
+        protocol_file.write_text(re.sub(
+            declaration, f'pub const VERSION: &str = "{wire_protocol}";', protocol_source,
+        ))
     manifest = output / "Cargo.toml"
     text = manifest.read_text()
     data = tomllib.loads(text)
@@ -59,6 +74,7 @@ def prepare(source, output, version, cargo_target, revision="HEAD"):
         "source_commit": commit,
         "baseline_version": previous,
         "version": version,
+        "wire_protocol": wire_protocol or original_protocol,
     }
     (output / "fixture-variant.json").write_text(json.dumps(metadata, indent=2) + "\n")
     return metadata
@@ -71,6 +87,7 @@ def main():
     parser.add_argument("--version", required=True)
     parser.add_argument("--cargo-target", type=Path, required=True)
     parser.add_argument("--revision", default="HEAD")
+    parser.add_argument("--wire-protocol", help="Compile a real incompatible fixture variant")
     args = parser.parse_args()
     print(
         json.dumps(
@@ -80,6 +97,7 @@ def main():
                 args.version,
                 args.cargo_target.resolve(),
                 args.revision,
+                args.wire_protocol,
             ),
             indent=2,
         )

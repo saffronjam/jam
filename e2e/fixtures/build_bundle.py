@@ -54,10 +54,11 @@ REMOTE = (
 )
 
 
-def recipes(ssh_image=None, engine=None, vm=None, previous=False, newer=False):
+def recipes(ssh_image=None, engine=None, vm=None, previous=False, newer=False, incompatible=False):
     values = {}
     remote_worlds = REMOTE + (("remote-update-available",) if previous else ())
     remote_worlds += (("update-required",) if newer else ())
+    remote_worlds += (("remote-incompatible",) if incompatible else ())
     for recipe in LOCAL + HTTPS + (remote_worlds if ssh_image or vm else ()):
         values[recipe] = spec = {
             "setup": [["{python}", "{bundle}/provision_world.py", "{root}", recipe]],
@@ -91,6 +92,8 @@ def recipes(ssh_image=None, engine=None, vm=None, previous=False, newer=False):
                 if recipe == "remote-update-available"
                 else "{bundle}/remote/newer.tar.gz"
                 if recipe == "update-required"
+                else "{bundle}/remote/incompatible.tar.gz"
+                if recipe == "remote-incompatible"
                 else "{bundle}/remote/server.tar.gz"
             )
             if vm:
@@ -174,10 +177,11 @@ def build(
     vm=None,
     remote_previous_archive=None,
     remote_next_archive=None,
+    remote_incompatible_archive=None,
 ):
     if ssh_image and vm:
         raise ValueError("Choose exactly one owned SSH host backend")
-    if (remote_previous_archive or remote_next_archive) and not (ssh_image or vm):
+    if (remote_previous_archive or remote_next_archive or remote_incompatible_archive) and not (ssh_image or vm):
         raise ValueError("Additional remote archives require an owned SSH host backend")
     output.mkdir(parents=True, exist_ok=True)
     for source in Path(__file__).parent.glob("*.py"):
@@ -203,7 +207,7 @@ def build(
             fetch(Path(vm["image"]))
         (output / "remote").mkdir(exist_ok=True)
         shutil.copy2(remote_archive, output / "remote/server.tar.gz")
-        if remote_previous_archive or remote_next_archive:
+        if remote_previous_archive or remote_next_archive or remote_incompatible_archive:
             import tarfile
 
             def build_info(archive):
@@ -218,7 +222,8 @@ def build(
 
             current = build_info(remote_archive)
             builds = {"current": current["server_build"]}
-            for name, archive in (("previous", remote_previous_archive), ("newer", remote_next_archive)):
+            for name, archive in (("previous", remote_previous_archive), ("newer", remote_next_archive),
+                                  ("incompatible", remote_incompatible_archive)):
                 if archive is None:
                     continue
                 other = build_info(archive)
@@ -228,11 +233,15 @@ def build(
                     numeric = lambda value: tuple(map(int, value.split(".")))
                     assert numeric(other["release_version"]) > numeric(current["release_version"])
                     builds["newer_version"] = other["release_version"]
+                if name == "incompatible":
+                    assert other["protocol"] != current["protocol"], "Wire protocols must differ"
+                    builds["incompatible_protocol"] = other["protocol"]
                 builds[name] = other["server_build"]
                 shutil.copy2(archive, output / f"remote/{name}.tar.gz")
             (output / "remote/builds.json").write_text(json.dumps(builds) + "\n")
     (output / "manifest.json").write_text(
-        json.dumps(recipes(ssh_image, engine, vm, bool(remote_previous_archive), bool(remote_next_archive)), indent=2) + "\n"
+        json.dumps(recipes(ssh_image, engine, vm, bool(remote_previous_archive), bool(remote_next_archive),
+                           bool(remote_incompatible_archive)), indent=2) + "\n"
     )
 
 
@@ -246,6 +255,7 @@ def main():
     parser.add_argument("--remote-archive", type=Path)
     parser.add_argument("--remote-previous-archive", type=Path)
     parser.add_argument("--remote-next-archive", type=Path)
+    parser.add_argument("--remote-incompatible-archive", type=Path)
     parser.add_argument("--vm-image", type=Path)
     parser.add_argument("--qemu", type=Path)
     parser.add_argument("--qemu-img", type=Path)
@@ -272,6 +282,7 @@ def main():
         vm,
         args.remote_previous_archive,
         args.remote_next_archive,
+        args.remote_incompatible_archive,
     )
 
 

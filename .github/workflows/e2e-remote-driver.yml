@@ -69,6 +69,7 @@ jobs:
             --remote-archive .cache/fixture-bundle/releases/v0.0.4/jam-v0.0.4-linux-aarch64.tar.gz \
             --remote-previous-archive .cache/previous-server/jam-v0.0.4-linux-aarch64.tar.gz \
             --remote-next-archive .cache/fixture-bundle/releases/v0.0.5/jam-v0.0.5-linux-aarch64.tar.gz \
+            --remote-incompatible-archive .cache/fixture-bundle/releases/incompatible/jam-incompatible-linux-aarch64.tar.gz \
             --vm-image "$PWD/.cache/debian-bookworm-arm64.qcow2" \
             --qemu "$(command -v qemu-system-aarch64)" --qemu-img "$(command -v qemu-img)" \
             --vm-firmware "$(brew --prefix qemu)/share/qemu/edk2-aarch64-code.fd"

@@ -167,6 +167,24 @@ def ssh_cli(profile, *args):
     return value
 
 
+@pytest.mark.parametrize("remote_profile", ["remote-incompatible"], indirect=True)
+def test_real_incompatible_protocol_is_rejected_without_restarting_the_server(remote_profile, request):
+    profile = remote_profile
+    ids = json.loads((profile.root / "fixture-ids.json").read_text())
+    bundle = Path(request.config.getoption("--fixture-bundle")).resolve().parent
+    builds = json.loads((bundle / "remote/builds.json").read_text())
+    before = ssh_cli(profile, "daemon", "info")["HostInfo"]
+    assert before["build"] == builds["incompatible"] != builds["current"]
+    with pytest.raises(subprocess.CalledProcessError) as rejected:
+        profile.call("--remote", ids["remote"], "workspace", "list")
+    assert "incompatible jam daemon" in rejected.value.stderr.lower()
+    after = ssh_cli(profile, "daemon", "info")["HostInfo"]
+    assert (after["build"], after["incarnation"]) == (before["build"], before["incarnation"])
+    state = ssh_cli(profile, "workspace", "list")["State"]
+    assert [workspace["id"] for workspace in state["workspaces"]] == [ids["remote_workspace"]]
+    assert {pane["id"]: pane["session_generation"] for pane in state["panes"]} == ids["remote_sessions"]
+
+
 @pytest.mark.parametrize("remote_profile", ["update-required"], indirect=True)
 def test_real_newer_server_world_preserves_its_running_workspace(remote_profile, request):
     profile = remote_profile
