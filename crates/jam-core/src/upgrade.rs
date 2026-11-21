@@ -11,9 +11,9 @@ use std::{
     process::{Command, Stdio},
     time::Duration,
 };
-const ORIGIN: &str = "https://github.com/saffronjam/jam/releases/download";
-const LATEST: &str = "https://api.github.com/repos/saffronjam/jam/releases/latest";
-const KEY: &str = include_str!("../../../assets/update-public-key.hex");
+const ORIGIN: &str = crate::services::RELEASE_ORIGIN;
+const LATEST: &str = crate::services::RELEASE_LATEST;
+const KEY: &str = crate::services::UPDATE_KEY;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Asset {
@@ -249,6 +249,7 @@ fn authenticate(bytes: &[u8], signature: &str, key: &str) -> Result<Release> {
 }
 fn get(url: &str, limit: u64) -> Result<Vec<u8>> {
     let agent: ureq::Agent = ureq::Agent::config_builder()
+        .tls_config(crate::services::tls_config())
         .timeout_global(Some(Duration::from_secs(180)))
         .build()
         .into();

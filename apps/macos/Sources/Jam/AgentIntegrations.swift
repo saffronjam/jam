@@ -76,11 +76,13 @@ struct AgentIntegrations: View {
             Spacer()
             if agent.hook != "missing" || agent.skill == "current" || agent.skill == "outdated" {
               Button("Remove") { run("remove", agent: agent.agent) }
+                .accessibilityIdentifier("integration.\(agent.agent).remove")
             }
             if !agent.installed {
               Button(agent.skill == "outdated" || agent.hook == "outdated" ? "Update" : "Install") {
                 run("setup", agent: agent.agent)
               }.disabled(agent.skill == "foreign")
+                .accessibilityIdentifier("integration.\(agent.agent).install")
             }
           }
           if agent.skill == "foreign" {

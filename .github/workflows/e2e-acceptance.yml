@@ -1,0 +1,104 @@
+name: Desktop acceptance
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    env:
+      CARGO_BUILD_JOBS: 2
+      APPIUM_HOME: ${{ github.workspace }}/.cache/appium-home
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc
+        with:
+          toolchain: 1.97.1
+      - name: Install fixture prerequisites
+        shell: bash
+        run: |
+          python3 -m venv .cache/e2e-bootstrap
+          .cache/e2e-bootstrap/bin/python -m pip install uv==0.13.5
+          if [[ "$RUNNER_OS" == macOS ]]; then
+            brew list openssl@3 >/dev/null 2>&1 || brew install openssl@3
+            echo "$(brew --prefix openssl@3)/bin" >> "$GITHUB_PATH"
+          fi
+      - name: Create isolated artifact trust
+        shell: bash
+        run: |
+          python3 e2e/fixtures/prepare_trust.py .cache/e2e-trust
+          echo "JAM_FIXTURE_ORIGIN=https://localhost:49651" >> "$GITHUB_ENV"
+          echo "JAM_FIXTURE_CA_FILE=$PWD/.cache/e2e-trust/ca.pem" >> "$GITHUB_ENV"
+          echo "JAM_FIXTURE_UPDATE_KEY_FILE=$PWD/.cache/e2e-trust/update-public-key.hex" >> "$GITHUB_ENV"
+      - name: Build fixture-configured application artifacts
+        shell: bash
+        run: |
+          python3 scripts/bootstrap.py
+          export PATH="$PWD/.cache/zig:$HOME/.cargo/bin:$PATH"
+          if [[ "$RUNNER_OS" == macOS ]]; then
+            cargo build --workspace --locked --features jam-core/fixture-services
+            touch apps/macos/Sources/CJam/shim.c
+            (cd apps/macos && swift build)
+            python3 scripts/package-macos.py
+          else
+            cargo build --locked -p jam --features jam-core/fixture-services
+          fi
+          python3 e2e/fixtures/build_bundle.py .cache/e2e-bundle --trust .cache/e2e-trust
+      - name: Verify external provider and release dependencies
+        shell: bash
+        run: |
+          .cache/e2e-bootstrap/bin/uv run --project e2e --locked pytest -c e2e/pyproject.toml e2e/checks \
+            --cli target/debug/jam --daemon target/debug/jamd \
+            --fixture-bundle .cache/e2e-bundle/manifest.json --junitxml=e2e/artifacts/dependencies.xml
+      - name: Provision Mac2 in the native graphical session
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          npm install --prefix .cache/appium appium@3.9.1
+          .cache/appium/node_modules/.bin/appium driver install mac2@4.6.1
+          sudo automationmodetool enable-automationmode-without-authentication
+          .cache/appium/node_modules/.bin/appium driver doctor mac2
+          mkdir -p e2e/artifacts
+          .cache/appium/node_modules/.bin/appium --address 127.0.0.1 --port 4723 --log "$PWD/e2e/artifacts/appium.log" &
+          python3 - <<'PY'
+          import time
+          from urllib.request import urlopen
+          deadline = time.monotonic() + 30
+          while True:
+              try:
+                  with urlopen('http://127.0.0.1:4723/status', timeout=1) as response:
+                      assert response.status == 200
+                  break
+              except OSError:
+                  if time.monotonic() >= deadline:
+                      raise
+                  time.sleep(.2)
+          PY
+      - name: Run the complete shared desktop contract
+        if: always()
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == macOS ]]; then
+            app="$PWD/build/Jam.app"
+            platform=macos
+          else
+            app="$PWD/build/linux/bin/Jam"
+            platform=linux
+          fi
+          .cache/e2e-bootstrap/bin/uv run --project e2e --locked pytest -c e2e/pyproject.toml e2e/tests \
+            --app "$app" --platform "$platform" --cli "$PWD/target/debug/jam" --daemon "$PWD/target/debug/jamd" \
+            --fixture-bundle "$PWD/.cache/e2e-bundle/manifest.json" \
+            --junitxml=e2e/artifacts/acceptance.xml
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: desktop-acceptance-${{ matrix.os }}
+          path: e2e/artifacts/
+          if-no-files-found: error
