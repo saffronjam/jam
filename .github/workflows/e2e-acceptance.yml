@@ -7,7 +7,7 @@ permissions:
   contents: read
 concurrency:
   group: desktop-acceptance-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 jobs:
   fixtures:
     uses: ./.github/workflows/e2e-release-fixtures.yml
@@ -54,12 +54,14 @@ jobs:
             echo "E2E_CLI=$PWD/build/fixture-server/jam" >> "$GITHUB_ENV"
             echo "E2E_DAEMON=$PWD/build/fixture-server/jamd" >> "$GITHUB_ENV"
           fi
+          python3 e2e/fixtures/build_bundle.py .cache/current-bundle \
+            --trust .cache/e2e-bundle/trust --releases .cache/e2e-bundle/releases
       - name: Verify external provider and release dependencies
         shell: bash
         run: |
           .cache/e2e-bootstrap/bin/uv run --project e2e --locked pytest -c e2e/pyproject.toml e2e/checks \
             --cli "$E2E_CLI" --daemon "$E2E_DAEMON" \
-            --fixture-bundle .cache/e2e-bundle/manifest.json --junitxml=e2e/artifacts/dependencies.xml
+            --fixture-bundle .cache/current-bundle/manifest.json --junitxml=e2e/artifacts/dependencies.xml
       - name: Provision Mac2 in the native graphical session
         if: runner.os == 'macOS'
         shell: bash
@@ -90,7 +92,7 @@ jobs:
         run: |
           .cache/e2e-bootstrap/bin/uv run --project e2e --locked pytest -c e2e/pyproject.toml e2e/tests \
             --app "$PWD/.cache/e2e-bundle/installation/Jam.app" --platform macos \
-            --fixture-bundle "$PWD/.cache/e2e-bundle/manifest.json" \
+            --fixture-bundle "$PWD/.cache/current-bundle/manifest.json" \
             --allow-subset --maxfail=1 -k 'TERM-001 or CFG-001 or DRAG-001 or INPUT-005' \
             --artifacts-dir e2e/artifacts/probe --junitxml=e2e/artifacts/probe.xml
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -135,7 +137,7 @@ jobs:
           fi
           .cache/e2e-bootstrap/bin/uv run --project e2e --locked pytest -c e2e/pyproject.toml e2e/tests \
             --app "$app" --platform "$platform" "${binaries[@]}" \
-            --fixture-bundle "$PWD/.cache/e2e-bundle/manifest.json" \
+            --fixture-bundle "$PWD/.cache/current-bundle/manifest.json" \
             --junitxml=e2e/artifacts/acceptance.xml
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()

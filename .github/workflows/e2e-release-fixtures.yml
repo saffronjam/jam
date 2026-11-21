@@ -11,16 +11,35 @@ env:
 jobs:
   trust:
     runs-on: ubuntu-24.04
+    outputs:
+      cached: ${{ steps.cache.outputs.cache-hit }}
+      cache-key: ${{ steps.cache.outputs.cache-primary-key }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
-      - run: python3 e2e/fixtures/prepare_trust.py build/e2e-trust
+      - id: day
+        run: echo "value=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
+        id: cache
+        with:
+          path: build/fixture-release-bundle.tar.gz
+          key: managed-fixture-v1-${{ steps.day.outputs.value }}-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'crates/**', 'apps/macos/**', 'scripts/**', 'assets/**', 'skills/jam/**', 'LICENSE*', 'e2e/fixtures/prepare_trust.py', 'e2e/fixtures/sign_releases.py', '.github/workflows/e2e-release-fixtures.yml') }}
+      - if: steps.cache.outputs.cache-hit == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: fixture-release-bundle
+          path: build/fixture-release-bundle.tar.gz
+          if-no-files-found: error
+      - if: steps.cache.outputs.cache-hit != 'true'
+        run: python3 e2e/fixtures/prepare_trust.py build/e2e-trust
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: steps.cache.outputs.cache-hit != 'true'
         with:
           name: fixture-release-trust
           path: build/e2e-trust/
           if-no-files-found: error
   linux:
     needs: trust
+    if: needs.trust.outputs.cached != 'true'
     strategy:
       fail-fast: false
       max-parallel: 2
@@ -73,6 +92,7 @@ jobs:
           if-no-files-found: error
   macos:
     needs: [trust, linux]
+    if: needs.trust.outputs.cached != 'true'
     runs-on: macos-15
     timeout-minutes: 60
     steps:
@@ -124,3 +144,7 @@ jobs:
           name: fixture-release-bundle
           path: build/fixture-release-bundle.tar.gz
           if-no-files-found: error
+      - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: build/fixture-release-bundle.tar.gz
+          key: ${{ needs.trust.outputs.cache-key }}

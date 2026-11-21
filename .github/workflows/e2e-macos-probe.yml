@@ -58,8 +58,10 @@ jobs:
             mkdir -p .cache/fixture-bundle e2e/artifacts
             tar -xzf .cache/fixture-input/fixture-release-bundle.tar.gz -C .cache/fixture-bundle
             codesign --verify --deep --strict .cache/fixture-bundle/installation/Jam.app
+            python3 e2e/fixtures/build_bundle.py .cache/probe-bundle \
+              --trust .cache/fixture-bundle/trust --releases .cache/fixture-bundle/releases
             echo "PROBE_APP=$PWD/.cache/fixture-bundle/installation/Jam.app" >> "$GITHUB_ENV"
-            echo "PROBE_BUNDLE=$PWD/.cache/fixture-bundle/manifest.json" >> "$GITHUB_ENV"
+            echo "PROBE_BUNDLE=$PWD/.cache/probe-bundle/manifest.json" >> "$GITHUB_ENV"
             mv fixture-source.json e2e/artifacts/fixture-source.json
           fi
       - name: Start native WebDriver
