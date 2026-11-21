@@ -9,7 +9,11 @@ concurrency:
   group: desktop-acceptance-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 jobs:
+  fixtures:
+    uses: ./.github/workflows/e2e-release-fixtures.yml
   desktop:
+    needs: fixtures
+    if: ${{ !cancelled() }}
     strategy:
       fail-fast: false
       matrix:
@@ -21,22 +25,6 @@ jobs:
       APPIUM_HOME: ${{ github.workspace }}/.cache/appium-home
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
-      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc
-        with:
-          toolchain: 1.97.1
-          components: rustfmt, clippy
-      - name: Select the fixture cache day
-        id: cache-day
-        run: echo "day=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
-        id: fixture-cache
-        with:
-          path: |
-            build/Jam.app
-            target/debug/jam
-            target/debug/jamd
-            .cache/e2e-trust
-          key: fixture-${{ runner.os }}-${{ runner.arch }}-${{ steps.cache-day.outputs.day }}-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'crates/**', 'apps/macos/**', 'scripts/**', 'assets/**', 'skills/jam/**', 'e2e/fixtures/prepare_trust.py', '.github/workflows/e2e-acceptance.yml') }}
       - name: Install fixture prerequisites
         shell: bash
         run: |
@@ -46,46 +34,31 @@ jobs:
             brew list openssl@3 >/dev/null 2>&1 || brew install openssl@3
             echo "$(brew --prefix openssl@3)/bin" >> "$GITHUB_PATH"
           fi
-      - name: Create isolated artifact trust
-        shell: bash
-        run: |
-          if [[ '${{ steps.fixture-cache.outputs.cache-hit }}' != true ]]; then
-            python3 e2e/fixtures/prepare_trust.py .cache/e2e-trust
-          fi
-          echo "JAM_FIXTURE_ORIGIN=https://localhost:49651" >> "$GITHUB_ENV"
-          echo "JAM_FIXTURE_CA_FILE=$PWD/.cache/e2e-trust/ca.pem" >> "$GITHUB_ENV"
-          echo "JAM_FIXTURE_UPDATE_KEY_FILE=$PWD/.cache/e2e-trust/update-public-key.hex" >> "$GITHUB_ENV"
-      - name: Build fixture-configured application artifacts
-        id: fixture-build
-        if: steps.fixture-cache.outputs.cache-hit != 'true'
-        shell: bash
-        run: |
-          python3 scripts/bootstrap.py
-          export PATH="$PWD/.cache/zig:$HOME/.cargo/bin:$PATH"
-          if [[ "$RUNNER_OS" == macOS ]]; then
-            cargo build --workspace --locked --features jam-core/fixture-services
-            touch apps/macos/Sources/CJam/shim.c
-            (cd apps/macos && swift build)
-            python3 scripts/package-macos.py
-          else
-            cargo build --locked -p jam --features jam-core/fixture-services
-          fi
-      - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
-        if: steps.fixture-build.outcome == 'success' && steps.fixture-cache.outputs.cache-hit != 'true'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
-          path: |
-            build/Jam.app
-            target/debug/jam
-            target/debug/jamd
-            .cache/e2e-trust
-          key: ${{ steps.fixture-cache.outputs.cache-primary-key }}
-      - name: Assemble external fixture recipes
-        run: python3 e2e/fixtures/build_bundle.py .cache/e2e-bundle --trust .cache/e2e-trust
+          name: fixture-release-bundle
+          path: build
+      - name: Use the genuine managed fixture installations
+        shell: bash
+        run: |
+          mkdir -p .cache/e2e-bundle
+          tar -xzf build/fixture-release-bundle.tar.gz -C .cache/e2e-bundle
+          if [[ "$RUNNER_OS" == macOS ]]; then
+            app="$PWD/.cache/e2e-bundle/installation/Jam.app"
+            codesign --verify --deep --strict "$app"
+            echo "E2E_CLI=$app/Contents/Resources/bin/jam" >> "$GITHUB_ENV"
+            echo "E2E_DAEMON=$app/Contents/MacOS/jamd" >> "$GITHUB_ENV"
+          else
+            mkdir -p build/fixture-server
+            tar -xzf .cache/e2e-bundle/releases/v0.0.4/jam-v0.0.4-linux-x86_64.tar.gz -C build/fixture-server
+            echo "E2E_CLI=$PWD/build/fixture-server/jam" >> "$GITHUB_ENV"
+            echo "E2E_DAEMON=$PWD/build/fixture-server/jamd" >> "$GITHUB_ENV"
+          fi
       - name: Verify external provider and release dependencies
         shell: bash
         run: |
           .cache/e2e-bootstrap/bin/uv run --project e2e --locked pytest -c e2e/pyproject.toml e2e/checks \
-            --cli target/debug/jam --daemon target/debug/jamd \
+            --cli "$E2E_CLI" --daemon "$E2E_DAEMON" \
             --fixture-bundle .cache/e2e-bundle/manifest.json --junitxml=e2e/artifacts/dependencies.xml
       - name: Provision Mac2 in the native graphical session
         if: runner.os == 'macOS'
@@ -116,7 +89,7 @@ jobs:
         shell: bash
         run: |
           .cache/e2e-bootstrap/bin/uv run --project e2e --locked pytest -c e2e/pyproject.toml e2e/tests \
-            --app "$PWD/build/Jam.app" --platform macos --cli "$PWD/target/debug/jam" --daemon "$PWD/target/debug/jamd" \
+            --app "$PWD/.cache/e2e-bundle/installation/Jam.app" --platform macos \
             --fixture-bundle "$PWD/.cache/e2e-bundle/manifest.json" \
             --allow-subset --maxfail=1 -k 'TERM-001 or CFG-001 or DRAG-001 or INPUT-005' \
             --artifacts-dir e2e/artifacts/probe --junitxml=e2e/artifacts/probe.xml
@@ -127,7 +100,7 @@ jobs:
           path: e2e/artifacts/
           if-no-files-found: error
       - name: Fetch the published stock macOS release
-        if: always() && runner.os == 'macOS'
+        if: ${{ !cancelled() && runner.os == 'macOS' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -136,7 +109,7 @@ jobs:
           ditto -xk .cache/stock/Jam-v0.0.4-macos-arm64.zip .cache/stock
           codesign --verify --deep --strict .cache/stock/Jam.app
       - name: Smoke the unmodified installed stock artifact
-        if: always() && runner.os == 'macOS'
+        if: ${{ !cancelled() && runner.os == 'macOS' }}
         run: |
           .cache/e2e-bootstrap/bin/uv run --project e2e --locked pytest -c e2e/pyproject.toml e2e/installed \
             --app "$PWD/.cache/stock/Jam.app" --platform macos \
@@ -148,18 +121,20 @@ jobs:
           path: e2e/artifacts/stock*
           if-no-files-found: error
       - name: Run the complete shared desktop contract
-        if: always()
+        if: ${{ !cancelled() }}
         shell: bash
         run: |
           if [[ "$RUNNER_OS" == macOS ]]; then
-            app="$PWD/build/Jam.app"
+            app="$PWD/.cache/e2e-bundle/installation/Jam.app"
             platform=macos
+            binaries=()
           else
             app="$PWD/build/linux/bin/Jam"
             platform=linux
+            binaries=(--cli "$E2E_CLI" --daemon "$E2E_DAEMON")
           fi
           .cache/e2e-bootstrap/bin/uv run --project e2e --locked pytest -c e2e/pyproject.toml e2e/tests \
-            --app "$app" --platform "$platform" --cli "$PWD/target/debug/jam" --daemon "$PWD/target/debug/jamd" \
+            --app "$app" --platform "$platform" "${binaries[@]}" \
             --fixture-bundle "$PWD/.cache/e2e-bundle/manifest.json" \
             --junitxml=e2e/artifacts/acceptance.xml
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

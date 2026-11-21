@@ -2,20 +2,6 @@ name: Fixture release artifacts
 on:
   workflow_dispatch:
   workflow_call:
-  push:
-    paths:
-      - scripts/e2e/**
-      - scripts/remote-build.py
-      - scripts/release/build-macos.sh
-      - e2e/fixtures/sign_releases.py
-      - .github/workflows/e2e-release-fixtures.yml
-  pull_request:
-    paths:
-      - scripts/e2e/**
-      - scripts/remote-build.py
-      - scripts/release/build-macos.sh
-      - e2e/fixtures/sign_releases.py
-      - .github/workflows/e2e-release-fixtures.yml
 permissions:
   contents: read
 env:

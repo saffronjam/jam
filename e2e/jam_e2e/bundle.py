@@ -78,9 +78,11 @@ def prepare(manifest, recipe, profile):
         else:
             raise AssertionError(f"Fixture recipe cannot replace isolation setting {key}")
     resources = Resources()
-    try:
-        for command in spec.get("setup", []):
-            subprocess.run(
+
+    def run_setup(command, phase, index):
+        log = profile.root / f"fixture-setup-{phase}-{index}.log"
+        try:
+            result = subprocess.run(
                 [expand(arg, values) for arg in command],
                 cwd=profile.repo,
                 env=profile.env,
@@ -88,6 +90,15 @@ def prepare(manifest, recipe, profile):
                 timeout=60,
                 capture_output=True,
             )
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+            log.write_bytes((error.stdout or b"") + b"\n" + (error.stderr or b""))
+            error.add_note("External fixture setup output:\n" + log.read_text(errors="replace"))
+            raise
+        log.write_bytes(result.stdout + result.stderr)
+
+    try:
+        for index, command in enumerate(spec.get("setup", [])):
+            run_setup(command, "before", index)
         for index, service in enumerate(spec.get("services", [])):
             log = (profile.root / f"fixture-service-{index}.log").open("wb")
             resources.logs.append(log)
@@ -110,15 +121,8 @@ def prepare(manifest, recipe, profile):
                 if time.monotonic() >= deadline:
                     raise AssertionError(f"Fixture service did not become ready; see {log.name}")
                 time.sleep(0.05)
-        for command in spec.get("after_services", []):
-            subprocess.run(
-                [expand(arg, values) for arg in command],
-                cwd=profile.repo,
-                env=profile.env,
-                check=True,
-                timeout=60,
-                capture_output=True,
-            )
+        for index, command in enumerate(spec.get("after_services", [])):
+            run_setup(command, "after", index)
         return resources
     except BaseException:
         resources.stop()

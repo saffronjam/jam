@@ -1,6 +1,7 @@
 import json
 import os
 import pty
+import socket
 import subprocess
 import sys
 from pathlib import Path
@@ -62,3 +63,13 @@ def test_json_cli_error_never_counts_as_success(tmp_path, monkeypatch):
         profile.call("pane", "send", "--pane", "missing", "--text", "probe")
     event = json.loads((tmp_path / "cli-events.jsonl").read_text())
     assert event["reply"] == {"Error": "pane is missing"}
+
+
+def test_cleanup_accepts_an_already_reaped_owned_daemon(tmp_path):
+    profile = Profile(tmp_path, Path("/bin/false"), Path("/bin/false"))
+    child = subprocess.Popen(["/bin/true"])
+    child.wait(timeout=5)
+    with socket.socket(socket.AF_UNIX) as listener:
+        listener.bind(str(profile.socket))
+    (profile.socket.parent / "release.json").write_text(json.dumps({"pid": child.pid}))
+    profile.stop()

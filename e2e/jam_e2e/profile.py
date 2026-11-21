@@ -114,4 +114,13 @@ class Profile:
 
     def stop(self):
         if self.socket.exists():
+            receipt = self.socket.parent / "release.json"
+            if receipt.is_file():
+                pid = json.loads(receipt.read_text())["pid"]
+                try:
+                    os.kill(pid, 0)
+                except ProcessLookupError:
+                    # A failed setup may already have reaped its supervised
+                    # daemon. Its stale private socket needs no stop request.
+                    return
             self.call("daemon", "stop")

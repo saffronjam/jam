@@ -45,9 +45,9 @@ HTTPS = (
 REMOTE = ("remote-connected", "remote-offline", "remote-persistence-disabled")
 
 
-def recipes(ssh_image=None, engine=None):
+def recipes(ssh_image=None, engine=None, vm=None):
     values = {}
-    for recipe in LOCAL + HTTPS + (REMOTE if ssh_image else ()):
+    for recipe in LOCAL + HTTPS + (REMOTE if ssh_image or vm else ()):
         values[recipe] = spec = {
             "setup": [["{python}", "{bundle}/provision_world.py", "{root}", recipe]],
             "services": [{"argv": ["{daemon}"], "ready": "{socket}"}],
@@ -75,6 +75,33 @@ def recipes(ssh_image=None, engine=None):
                 },
             )
         if recipe in REMOTE:
+            if vm:
+                spec["services"].insert(
+                    0,
+                    {
+                        "argv": [
+                            "{python}",
+                            "{bundle}/vm_service.py",
+                            "--root",
+                            "{root}",
+                            "--qemu",
+                            vm["qemu"],
+                            "--qemu-img",
+                            vm["qemu_img"],
+                            "--image",
+                            vm["image"],
+                            "--firmware",
+                            vm["firmware"],
+                            "--ready",
+                            "{root}/ssh.ready",
+                        ],
+                        "ready": "{root}/ssh.ready",
+                        "startup_timeout": 480,
+                        "stop_timeout": 25,
+                    },
+                )
+                spec["environment"] = {"JAM_E2E_REMOTE_ARCHIVE": "{bundle}/remote/server.tar.gz"}
+                continue
             spec["services"].insert(
                 0,
                 {
@@ -119,7 +146,9 @@ def recipes(ssh_image=None, engine=None):
     return {"schema": 1, "recipes": values}
 
 
-def build(output, trust, releases=None, ssh_image=None, engine=None, remote_archive=None):
+def build(output, trust, releases=None, ssh_image=None, engine=None, remote_archive=None, vm=None):
+    if ssh_image and vm:
+        raise ValueError("Choose exactly one owned SSH host backend")
     output.mkdir(parents=True, exist_ok=True)
     for source in Path(__file__).parent.glob("*.py"):
         shutil.copy2(source, output / source.name)
@@ -128,14 +157,25 @@ def build(output, trust, releases=None, ssh_image=None, engine=None, remote_arch
         shutil.copytree(releases, output / "releases", dirs_exist_ok=True)
     else:
         (output / "releases").mkdir(exist_ok=True)
-    if ssh_image:
-        if not engine or not Path(engine).is_absolute() or not remote_archive:
+    if ssh_image or vm:
+        if not remote_archive:
+            raise ValueError("SSH worlds require a real --remote-archive")
+        if ssh_image and (not engine or not Path(engine).is_absolute()):
             raise ValueError(
                 "SSH worlds require an absolute rootless Podman --engine and --remote-archive"
             )
+        if vm:
+            for name, value in vm.items():
+                if not Path(value).is_absolute() or not Path(value).is_file():
+                    raise ValueError("Missing absolute VM resource: " + name)
+            from fetch_vm_image import fetch
+
+            fetch(Path(vm["image"]))
         (output / "remote").mkdir(exist_ok=True)
         shutil.copy2(remote_archive, output / "remote/server.tar.gz")
-    (output / "manifest.json").write_text(json.dumps(recipes(ssh_image, engine), indent=2) + "\n")
+    (output / "manifest.json").write_text(
+        json.dumps(recipes(ssh_image, engine, vm), indent=2) + "\n"
+    )
 
 
 def main():
@@ -146,8 +186,25 @@ def main():
     parser.add_argument("--ssh-image")
     parser.add_argument("--engine")
     parser.add_argument("--remote-archive", type=Path)
+    parser.add_argument("--vm-image", type=Path)
+    parser.add_argument("--qemu", type=Path)
+    parser.add_argument("--qemu-img", type=Path)
+    parser.add_argument("--vm-firmware", type=Path)
     args = parser.parse_args()
-    build(args.output, args.trust, args.releases, args.ssh_image, args.engine, args.remote_archive)
+    vm = None
+    resources = (args.vm_image, args.qemu, args.qemu_img, args.vm_firmware)
+    if any(resources):
+        if not all(resources):
+            parser.error("VM worlds require --vm-image, --qemu, --qemu-img and --vm-firmware")
+        vm = dict(
+            zip(
+                ("image", "qemu", "qemu_img", "firmware"),
+                (str(path.resolve()) for path in resources),
+            )
+        )
+    build(
+        args.output, args.trust, args.releases, args.ssh_image, args.engine, args.remote_archive, vm
+    )
 
 
 if __name__ == "__main__":

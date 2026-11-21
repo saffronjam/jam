@@ -104,7 +104,7 @@ def capture(item, jam):
     except Exception as error:  # noqa: BLE001 - diagnostics must not mask the test failure
         errors.append(f"pane captures: {error}")
     for source in (
-        *jam.profile.root.glob("fixture-service-*.log"),
+        *jam.profile.root.glob("fixture-*.log"),
         *jam.profile.root.glob("*.events"),
         jam.profile.home / "provider-events.jsonl",
         jam.profile.root / "fixture-ids.json",

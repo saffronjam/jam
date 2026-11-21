@@ -140,6 +140,12 @@ uv run pytest checks --cli /installation/jam --daemon /installation/jamd \
 
 Full SSH/systemd worlds and installable update releases are still incomplete.
 Their cases remain hard errors when recipes or artifacts are unavailable.
+The `Fixture release artifacts` workflow now builds real managed versions
+0.0.4 and 0.0.5 from isolated source variants, packages both Linux server
+architectures and macOS, and signs their manifests with fixture trust. The
+complete desktop workflow consumes this bundle; it exercises the normal
+installer with real assets. Successful production of a bundle does not by
+itself prove the UI update or rollback scenarios.
 `Desktop acceptance` runs the whole case inventory in CI on macOS and Linux;
 the absent Linux desktop artifact makes that job fail. `E2E harness` checks only
 the automation library and must not be reported as application acceptance.
@@ -162,6 +168,28 @@ Each SSH case owns a unique container, host keys, login key, known-hosts file,
 systemd user manager and remote installation. Runtime containers have a 256 MiB
 memory limit and one CPU. The supervisor uses the engine's existing image store
 without pulling images; the application continues to use its private profile.
+
+For macOS, the additional QEMU backend boots a real Debian 12 ARM64 guest with
+SSH and systemd using TCG, 512 MiB and one CPU. It requires no nested hardware
+virtualization. The image URL and SHA-512 digest are pinned in
+`fixtures/fetch_vm_image.py`; each case writes only its private overlay and
+NoCloud seed. Login and host keys are generated per case, and host key
+verification remains strict. Its HTTPS forwarder carries TLS unchanged to the
+host's fixture service. This backend still needs its separate native CI proof;
+it must not yet be reported as working macOS remote acceptance.
+
+```sh
+python fixtures/fetch_vm_image.py /absolute/path/to/debian-arm64.qcow2
+python fixtures/build_bundle.py /absolute/path/to/vm-bundle --trust /absolute/path/to/trust \
+  --remote-archive /absolute/path/to/real-linux-aarch64-server.tar.gz \
+  --vm-image /absolute/path/to/debian-arm64.qcow2 \
+  --qemu /absolute/path/to/qemu-system-aarch64 --qemu-img /absolute/path/to/qemu-img \
+  --vm-firmware /absolute/path/to/edk2-aarch64-code.fd
+```
+
+The VM proof workflow records the exact successful fixture release run it uses.
+It verifies reconnect/PID identity, offline failure and disabled linger through
+the public CLI and real SSH. This transport proof is separate from UI acceptance.
 
 ## Known verification limits
 

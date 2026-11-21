@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 
 from ssh_service import engine_environment
+from vm_service import host_command
 
 
 def call(*args):
@@ -22,7 +23,10 @@ def call(*args):
     except subprocess.CalledProcessError as error:
         error.add_note("Public CLI setup error: " + error.stderr)
         raise
-    return json.loads(result.stdout)
+    reply = json.loads(result.stdout)
+    if isinstance(reply, dict) and ("Error" in reply or "error" in reply):
+        raise AssertionError(f"Public CLI rejected fixture setup {args!r}: {reply}")
+    return reply
 
 
 def wait(check, description):
@@ -68,38 +72,23 @@ def seed(root, recipe):
             "Remote project",
         )
         ids["remote_workspace"] = remote_state["State"]["workspaces"][0]["id"]
-        host = json.loads((root / "ssh.ready").read_text())["container"]
+        host = json.loads((root / "ssh.ready").read_text())
+
+        def control(*args):
+            if host.get("backend") == "qemu":
+                return host_command(root, *args)
+            return subprocess.run(
+                [os.environ["JAM_E2E_ENGINE"], "exec", host["container"], *args],
+                check=True,
+                capture_output=True,
+                timeout=15,
+                env=engine_environment(),
+            )
+
         if recipe == "remote-persistence-disabled":
-            subprocess.run(
-                [
-                    os.environ["JAM_E2E_ENGINE"],
-                    "exec",
-                    host,
-                    "loginctl",
-                    "disable-linger",
-                    "fixture",
-                ],
-                check=True,
-                capture_output=True,
-                timeout=15,
-                env=engine_environment(),
-            )
+            control("loginctl", "disable-linger", "fixture")
         if recipe == "remote-offline":
-            subprocess.run(
-                [
-                    os.environ["JAM_E2E_ENGINE"],
-                    "exec",
-                    host,
-                    "systemctl",
-                    "stop",
-                    "ssh.socket",
-                    "ssh.service",
-                ],
-                check=True,
-                capture_output=True,
-                timeout=15,
-                env=engine_environment(),
-            )
+            control("systemctl", "stop", "ssh.socket", "ssh.service")
     if recipe in ("provider-installed", "provider-outdated"):
         call("skill", "setup", "--agent", "claude", "--agent", "codex")
         if recipe == "provider-outdated":
