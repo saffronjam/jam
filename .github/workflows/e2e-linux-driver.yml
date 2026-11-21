@@ -1,7 +1,23 @@
 name: Linux automation proof
 on:
   push:
+    paths:
+      - .github/workflows/e2e-linux-driver.yml
+      - e2e/environments/linux/**
+      - e2e/driver_checks/**
+      - e2e/jam_e2e/driver.py
+      - e2e/conftest.py
+      - e2e/pyproject.toml
+      - e2e/uv.lock
   pull_request:
+    paths:
+      - .github/workflows/e2e-linux-driver.yml
+      - e2e/environments/linux/**
+      - e2e/driver_checks/**
+      - e2e/jam_e2e/driver.py
+      - e2e/conftest.py
+      - e2e/pyproject.toml
+      - e2e/uv.lock
   workflow_dispatch:
 permissions:
   contents: read

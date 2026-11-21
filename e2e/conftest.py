@@ -82,6 +82,12 @@ def capture(item, jam):
     folder = Path(item.config.getoption("--artifacts-dir")).resolve() / item.name.replace("/", "_")
     folder.mkdir(parents=True, exist_ok=True)
     errors = []
+    try:
+        from jam_e2e.processes import owned_process_snapshots
+
+        (folder / "processes.json").write_text(json.dumps(owned_process_snapshots(jam.profile), indent=2))
+    except Exception as error:  # noqa: BLE001 - preserve the actual acceptance failure
+        errors.append(f"owned process listing: {error}")
     receipt = jam.profile.socket.parent / "release.json"
     if receipt.is_file():
         shutil.copyfile(receipt, folder / "daemon-release.json")

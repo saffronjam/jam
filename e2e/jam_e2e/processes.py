@@ -9,6 +9,33 @@ from pathlib import Path
 from .driver import wait
 
 
+def owned_process_snapshots(profile):
+    """Keep only private fixture processes, comparing ordinary and wide argv."""
+    def rows(wide):
+        result = subprocess.run(
+            ["/bin/ps", "-A", *(["-ww"] if wide else []), "-o", "pid=,ppid=,comm=,args="],
+            check=True, capture_output=True, text=True, timeout=5,
+        )
+        return {int(row.split(None, 1)[0]): row for row in result.stdout.splitlines()}
+
+    wide = rows(True)
+    prefixes = {str(profile.root), str(profile.root.resolve())}
+    owned = {pid for pid, row in wide.items() if any(prefix in row for prefix in prefixes)}
+    receipt = profile.socket.parent / "release.json"
+    if receipt.is_file():
+        owned.add(json.loads(receipt.read_text())["pid"])
+    while True:
+        descendants = {pid for pid, row in wide.items() if int(row.split(None, 2)[1]) in owned}
+        if descendants <= owned:
+            break
+        owned |= descendants
+    ordinary = rows(False)
+    return {
+        "ordinary": [row for pid, row in ordinary.items() if pid in owned],
+        "wide": [row for pid, row in wide.items() if pid in owned],
+    }
+
+
 def pane_processes(profile):
     expected = {pane["id"] for pane in profile.layout()["panes"] if not pane["exited"]}
     assert expected, "No live panes to observe"
