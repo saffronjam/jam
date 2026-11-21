@@ -27,7 +27,9 @@ def prepare(root, recipe):
     }
     write(home / "fixture-world.json", world)
     if recipe == "single-coordinator":
-        (repo / "AGENTS.md").write_text("Fixture instruction: preserve user work.\n")
+        instructions = repo / ".git/jam/instructions/coordinator.md"
+        instructions.parent.mkdir(parents=True)
+        instructions.write_text("Fixture instruction: preserve user work.\n")
     # Install provider programs through the same standalone provisioner.
     subprocess.run(
         [

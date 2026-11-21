@@ -299,10 +299,11 @@ case(
     ("write_config", '[bindings]\nnew_tab = ["ctrl+alt+j", "ctrl+alt+k"]\n'),
     ("relaunch",),
     ("chord", "ctrl+alt+j"),
+    ("target_visible", "Tab name", "field"),
     ("key", "ESCAPE"),
     ("count", "tabs", 2),
-    ("target_visible", "Tab 2", "button"),
     ("chord", "ctrl+alt+k"),
+    ("target_visible", "Tab name", "field"),
     ("key", "ESCAPE"),
     ("count", "tabs", 3),
 )
@@ -327,8 +328,10 @@ case(
     "FIND-006",
     "Escape returns keyboard focus to the terminal",
     ("command", "Find in Tab History"),
+    ("target_visible", "Find in tab history", "field"),
     ("key", "ESCAPE"),
-    ("run", "printf after-find"),
+    ("absent", "Find in tab history"),
+    ("run_focused", "printf after-find"),
     ("output", "after-find"),
 )
 case(
@@ -611,7 +614,7 @@ for i, query in enumerate(("nothing", "Tab 1", "Split Right", "Settings", "Coord
         ("chord", "ctrl+shift+p"),
         ("fill", "Search commands, workspaces, tabs, and panes", query),
         ("key", "ESCAPE"),
-        ("run", "printf palette-returned-focus"),
+        ("run_focused", "printf palette-returned-focus"),
         ("output", "palette-returned-focus"),
     )
 
@@ -751,7 +754,10 @@ INTEGRATION = [
     ("UPDATE-008", "update-bad-checksum", [
         ("click", "Upgrade…"), ("click", "Details", "disclosure"), ("visible", "checksum")]),
     ("UPDATE-009", "update-download-failed", [
-        ("click", "Upgrade…"), ("click", "Details", "disclosure"), ("visible", "download")]),
+        ("remember_pids",), ("remember_layout",),
+        ("click", "Upgrade…"), ("click", "Details", "disclosure"),
+        ("visible", "http status: 503"), ("click", "Cancel"),
+        ("installed_version", "0.0.4"), ("same_layout",), ("same_pids",)]),
     (
         "UPDATE-010",
         "update-available",

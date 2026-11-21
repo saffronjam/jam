@@ -20,6 +20,9 @@ class Jam:
 
     def run(self, command):
         self.terminal()
+        self.run_focused(command)
+
+    def run_focused(self, command):
         # New panes have fresh shell settings. Disable echo in a separate turn
         # so the command under assertion cannot appear merely as typed input.
         self._shell("stty -echo; PS1='$ '; PS2='> '; PROMPT_COMMAND=''")

@@ -597,11 +597,13 @@ Fixture: `isolated local installation`.
 1. `('write_config', '[bindings]\nnew_tab = ["ctrl+alt+j", "ctrl+alt+k"]\n')`
 2. `('relaunch',)`
 3. `('chord', 'ctrl+alt+j')`
-4. `('key', 'ESCAPE')`
-5. `('count', 'tabs', 2)`
-6. `('chord', 'ctrl+alt+k')`
-7. `('key', 'ESCAPE')`
-8. `('count', 'tabs', 3)`
+4. `('target_visible', 'Tab name', 'field')`
+5. `('key', 'ESCAPE')`
+6. `('count', 'tabs', 2)`
+7. `('chord', 'ctrl+alt+k')`
+8. `('target_visible', 'Tab name', 'field')`
+9. `('key', 'ESCAPE')`
+10. `('count', 'tabs', 3)`
 
 ## FIND-001: History search finds needle
 
@@ -652,9 +654,11 @@ Fixture: `isolated local installation`.
 Fixture: `isolated local installation`.
 
 1. `('command', 'Find in Tab History')`
-2. `('key', 'ESCAPE')`
-3. `('run', 'printf after-find')`
-4. `('output', 'after-find')`
+2. `('target_visible', 'Find in tab history', 'field')`
+3. `('key', 'ESCAPE')`
+4. `('absent', 'Find in tab history')`
+5. `('run_focused', 'printf after-find')`
+6. `('output', 'after-find')`
 
 ## FIND-007: Find follows a query across a soft-wrapped terminal line
 
@@ -1577,7 +1581,7 @@ Fixture: `isolated local installation`.
 1. `('chord', 'ctrl+shift+p')`
 2. `('fill', 'Search commands, workspaces, tabs, and panes', 'nothing')`
 3. `('key', 'ESCAPE')`
-4. `('run', 'printf palette-returned-focus')`
+4. `('run_focused', 'printf palette-returned-focus')`
 5. `('output', 'palette-returned-focus')`
 
 ## PALETTE-002: Palette can be cancelled after searching Tab 1
@@ -1587,7 +1591,7 @@ Fixture: `isolated local installation`.
 1. `('chord', 'ctrl+shift+p')`
 2. `('fill', 'Search commands, workspaces, tabs, and panes', 'Tab 1')`
 3. `('key', 'ESCAPE')`
-4. `('run', 'printf palette-returned-focus')`
+4. `('run_focused', 'printf palette-returned-focus')`
 5. `('output', 'palette-returned-focus')`
 
 ## PALETTE-003: Palette can be cancelled after searching Split Right
@@ -1597,7 +1601,7 @@ Fixture: `isolated local installation`.
 1. `('chord', 'ctrl+shift+p')`
 2. `('fill', 'Search commands, workspaces, tabs, and panes', 'Split Right')`
 3. `('key', 'ESCAPE')`
-4. `('run', 'printf palette-returned-focus')`
+4. `('run_focused', 'printf palette-returned-focus')`
 5. `('output', 'palette-returned-focus')`
 
 ## PALETTE-004: Palette can be cancelled after searching Settings
@@ -1607,7 +1611,7 @@ Fixture: `isolated local installation`.
 1. `('chord', 'ctrl+shift+p')`
 2. `('fill', 'Search commands, workspaces, tabs, and panes', 'Settings')`
 3. `('key', 'ESCAPE')`
-4. `('run', 'printf palette-returned-focus')`
+4. `('run_focused', 'printf palette-returned-focus')`
 5. `('output', 'palette-returned-focus')`
 
 ## PALETTE-005: Palette can be cancelled after searching Coordinator
@@ -1617,7 +1621,7 @@ Fixture: `isolated local installation`.
 1. `('chord', 'ctrl+shift+p')`
 2. `('fill', 'Search commands, workspaces, tabs, and panes', 'Coordinator')`
 3. `('key', 'ESCAPE')`
-4. `('run', 'printf palette-returned-focus')`
+4. `('run_focused', 'printf palette-returned-focus')`
 5. `('output', 'palette-returned-focus')`
 
 ## RECOVERY-001: stopped coordinator external user workflow
@@ -1805,9 +1809,15 @@ Fixture: `update-bad-checksum`.
 
 Fixture: `update-download-failed`.
 
-1. `('click', 'Upgrade…')`
-2. `('click', 'Details', 'disclosure')`
-3. `('visible', 'download')`
+1. `('remember_pids',)`
+2. `('remember_layout',)`
+3. `('click', 'Upgrade…')`
+4. `('click', 'Details', 'disclosure')`
+5. `('visible', 'http status: 503')`
+6. `('click', 'Cancel')`
+7. `('installed_version', '0.0.4')`
+8. `('same_layout',)`
+9. `('same_pids',)`
 
 ## UPDATE-010: update available external user workflow
 

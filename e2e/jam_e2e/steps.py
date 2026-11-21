@@ -13,6 +13,8 @@ def execute(jam, step, memory):
     ui, profile = jam.ui, jam.profile
     if op == "run":
         jam.run(*args)
+    elif op == "run_focused":
+        jam.run_focused(*args)
     elif op == "command":
         jam.command(*args)
     elif op == "settings":

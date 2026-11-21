@@ -50,6 +50,8 @@ Its patch removes an upstream Qt-only tree filter so GTK widgets can be inspecte
 `Linux automation proof` exercises real GTK4
 controls, a physical slider drag, input, clipboard and screenshots in this environment. This low-level
 probe is separate from Jam acceptance and cannot satisfy a product scenario.
+The complete GTK driver proof passed in
+[run 44919994980](https://github.com/saffronjam/jam/actions/runs/44919994980).
 Newer KWin versions require a render node or the kernel's `/dev/udmabuf`
 device, which hosted CI kernels do not consistently provide. The image removes
 KWin's real-time scheduling file capability and needs no host module changes.
@@ -169,6 +171,12 @@ the automation library and must not be reported as application acceptance.
 The early `Desktop acceptance` probe is an explicitly partial development diagnostic and stops
 after its first failure. The separate complete acceptance run still runs every
 case and does not stop after the first failure.
+Linux acceptance uses the same private desktop through `Dockerfile.acceptance`
+and `run-acceptance.sh`, including real QEMU SSH guests. It matches the runner's
+UID so private release trust and artifacts remain readable inside the container.
+Release publishing requires the complete shared acceptance workflow alongside
+the existing build, signature and rollback checks. Missing Linux functionality
+therefore blocks release; a passing driver or harness check cannot override it.
 
 The basic SSH worlds can use a rootless Podman engine with delegated cgroup v2:
 

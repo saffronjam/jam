@@ -58,6 +58,11 @@ def test_prepared_world(request, recipe, expected):
                     )
                 elif expected == "ready":
                     assert len(board["agents"]) == 1 and board["agents"][0]["ready"]
+                    instructions = profile.call(
+                        "coordinate", "instructions", "--agent", board["agents"][0]["id"]
+                    )["Coordination"]
+                    assert any(file["text"] == "Fixture instruction: preserve user work.\n"
+                               for file in instructions["files"])
                 else:
                     assert any(t.get("delivery_status") == expected for t in board["tasks"])
         finally:
