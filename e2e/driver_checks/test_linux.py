@@ -42,6 +42,10 @@ def test_native_wayland_driver(request, tmp_path):
 
         wait(dragged, "real Wayland pointer drag changes a GTK slider")
         ui.fill("Probe text", "日本語 café")
+        (artifacts / "unicode-input.json").write_text(json.dumps({
+            "observed": ui.field_value("Probe text"),
+            "expected": "日本語 café",
+        }, ensure_ascii=False, indent=2))
         wait(lambda: ui.field_value("Probe text") == "日本語 café", "Unicode field input")
         ui.chord("ctrl+a")
         ui.type("Replacement")
@@ -53,6 +57,7 @@ def test_native_wayland_driver(request, tmp_path):
         try:
             if ui.session:
                 (artifacts / "ui.xml").write_text(ui.tree())
+                (artifacts / "visible.txt").write_text(ui.texts())
         except Exception as error:  # noqa: BLE001 - diagnostics preserve the primary failure
             (artifacts / "diagnostics-error.txt").write_text(str(error))
         try:
