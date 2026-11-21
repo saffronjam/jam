@@ -27,6 +27,8 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
       - name: Install fixture prerequisites
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           python3 -m venv .cache/e2e-bootstrap
           .cache/e2e-bootstrap/bin/python -m pip install uv==0.13.5
@@ -35,6 +37,8 @@ jobs:
             brew list qemu >/dev/null 2>&1 || brew install qemu
             echo "$(brew --prefix openssl@3)/bin" >> "$GITHUB_PATH"
             python3 e2e/fixtures/fetch_vm_image.py .cache/debian-bookworm-arm64.qcow2
+            mkdir -p .cache/previous-server
+            gh release download v0.0.4 --repo saffronjam/jam --pattern jam-v0.0.4-linux-aarch64.tar.gz --dir .cache/previous-server
           fi
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
@@ -53,6 +57,7 @@ jobs:
             echo "E2E_DAEMON=$app/Contents/MacOS/jamd" >> "$GITHUB_ENV"
             ssh_fixture=(
               --remote-archive "$PWD/.cache/e2e-bundle/releases/v0.0.4/jam-v0.0.4-linux-aarch64.tar.gz"
+              --remote-previous-archive "$PWD/.cache/previous-server/jam-v0.0.4-linux-aarch64.tar.gz"
               --vm-image "$PWD/.cache/debian-bookworm-arm64.qcow2"
               --qemu "$(command -v qemu-system-aarch64)" --qemu-img "$(command -v qemu-img)"
               --vm-firmware "$(brew --prefix qemu)/share/qemu/edk2-aarch64-code.fd"

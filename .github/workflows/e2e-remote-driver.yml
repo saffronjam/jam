@@ -55,14 +55,19 @@ jobs:
           run-id: ${{ steps.fixture.outputs.run }}
           github-token: ${{ github.token }}
       - name: Prepare immutable Linux guest and matching server archive
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p .cache/fixture-bundle
           tar -xzf build/fixture-release-bundle.tar.gz -C .cache/fixture-bundle
           codesign --verify --deep --strict .cache/fixture-bundle/installation/Jam.app
           python3 e2e/fixtures/fetch_vm_image.py .cache/debian-bookworm-arm64.qcow2
+          mkdir -p .cache/previous-server
+          gh release download v0.0.4 --repo saffronjam/jam --pattern jam-v0.0.4-linux-aarch64.tar.gz --dir .cache/previous-server
           python3 e2e/fixtures/build_bundle.py .cache/vm-bundle \
             --trust .cache/fixture-bundle/trust --releases .cache/fixture-bundle/releases \
             --remote-archive .cache/fixture-bundle/releases/v0.0.4/jam-v0.0.4-linux-aarch64.tar.gz \
+            --remote-previous-archive .cache/previous-server/jam-v0.0.4-linux-aarch64.tar.gz \
             --vm-image "$PWD/.cache/debian-bookworm-arm64.qcow2" \
             --qemu "$(command -v qemu-system-aarch64)" --qemu-img "$(command -v qemu-img)" \
             --vm-firmware "$(brew --prefix qemu)/share/qemu/edk2-aarch64-code.fd"

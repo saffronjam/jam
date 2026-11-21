@@ -134,3 +134,20 @@ def test_real_ssh_authentication_failures_can_be_repaired(remote_profile, error)
     expected = json.loads((profile.root / "fixture-ids.json").read_text())["remote_workspace"]
     state = profile.call("--remote", remote, "workspace", "list")["State"]
     assert [workspace["id"] for workspace in state["workspaces"]] == [expected]
+
+
+@pytest.mark.parametrize("remote_profile", ["remote-update-available"], indirect=True)
+def test_real_remote_update_defers_while_a_shell_is_running(remote_profile, request):
+    profile = remote_profile
+    ids = json.loads((profile.root / "fixture-ids.json").read_text())
+    bundle = Path(request.config.getoption("--fixture-bundle")).resolve().parent
+    builds = json.loads((bundle / "remote/builds.json").read_text())
+    old = profile.call("--remote", ids["remote"], "daemon", "info")["HostInfo"]
+    assert old["build"] == builds["previous"] != builds["current"]
+    with pytest.raises(subprocess.CalledProcessError) as deferred:
+        profile.call("remote", "install", ids["remote"], str(bundle / "remote/server.tar.gz"))
+    assert "Running sessions prevent the server update" in deferred.value.stderr
+    current = profile.call("--remote", ids["remote"], "daemon", "info")["HostInfo"]
+    assert current["build"] == old["build"] and current["incarnation"] == old["incarnation"]
+    state = profile.call("--remote", ids["remote"], "workspace", "list")["State"]
+    assert [workspace["id"] for workspace in state["workspaces"]] == [ids["remote_workspace"]]

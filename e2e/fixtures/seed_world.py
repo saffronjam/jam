@@ -56,6 +56,7 @@ def seed(root, recipe):
         "remote-auth-rejected",
         "remote-password-required",
         "remote-host-untrusted",
+        "remote-update-available",
     ):
         ssh = [
             "/usr/bin/ssh",

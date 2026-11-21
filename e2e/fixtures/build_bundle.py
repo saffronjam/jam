@@ -54,9 +54,10 @@ REMOTE = (
 )
 
 
-def recipes(ssh_image=None, engine=None, vm=None):
+def recipes(ssh_image=None, engine=None, vm=None, previous=False):
     values = {}
-    for recipe in LOCAL + HTTPS + (REMOTE if ssh_image or vm else ()):
+    remote_worlds = REMOTE + (("remote-update-available",) if previous else ())
+    for recipe in LOCAL + HTTPS + (remote_worlds if ssh_image or vm else ()):
         values[recipe] = spec = {
             "setup": [["{python}", "{bundle}/provision_world.py", "{root}", recipe]],
             "services": [{"argv": ["{daemon}"], "ready": "{socket}"}],
@@ -83,7 +84,12 @@ def recipes(ssh_image=None, engine=None, vm=None):
                     "ready": "{root}/https.ready",
                 },
             )
-        if recipe in REMOTE:
+        if recipe in remote_worlds:
+            archive = (
+                "{bundle}/remote/previous.tar.gz"
+                if recipe == "remote-update-available"
+                else "{bundle}/remote/server.tar.gz"
+            )
             if vm:
                 spec["services"].insert(
                     0,
@@ -109,7 +115,7 @@ def recipes(ssh_image=None, engine=None, vm=None):
                         "stop_timeout": 25,
                     },
                 )
-                spec["environment"] = {"JAM_E2E_REMOTE_ARCHIVE": "{bundle}/remote/server.tar.gz"}
+                spec["environment"] = {"JAM_E2E_REMOTE_ARCHIVE": archive}
                 continue
             spec["services"].insert(
                 0,
@@ -133,7 +139,7 @@ def recipes(ssh_image=None, engine=None, vm=None):
             )
             spec["environment"] = {
                 "JAM_E2E_ENGINE": engine,
-                "JAM_E2E_REMOTE_ARCHIVE": "{bundle}/remote/server.tar.gz",
+                "JAM_E2E_REMOTE_ARCHIVE": archive,
                 "JAM_E2E_ENGINE_ENV": json.dumps(
                     {
                         "HOME": os.environ["HOME"],
@@ -155,9 +161,20 @@ def recipes(ssh_image=None, engine=None, vm=None):
     return {"schema": 1, "recipes": values}
 
 
-def build(output, trust, releases=None, ssh_image=None, engine=None, remote_archive=None, vm=None):
+def build(
+    output,
+    trust,
+    releases=None,
+    ssh_image=None,
+    engine=None,
+    remote_archive=None,
+    vm=None,
+    remote_previous_archive=None,
+):
     if ssh_image and vm:
         raise ValueError("Choose exactly one owned SSH host backend")
+    if remote_previous_archive and not (ssh_image or vm):
+        raise ValueError("Previous remote archives require an owned SSH host backend")
     output.mkdir(parents=True, exist_ok=True)
     for source in Path(__file__).parent.glob("*.py"):
         shutil.copy2(source, output / source.name)
@@ -182,8 +199,35 @@ def build(output, trust, releases=None, ssh_image=None, engine=None, remote_arch
             fetch(Path(vm["image"]))
         (output / "remote").mkdir(exist_ok=True)
         shutil.copy2(remote_archive, output / "remote/server.tar.gz")
+        if remote_previous_archive:
+            import tarfile
+
+            def build_info(archive):
+                with tarfile.open(archive, "r:gz") as release:
+                    candidates = [
+                        member
+                        for member in release.getmembers()
+                        if member.name.removeprefix("./") == "manifest.json"
+                    ]
+                    assert len(candidates) == 1, "Real server archive requires its manifest"
+                    return json.load(release.extractfile(candidates[0]))
+
+            current = build_info(remote_archive)
+            previous = build_info(remote_previous_archive)
+            assert current["server_build"] != previous["server_build"], "Remote builds must differ"
+            assert current["arch"] == previous["arch"], "Remote archive architectures must match"
+            shutil.copy2(remote_previous_archive, output / "remote/previous.tar.gz")
+            (output / "remote/builds.json").write_text(
+                json.dumps(
+                    {
+                        "current": current["server_build"],
+                        "previous": previous["server_build"],
+                    }
+                )
+                + "\n"
+            )
     (output / "manifest.json").write_text(
-        json.dumps(recipes(ssh_image, engine, vm), indent=2) + "\n"
+        json.dumps(recipes(ssh_image, engine, vm, bool(remote_previous_archive)), indent=2) + "\n"
     )
 
 
@@ -195,6 +239,7 @@ def main():
     parser.add_argument("--ssh-image")
     parser.add_argument("--engine")
     parser.add_argument("--remote-archive", type=Path)
+    parser.add_argument("--remote-previous-archive", type=Path)
     parser.add_argument("--vm-image", type=Path)
     parser.add_argument("--qemu", type=Path)
     parser.add_argument("--qemu-img", type=Path)
@@ -212,7 +257,14 @@ def main():
             )
         )
     build(
-        args.output, args.trust, args.releases, args.ssh_image, args.engine, args.remote_archive, vm
+        args.output,
+        args.trust,
+        args.releases,
+        args.ssh_image,
+        args.engine,
+        args.remote_archive,
+        vm,
+        args.remote_previous_archive,
     )
 
 

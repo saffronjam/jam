@@ -689,8 +689,11 @@ INTEGRATION = [
     ),
     (
         "SERVER-003",
-        "remote-update-scheduled",
+        "remote-update-available",
         [
+            ("context", "Fixture"),
+            ("click", "Update Server…"),
+            ("click", "Update When Sessions End"),
             ("context", "Fixture"),
             ("click", "Cancel Scheduled Update"),
             ("context", "Fixture"),

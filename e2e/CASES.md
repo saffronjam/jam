@@ -1717,14 +1717,17 @@ Fixture: `remote-update-available`.
 4. `('context', 'Fixture')`
 5. `('visible', 'Cancel Scheduled Update')`
 
-## SERVER-003: remote update scheduled external user workflow
+## SERVER-003: remote update available external user workflow
 
-Fixture: `remote-update-scheduled`.
+Fixture: `remote-update-available`.
 
 1. `('context', 'Fixture')`
-2. `('click', 'Cancel Scheduled Update')`
-3. `('context', 'Fixture')`
-4. `('absent', 'Cancel Scheduled Update')`
+2. `('click', 'Update Server…')`
+3. `('click', 'Update When Sessions End')`
+4. `('context', 'Fixture')`
+5. `('click', 'Cancel Scheduled Update')`
+6. `('context', 'Fixture')`
+7. `('absent', 'Cancel Scheduled Update')`
 
 ## SERVER-004: remote connected external user workflow
 
