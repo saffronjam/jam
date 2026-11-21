@@ -71,7 +71,11 @@ class Desktop:
                 "timeouts": {"implicit": 15000},
             }
         options.load_capabilities(caps)
-        config = AppiumClientConfig(remote_server_addr=self.endpoint, timeout=180)
+        config = AppiumClientConfig(
+            remote_server_addr=self.endpoint,
+            timeout=180,
+            init_args_for_pool_manager={"init_args_for_pool_manager": {"retries": False}},
+        )
         self.session = webdriver.Remote(self.endpoint, options=options, client_config=config)
         # Initial WDA compilation has its own larger budget. An unavailable
         # driver must not leave diagnostics and teardown waiting indefinitely.
@@ -178,6 +182,23 @@ class Desktop:
         actions.perform()
 
     def drag(self, source, target, x=0, y=0):
+        if self.platform == "macos":
+            # Mac2 4.6.1's W3C pointer-move synthesizer loops indefinitely
+            # when the preceding item is a pause. Use its native XCTest
+            # gesture, resolving both accessible rectangles before pressing.
+            start, end = self.element(source).rect, self.element(target).rect
+            self.session.execute_script(
+                "macos: clickAndDragAndHold",
+                {
+                    "startX": start["x"] + start["width"] / 2,
+                    "startY": start["y"] + start["height"] / 2,
+                    "endX": end["x"] + end["width"] / 2 + x,
+                    "endY": end["y"] + end["height"] / 2 + y,
+                    "duration": 0.5,
+                    "holdDuration": 0.6,
+                },
+            )
+            return
         actions = ActionBuilder(self.session)
         actions.pointer_action.move_to(self.element(source)).pointer_down().pause(0.5).move_to(
             self.element(target), x, y

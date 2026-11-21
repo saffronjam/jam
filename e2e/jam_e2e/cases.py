@@ -516,9 +516,13 @@ for i, (source, destination) in enumerate((("Tab 1", "Tab 2"), ("Tab 2", "Tab 1"
         f"Drag {source} over {destination} preserves processes",
         ("command", "New Tab"),
         ("key", "ESCAPE"),
+        ("count", "tabs", 2),
+        ("count", "panes", 2),
+        ("remember_tab_order",),
         ("remember_pids",),
         ("drag", source, destination),
         ("count", "tabs", 2),
+        ("tab_order_reversed",),
         ("same_pids",),
     )
 

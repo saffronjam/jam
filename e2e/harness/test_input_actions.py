@@ -23,8 +23,8 @@ def test_keyboard_input_has_no_pointer_pause_ticks():
     assert [event["type"] for event in actions[0]["actions"]] == ["keyDown"] * 3 + ["keyUp"] * 3
 
 
-def test_drag_starts_with_a_pointer_move_without_keyboard_ticks():
-    ui = Desktop("macos", "unused", Mock(), Mock())
+def test_linux_drag_starts_with_a_pointer_move_without_keyboard_ticks():
+    ui = Desktop("linux", "unused", Mock(), Mock())
     ui.session = Mock()
     ui.element = lambda name: WebElement(ui.session, name)
     ui.drag("source", "destination")
@@ -32,3 +32,17 @@ def test_drag_starts_with_a_pointer_move_without_keyboard_ticks():
     assert len(actions) == 1 and actions[0]["type"] == "pointer"
     assert actions[0]["actions"][0]["type"] == "pointerMove"
     assert actions[0]["actions"][-1]["type"] == "pointerUp"
+
+
+def test_macos_drag_uses_native_gesture_with_accessible_coordinates():
+    ui = Desktop("macos", "unused", Mock(), Mock())
+    ui.session = Mock()
+    source = Mock(rect={"x": 10, "y": 20, "width": 80, "height": 30})
+    target = Mock(rect={"x": 100, "y": 20, "width": 100, "height": 30})
+    ui.element = Mock(side_effect=[source, target])
+    ui.drag("source", "target", x=5, y=-2)
+    ui.session.execute_script.assert_called_once_with(
+        "macos: clickAndDragAndHold",
+        {"startX": 50, "startY": 35, "endX": 155, "endY": 33, "duration": 0.5, "holdDuration": 0.6},
+    )
+    ui.session.execute.assert_not_called()

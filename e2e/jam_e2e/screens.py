@@ -78,7 +78,7 @@ class Jam:
 
     def pids(self):
         panes = [p for p in self.profile.layout()["panes"] if not p["exited"]]
-        result = []
+        result = {}
         for pane in panes:
             marker = "PID_" + uuid.uuid4().hex
             self.profile.call(
@@ -96,5 +96,5 @@ class Jam:
                 ),
                 "shell PID probe",
             )
-            result.append(values[-1])
+            result[pane["id"]] = values[-1]
         return result

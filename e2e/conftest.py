@@ -1,6 +1,7 @@
 import json
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import traceback
@@ -140,6 +141,18 @@ def jam(request, case):
             pytest.fail(f"Required executable missing: {binary}")
     # Short private paths also work with macOS's Unix socket path limit.
     with tempfile.TemporaryDirectory(prefix="je-") as temporary:
+        if platform == "macos":
+            # A real updater replaces its installation. Each scenario owns a
+            # private complete bundle outside the source checkout, so one
+            # successful upgrade cannot change another case's starting build.
+            original = app
+            app = Path(temporary) / "installation/Jam.app"
+            app.parent.mkdir()
+            subprocess.run(["/usr/bin/ditto", str(original), str(app)], check=True, timeout=60)
+            if not options.getoption("--cli"):
+                cli = app / "Contents/Resources/bin/jam"
+            if not options.getoption("--daemon"):
+                daemon = app / "Contents/MacOS/jamd"
         profile = Profile(Path(temporary), Path(cli).resolve(), Path(daemon).resolve())
         ui = Desktop(platform, options.getoption("--webdriver-url"), app, profile)
         client = Jam(ui, profile)

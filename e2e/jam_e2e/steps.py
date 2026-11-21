@@ -169,6 +169,19 @@ def execute(jam, step, memory):
                 time.sleep(0.1)
     elif op == "remember_pids":
         memory["pids"] = jam.pids()
+    elif op in ("remember_tab_order", "tab_order_reversed"):
+
+        def order():
+            return [
+                tab["id"]
+                for workspace in profile.layout()["workspaces"]
+                for tab in workspace["tabs"]
+            ]
+
+        if op == "remember_tab_order":
+            memory["tab_order"] = order()
+        else:
+            wait(lambda: order() == list(reversed(memory["tab_order"])), "reordered tabs")
     elif op == "same_pids":
         assert jam.pids() == memory["pids"], "Shell process changed across client operation"
     elif op == "restart_server":

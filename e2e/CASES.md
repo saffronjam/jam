@@ -1436,10 +1436,14 @@ Fixture: `isolated local installation`.
 
 1. `('command', 'New Tab')`
 2. `('key', 'ESCAPE')`
-3. `('remember_pids',)`
-4. `('drag', 'Tab 1', 'Tab 2')`
-5. `('count', 'tabs', 2)`
-6. `('same_pids',)`
+3. `('count', 'tabs', 2)`
+4. `('count', 'panes', 2)`
+5. `('remember_tab_order',)`
+6. `('remember_pids',)`
+7. `('drag', 'Tab 1', 'Tab 2')`
+8. `('count', 'tabs', 2)`
+9. `('tab_order_reversed',)`
+10. `('same_pids',)`
 
 ## DRAG-002: Drag Tab 2 over Tab 1 preserves processes
 
@@ -1447,10 +1451,14 @@ Fixture: `isolated local installation`.
 
 1. `('command', 'New Tab')`
 2. `('key', 'ESCAPE')`
-3. `('remember_pids',)`
-4. `('drag', 'Tab 2', 'Tab 1')`
-5. `('count', 'tabs', 2)`
-6. `('same_pids',)`
+3. `('count', 'tabs', 2)`
+4. `('count', 'panes', 2)`
+5. `('remember_tab_order',)`
+6. `('remember_pids',)`
+7. `('drag', 'Tab 2', 'Tab 1')`
+8. `('count', 'tabs', 2)`
+9. `('tab_order_reversed',)`
+10. `('same_pids',)`
 
 ## INPUT-009: A physical key press and release reach the PTY keyboard protocol
 
