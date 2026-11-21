@@ -21,6 +21,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc
         with:
           toolchain: 1.97.1
+          components: rustfmt, clippy
       - name: Install fixture prerequisites
         shell: bash
         run: |
@@ -81,6 +82,21 @@ jobs:
                       raise
                   time.sleep(.2)
           PY
+      - name: Probe native automation before the complete run
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          .cache/e2e-bootstrap/bin/uv run --project e2e --locked pytest -c e2e/pyproject.toml e2e/tests \
+            --app "$PWD/build/Jam.app" --platform macos --cli "$PWD/target/debug/jam" --daemon "$PWD/target/debug/jamd" \
+            --fixture-bundle "$PWD/.cache/e2e-bundle/manifest.json" \
+            --allow-subset --maxfail=1 -k 'TERM-001 or CFG-001 or DRAG-001 or INPUT-005' \
+            --artifacts-dir e2e/artifacts/probe --junitxml=e2e/artifacts/probe.xml
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always() && runner.os == 'macOS'
+        with:
+          name: native-automation-probe
+          path: e2e/artifacts/
+          if-no-files-found: error
       - name: Run the complete shared desktop contract
         if: always()
         shell: bash

@@ -505,6 +505,40 @@ for i, (source, destination) in enumerate((("Tab 1", "Tab 2"), ("Tab 2", "Tab 1"
         ("same_pids",),
     )
 
+case(
+    "INPUT-009",
+    "A physical key press and release reach the PTY keyboard protocol",
+    ("probe", "keyboard"),
+    ("probe_key", "x"),
+    ("probe_key_events",),
+)
+case(
+    "MOUSE-001",
+    "A physical click sends mouse press and release to the PTY",
+    ("probe", "mouse"),
+    ("click", "Terminal", "terminal"),
+    ("probe_mouse_events",),
+)
+
+for i, (key, value, tabs, workspaces) in enumerate(
+    (
+        ("close_empty_tabs", False, 1, 1),
+        ("close_empty_tabs", True, 0, 1),
+        ("close_empty_workspaces", True, 0, 0),
+    ),
+    1,
+):
+    case(
+        f"LIFECFG-{i:03}",
+        f"{key}={value} controls the last pane lifecycle",
+        ("write_config", f"{key} = {str(value).lower()}\n"),
+        ("relaunch",),
+        ("command", "Close Pane"),
+        ("count", "panes", 0),
+        ("count", "tabs", tabs),
+        ("count", "workspaces", workspaces),
+    )
+
 for i, query in enumerate(("nothing", "Tab 1", "Split Right", "Settings", "Coordinator"), 1):
     case(
         f"PALETTE-{i:03}",

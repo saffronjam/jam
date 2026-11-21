@@ -33,6 +33,8 @@ def test_unique_cases_have_assertions():
                 "git_no_branch",
                 "symlink_preserved",
                 "probe_hex",
+                "probe_key_events",
+                "probe_mouse_events",
                 "field_value",
                 "file_exists",
             }

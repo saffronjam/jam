@@ -14,11 +14,11 @@ class Resources:
 
     def stop(self):
         failures = []
-        for process in reversed(self.processes):
+        for process, stop_timeout in reversed(self.processes):
             if process.poll() is None:
                 process.terminate()
                 try:
-                    process.wait(timeout=5)
+                    process.wait(timeout=stop_timeout)
                 except subprocess.TimeoutExpired:
                     process.kill()
                     process.wait(timeout=5)
@@ -99,9 +99,9 @@ def prepare(manifest, recipe, profile):
                 stdout=log,
                 stderr=log,
             )
-            resources.processes.append(process)
+            resources.processes.append((process, service.get("stop_timeout", 5)))
             ready = Path(expand(service["ready"], values))
-            deadline = time.monotonic() + 20
+            deadline = time.monotonic() + service.get("startup_timeout", 20)
             while not ready.exists():
                 if process.poll() is not None:
                     raise AssertionError(

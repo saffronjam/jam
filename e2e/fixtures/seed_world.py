@@ -7,6 +7,8 @@ import subprocess
 import time
 from pathlib import Path
 
+from ssh_service import engine_environment
+
 
 def call(*args):
     result = subprocess.run(
@@ -35,6 +37,65 @@ def seed(root, recipe):
     created = call("workspace", "create", repo, "--name", "Fixture")
     workspace = created["State"]["workspaces"][0]["id"]
     ids = {"workspace": workspace}
+    if recipe in ("remote-connected", "remote-offline", "remote-persistence-disabled"):
+        ssh = [
+            "/usr/bin/ssh",
+            "-F",
+            str(root / "home/.ssh/config"),
+            "-oBatchMode=yes",
+            "jam-fixture",
+        ]
+        subprocess.run(
+            [*ssh, "mkdir -p /home/fixture/project && git -C /home/fixture/project init -b main"],
+            check=True,
+            capture_output=True,
+            timeout=15,
+        )
+        remote = call("remote", "add", "Fixture", "jam-fixture")
+        ids["remote"] = remote["id"]
+        call("remote", "install", ids["remote"], os.environ["JAM_E2E_REMOTE_ARCHIVE"])
+        remote_state = call(
+            "--remote",
+            ids["remote"],
+            "workspace",
+            "create",
+            "/home/fixture/project",
+            "--name",
+            "Remote project",
+        )
+        ids["remote_workspace"] = remote_state["State"]["workspaces"][0]["id"]
+        host = json.loads((root / "ssh.ready").read_text())["container"]
+        if recipe == "remote-persistence-disabled":
+            subprocess.run(
+                [
+                    os.environ["JAM_E2E_ENGINE"],
+                    "exec",
+                    host,
+                    "loginctl",
+                    "disable-linger",
+                    "fixture",
+                ],
+                check=True,
+                capture_output=True,
+                timeout=15,
+                env=engine_environment(),
+            )
+        if recipe == "remote-offline":
+            subprocess.run(
+                [
+                    os.environ["JAM_E2E_ENGINE"],
+                    "exec",
+                    host,
+                    "systemctl",
+                    "stop",
+                    "ssh.socket",
+                    "ssh.service",
+                ],
+                check=True,
+                capture_output=True,
+                timeout=15,
+                env=engine_environment(),
+            )
     if recipe in ("provider-installed", "provider-outdated"):
         call("skill", "setup", "--agent", "claude", "--agent", "codex")
         if recipe == "provider-outdated":

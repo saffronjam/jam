@@ -107,6 +107,9 @@ absolute `trust/ca.pem`, and `JAM_FIXTURE_UPDATE_KEY_FILE` pointing to the absol
 `trust/update-public-key.hex`. Normal builds have fixed production endpoints and
 trust. Fixture builds retain TLS, signature, checksum, and installer validation.
 Trust and artifacts must come from the same build; regenerate them together.
+Fixture SSH uses the private `HOME/.ssh/config` explicitly, avoiding OpenSSH's
+default lookup through the OS account's home directory. Stock builds retain
+their normal SSH configuration lookup.
 
 The bundle runs real local HTTPS services and separate provider simulators for
 model discovery, saved sessions, hooks, messaging sockets, Codex queue delivery,
@@ -124,6 +127,25 @@ Their cases remain hard errors when recipes or artifacts are unavailable.
 `Desktop acceptance` runs the whole case inventory in CI on macOS and Linux;
 the absent Linux desktop artifact makes that job fail. `E2E harness` checks only
 the automation library and must not be reported as application acceptance.
+The early native probe is an explicitly partial development diagnostic and stops
+after its first failure. The separate complete acceptance run still runs every
+case and does not stop after the first failure.
+
+The basic SSH worlds can use a rootless Podman engine with delegated cgroup v2:
+
+```sh
+podman build --memory=512m --jobs=1 -t localhost/jam-e2e-ssh fixtures/ssh
+python fixtures/build_bundle.py /absolute/path/to/bundle --trust /absolute/path/to/trust \
+  --ssh-image localhost/jam-e2e-ssh --engine /usr/bin/podman \
+  --remote-archive /absolute/path/to/real-linux-server.tar.gz
+uv run pytest transport --cli /fixture-build/jam --daemon /fixture-build/jamd \
+  --fixture-bundle /absolute/path/to/bundle/manifest.json
+```
+
+Each SSH case owns a unique container, host keys, login key, known-hosts file,
+systemd user manager and remote installation. Runtime containers have a 256 MiB
+memory limit and one CPU. The supervisor uses the engine's existing image store
+without pulling images; the application continues to use its private profile.
 
 ## Known verification limits
 

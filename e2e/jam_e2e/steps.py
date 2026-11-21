@@ -36,6 +36,10 @@ def execute(jam, step, memory):
         ui.expect(*args)
     elif op == "absent":
         wait(lambda: not ui.has(args[0]), f"absence of {args[0]}")
+        until = time.monotonic() + 2
+        while time.monotonic() < until:
+            assert not ui.has(args[0]), f"Unexpected visible {args[0]}"
+            time.sleep(0.1)
     elif op == "disabled":
         assert not ui.element(args[0]).is_enabled(), f"{args[0]} must be disabled"
     elif op == "count":
@@ -89,7 +93,7 @@ def execute(jam, step, memory):
     elif op == "probe":
         output = profile.repo / "probe.json"
         probe = Path(__file__).with_name("terminal_probe.py")
-        command = shlex.join([sys.executable, str(probe), str(output)])
+        command = shlex.join([sys.executable, str(probe), str(output), *args])
         jam.terminal()
         ui.type(command)
         ui.key("ENTER")
@@ -105,6 +109,18 @@ def execute(jam, step, memory):
         output = profile.repo / "probe.json"
         wait(lambda: output.exists(), "raw PTY probe result")
         assert json.loads(output.read_text())["hex"] == args[0]
+    elif op in ("probe_key_events", "probe_mouse_events"):
+        import re
+
+        output = profile.repo / "probe.json"
+        wait(output.exists, "terminal event probe result")
+        data = bytes.fromhex(json.loads(output.read_text())["hex"])
+        if op == "probe_key_events":
+            assert re.fullmatch(rb"\x1b\[120(?:;1(?::1)?)?u\x1b\[120;1:3u", data), data
+        else:
+            events = re.findall(rb"\x1b\[<0;(\d+);(\d+)([Mm])", data)
+            assert len(events) == 2 and events[0][2] == b"M" and events[1][2] == b"m", data
+            assert events[0][:2] == events[1][:2] and all(int(v) > 0 for v in events[0][:2]), data
     elif op in ("file_text", "home_file_text"):
         path = (profile.repo if op == "file_text" else profile.home) / args[0]
         wait(lambda: path.exists() and path.read_text() == args[1], f"file {args[0]} content")
@@ -120,6 +136,11 @@ def execute(jam, step, memory):
             return expected not in text if op == "no_output" else expected in text
 
         wait(matches, f"terminal {op}: {expected}")
+        if op == "no_output":
+            until = time.monotonic() + 2
+            while time.monotonic() < until:
+                assert matches(), f"Unexpected terminal output: {expected}"
+                time.sleep(0.1)
     elif op == "remember_pids":
         memory["pids"] = jam.pids()
     elif op == "same_pids":

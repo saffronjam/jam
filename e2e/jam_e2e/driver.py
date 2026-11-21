@@ -7,6 +7,7 @@ from xml.etree import ElementTree
 
 from appium import webdriver
 from appium.options.common import AppiumOptions
+from appium.webdriver.client_config import AppiumClientConfig
 from selenium.common.exceptions import NoSuchElementException, StaleElementReferenceException
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.by import By
@@ -64,7 +65,11 @@ class Desktop:
                 "timeouts": {"implicit": 15000},
             }
         options.load_capabilities(caps)
-        self.session = webdriver.Remote(self.endpoint, options=options)
+        config = AppiumClientConfig(remote_server_addr=self.endpoint, timeout=180)
+        self.session = webdriver.Remote(self.endpoint, options=options, client_config=config)
+        # Initial WDA compilation has its own larger budget. An unavailable
+        # driver must not leave diagnostics and teardown waiting indefinitely.
+        config.timeout = 30
         self.session.implicitly_wait(0)
 
     def quit(self):

@@ -75,6 +75,20 @@ def prepare(root, recipe):
     if recipe == "git-diff":
         # The fixture commit has two lines; replace both with three new lines.
         (repo / "tracked.txt").write_text("one\ntwo\nthree\n")
+    if recipe in ("github-review", "gitlab-review"):
+        provider = "github" if recipe == "github-review" else "gitlab"
+        subprocess.run(
+            ["git", "remote", "add", "origin", f"https://{provider}.com/fixture/project.git"],
+            cwd=repo,
+            check=True,
+            capture_output=True,
+            timeout=10,
+        )
+        tool = root / "bin" / ("gh" if provider == "github" else "glab")
+        tool.write_text(
+            "#!/usr/bin/env python3\n" + Path(__file__).with_name("review_provider.py").read_text()
+        )
+        tool.chmod(0o700)
     if recipe in ("existing-checkouts", "dirty-checkout", "checkout-deletion-disabled"):
         subprocess.run(
             ["git", "worktree", "add", "-b", "feature/existing", str(home / "Fixture checkout")],

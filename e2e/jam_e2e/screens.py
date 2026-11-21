@@ -20,6 +20,12 @@ class Jam:
 
     def run(self, command):
         self.terminal()
+        # New panes have fresh shell settings. Disable echo in a separate turn
+        # so the command under assertion cannot appear merely as typed input.
+        self._shell("stty -echo")
+        self._shell(command)
+
+    def _shell(self, command):
         marker = "JAM_RESULT_" + uuid.uuid4().hex
         # The contiguous result marker does not occur in the typed command.
         self.ui.type(

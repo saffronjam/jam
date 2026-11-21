@@ -1,6 +1,6 @@
 # Desktop acceptance cases
 
-191 cases; identical collection on macOS and Linux. No skips or expected failures.
+196 cases; identical collection on macOS and Linux. No skips or expected failures.
 
 Each numbered step is performed externally. Fixture names identify required setup recipes, not alternate assertions.
 
@@ -1435,6 +1435,55 @@ Fixture: `isolated local installation`.
 4. `('drag', 'Tab 2', 'Tab 1')`
 5. `('count', 'tabs', 2)`
 6. `('same_pids',)`
+
+## INPUT-009: A physical key press and release reach the PTY keyboard protocol
+
+Fixture: `isolated local installation`.
+
+1. `('probe', 'keyboard')`
+2. `('probe_key', 'x')`
+3. `('probe_key_events',)`
+
+## MOUSE-001: A physical click sends mouse press and release to the PTY
+
+Fixture: `isolated local installation`.
+
+1. `('probe', 'mouse')`
+2. `('click', 'Terminal', 'terminal')`
+3. `('probe_mouse_events',)`
+
+## LIFECFG-001: close_empty_tabs=False controls the last pane lifecycle
+
+Fixture: `isolated local installation`.
+
+1. `('write_config', 'close_empty_tabs = false\n')`
+2. `('relaunch',)`
+3. `('command', 'Close Pane')`
+4. `('count', 'panes', 0)`
+5. `('count', 'tabs', 1)`
+6. `('count', 'workspaces', 1)`
+
+## LIFECFG-002: close_empty_tabs=True controls the last pane lifecycle
+
+Fixture: `isolated local installation`.
+
+1. `('write_config', 'close_empty_tabs = true\n')`
+2. `('relaunch',)`
+3. `('command', 'Close Pane')`
+4. `('count', 'panes', 0)`
+5. `('count', 'tabs', 0)`
+6. `('count', 'workspaces', 1)`
+
+## LIFECFG-003: close_empty_workspaces=True controls the last pane lifecycle
+
+Fixture: `isolated local installation`.
+
+1. `('write_config', 'close_empty_workspaces = true\n')`
+2. `('relaunch',)`
+3. `('command', 'Close Pane')`
+4. `('count', 'panes', 0)`
+5. `('count', 'tabs', 0)`
+6. `('count', 'workspaces', 0)`
 
 ## PALETTE-001: Palette can be cancelled after searching nothing
 
