@@ -153,11 +153,30 @@ class Desktop:
         return wait(find, f"accessible target {name!r} ({role})")
 
     def click(self, name, role=None):
-        self.element(name, role).click()
+        self._click_element(self.element(name, role))
+
+    def _click_element(self, element, button=0):
+        if self.platform == "macos" and button == 0:
+            element.click()
+            return
+        actions = ActionBuilder(self.session)
+        if self.platform == "linux":
+            # The pinned KDE driver treats element origins as the top-left,
+            # whereas W3C actions define their origin as the element's center.
+            # Resolve accessible bounds explicitly, then inject real input.
+            bounds = element.rect
+            actions.pointer_action.move_to_location(
+                round(bounds["x"] + bounds["width"] / 2),
+                round(bounds["y"] + bounds["height"] / 2),
+            )
+        else:
+            actions.pointer_action.move_to(element)
+        actions.pointer_action.click(button=button)
+        actions.perform()
 
     def fill(self, name, text):
         field = self.element(name, "field")
-        field.click()
+        self._click_element(field)
         self.chord("cmd+a" if self.platform == "macos" else "ctrl+a")
         self.type(text)
 
@@ -190,14 +209,10 @@ class Desktop:
         self.type(getattr(Keys, name))
 
     def context(self, name):
-        actions = ActionBuilder(self.session)
-        actions.pointer_action.move_to(self.element(name)).click(button=2)
-        actions.perform()
+        self._click_element(self.element(name), button=2)
 
     def middle(self, name):
-        actions = ActionBuilder(self.session)
-        actions.pointer_action.move_to(self.element(name)).click(button=1)
-        actions.perform()
+        self._click_element(self.element(name), button=1)
 
     def drag(self, source, target, target_x=0.5, target_y=0.5):
         start_element, end_element = self.element(source), self.element(target)
@@ -219,11 +234,13 @@ class Desktop:
             )
             return
         actions = ActionBuilder(self.session)
-        end = end_element.rect
-        actions.pointer_action.move_to(start_element).pointer_down().pause(0.5).move_to(
-            end_element,
-            round(end["width"] * (target_x - 0.5)),
-            round(end["height"] * (target_y - 0.5)),
+        start, end = start_element.rect, end_element.rect
+        actions.pointer_action.move_to_location(
+            round(start["x"] + start["width"] / 2),
+            round(start["y"] + start["height"] / 2),
+        ).pointer_down().pause(0.5).move_to_location(
+            round(end["x"] + end["width"] * target_x),
+            round(end["y"] + end["height"] * target_y),
         ).pause(0.6).pointer_up()
         actions.perform()
 

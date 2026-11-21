@@ -46,6 +46,11 @@ def test_native_wayland_driver(request, tmp_path):
         except Exception as error:  # noqa: BLE001 - diagnostics preserve the primary failure
             (artifacts / "diagnostics-error.txt").write_text(str(error))
         try:
+            if ui.session:
+                ui.session.save_screenshot(str(artifacts / "gtk.png"))
+        except Exception as error:  # noqa: BLE001 - screenshot failure is diagnostic
+            (artifacts / "screenshot-error.txt").write_text(str(error))
+        try:
             ui.restore_clipboard()
         finally:
             ui.quit()

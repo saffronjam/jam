@@ -32,7 +32,23 @@ def test_linux_drag_starts_with_a_pointer_move_without_keyboard_ticks():
     actions = ui.session.execute.call_args.args[1]["actions"]
     assert len(actions) == 1 and actions[0]["type"] == "pointer"
     assert actions[0]["actions"][0]["type"] == "pointerMove"
+    assert actions[0]["actions"][0]["origin"] == "viewport"
+    assert (actions[0]["actions"][0]["x"], actions[0]["actions"][0]["y"]) == (40, 15)
     assert actions[0]["actions"][-1]["type"] == "pointerUp"
+
+
+def test_linux_click_injects_pointer_input_at_accessible_center():
+    ui = Desktop("linux", "unused", Mock(), Mock())
+    ui.session = Mock()
+    target = Mock(rect={"x": 10, "y": 20, "width": 80, "height": 30})
+    ui.element = Mock(return_value=target)
+    ui.click("Increment", "button")
+    target.click.assert_not_called()
+    actions = ui.session.execute.call_args.args[1]["actions"]
+    assert len(actions) == 1 and actions[0]["type"] == "pointer"
+    move, down, up = actions[0]["actions"]
+    assert (move["origin"], move["x"], move["y"]) == ("viewport", 50, 35)
+    assert down["type"] == "pointerDown" and up["type"] == "pointerUp"
 
 
 def test_macos_drag_uses_native_gesture_with_accessible_coordinates():
