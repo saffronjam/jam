@@ -1,5 +1,6 @@
 """Low-level Linux driver proof against GTK widgets, separate from Jam acceptance."""
 
+import json
 import os
 import re
 from pathlib import Path
@@ -21,6 +22,15 @@ def test_native_wayland_driver(request, tmp_path):
     artifacts.mkdir(parents=True, exist_ok=True)
     try:
         ui.launch()
+        (artifacts / "bounds.json").write_text(
+            json.dumps(
+                {
+                    "button": ui.element("Increment", "button").rect,
+                    "slider": ui.element("Probe slider").rect,
+                },
+                indent=2,
+            )
+        )
         ui.click("Increment", "button")
         ui.expect("Count: 1")
         ui.expect("Slider: 50")

@@ -25,6 +25,8 @@ RUN git init /opt/atspi-src \
     && /opt/atspi/bin/pip install -r /opt/atspi-src/requirements.txt \
     && touch /tmp/selenium-requirements-installed \
     && git -C /opt/atspi-src apply --unidiff-zero /opt/allow-gtk.patch \
+    && ruby -c /opt/atspi-src/run.rb \
+    && /opt/atspi/bin/python -m py_compile /opt/atspi-src/selenium-webdriver-at-spi.py \
     && PATH="/opt/atspi/bin:$PATH" cmake -S /opt/atspi-src -B /opt/atspi-build -G Ninja \
          -DCMAKE_INSTALL_PREFIX=/usr/local -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release \
     && cmake --build /opt/atspi-build --parallel 1 \

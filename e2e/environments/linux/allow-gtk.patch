@@ -7,6 +7,9 @@ diff --git a/selenium-webdriver-at-spi.py b/selenium-webdriver-at-spi.py
 @@ -798 +796 @@
 -            subprocess.run(["selenium-webdriver-at-spi-inputsynth", file.name])
 +            subprocess.run(["selenium-webdriver-at-spi-inputsynth", file.name], check=True)
+@@ -867,0 +866,2 @@
++    if proc.returncode:
++        raise RuntimeError(f"Wayland screenshot helper exited with {proc.returncode}")
 @@ -1007 +1005 @@
 -            subprocess.run(["selenium-webdriver-at-spi-inputsynth", fp.name])
 +            subprocess.run(["selenium-webdriver-at-spi-inputsynth", fp.name], check=True)
@@ -16,6 +19,12 @@ diff --git a/run.rb b/run.rb
 @@ -113 +113 @@
 -    ENV['KWIN_PID'] = pid.to_s
 +    ENV['KWIN_PID'] = Process.pid.to_s
+@@ -129 +129 @@
+-         '--exit-with-session', "#{__FILE__} #{ARGV.shelljoin}", out: artifact_path("appium_artifact_#{File.basename(ARGV[0])}_kwin_stdout.log"))
++         '--exit-with-session', "#{__FILE__} #{ARGV.shelljoin}", out: artifact_path("appium_artifact_#{File.basename(ARGV[0])}_kwin_stdout.log"), err: [:child, :out])
+@@ -266 +266 @@
+-                  out: artifact_path("appium_artifact_#{File.basename(ARGV[0])}_webdriver_stdout.log"))
++                  out: artifact_path("appium_artifact_#{File.basename(ARGV[0])}_webdriver_stdout.log"), err: [:child, :out])
 @@ -292 +292 @@
 -ENV['PYTHONUNBUFFERED'] = '0' # same for python subprocesses
 +ENV['PYTHONUNBUFFERED'] = '1' # flush diagnostics before the supervised driver exits
