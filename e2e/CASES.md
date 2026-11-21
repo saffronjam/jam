@@ -1789,7 +1789,7 @@ Fixture: `update-interrupted`.
 Fixture: `update-bad-signature`.
 
 1. `('settings', 'General')`
-2. `('click', 'Check for Updates…')`
+2. `('click', 'Check for Updates…', 'button')`
 3. `('click', 'Details', 'disclosure')`
 4. `('visible', 'signature')`
 

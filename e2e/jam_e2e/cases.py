@@ -301,6 +301,7 @@ case(
     ("chord", "ctrl+alt+j"),
     ("key", "ESCAPE"),
     ("count", "tabs", 2),
+    ("target_visible", "Tab 2", "button"),
     ("chord", "ctrl+alt+k"),
     ("key", "ESCAPE"),
     ("count", "tabs", 3),
@@ -744,7 +745,7 @@ INTEGRATION = [
     (
         "UPDATE-007",
         "update-bad-signature",
-        [("settings", "General"), ("click", "Check for Updates…"),
+        [("settings", "General"), ("click", "Check for Updates…", "button"),
          ("click", "Details", "disclosure"), ("visible", "signature")],
     ),
     ("UPDATE-008", "update-bad-checksum", [

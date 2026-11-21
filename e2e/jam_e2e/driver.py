@@ -126,17 +126,16 @@ class Desktop:
         else:
             # XCTest's ordinary snapshots truncate text values at 512
             # characters. Mac2's full-text setting applies to element.text.
-            queries = ["//XCUIElementTypeTextView"]
-            for value in {
-                node.attrib["value"]
-                for node in root.iter("XCUIElementTypeStaticText")
-                if len(node.attrib.get("value", "")) >= 512
-            }:
-                queries.append(f"//XCUIElementTypeStaticText[@value={literal(value)}]")
-            query = " | ".join(queries)
-            for element in self.session.find_elements(By.XPATH, query):
+            for element in self.session.find_elements(By.CLASS_NAME, "XCUIElementTypeTextView"):
                 if element.is_displayed():
                     values.append(element.text)
+            if any(len(node.attrib.get("value", "")) >= 512
+                   for node in root.iter("XCUIElementTypeStaticText")):
+                # Apple's XPath rejects some long text predicates. Enumerate
+                # native text elements rather than embedding their contents.
+                for element in self.session.find_elements(By.CLASS_NAME, "XCUIElementTypeStaticText"):
+                    if element.is_displayed() and len(element.get_attribute("value") or "") >= 512:
+                        values.append(element.text)
         return "\n".join(values)
 
     def has(self, text):
@@ -185,7 +184,18 @@ class Desktop:
         return wait(find, f"accessible target {name!r} ({role})")
 
     def click(self, name, role=None, index=None):
-        self._click_element(self.element(name, role, index=index))
+        element = self.element(name, role, index=index)
+        if self.platform == "macos" and role == "disclosure":
+            # SwiftUI's disclosure label ignores the default center click.
+            # Target its chevron within the observed accessible control bounds.
+            bounds = element.rect
+            self.session.execute_script("macos: click", {
+                "x": bounds["x"] + bounds["width"] * .4,
+                "y": bounds["y"] + bounds["height"] * .5,
+            })
+            wait(lambda: element.get_attribute("value") == "1", f"expanded {name}")
+        else:
+            self._click_element(element)
 
     def _click_element(self, element, button=0):
         if self.platform == "macos" and button == 0:
