@@ -415,6 +415,38 @@ for prefix, recipes in DOMAINS.items():
             fixture=recipe,
         )
 
+for id, recipe, confirmation, accept, error in (
+    ("REMOTE-010", "remote-password-required", "Continue", False, "Permission denied"),
+    ("REMOTE-011", "remote-password-required", "Continue", True, None),
+    ("REMOTE-012", "remote-host-untrusted", "Trust Host", False, "Host key verification failed"),
+    ("REMOTE-013", "remote-host-untrusted", "Trust Host", True, None),
+):
+    steps = [
+        ("context", "Fixture"),
+        ("click", "Reconnect"),
+        ("visible", "SSH Authentication"),
+    ]
+    if accept:
+        if confirmation == "Continue":
+            steps.append(("type", "fixture-local-only"))
+        steps += [
+            ("click", confirmation, "button"),
+            ("visible", "Connected"),
+            ("remote_workspace_preserved",),
+        ]
+    else:
+        steps += [
+            ("click", "Cancel", "button"),
+            ("absent", "SSH Authentication"),
+            ("visible", error),
+        ]
+    case(
+        id,
+        ("Accept" if accept else "Cancel") + " real SSH " + confirmation.lower(),
+        *steps,
+        fixture=recipe,
+    )
+
 assert len({c.id for c in CASES}) == len(CASES), "Duplicate case ID"
 
 DEFAULTS = {

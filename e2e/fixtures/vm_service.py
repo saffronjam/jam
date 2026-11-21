@@ -77,7 +77,7 @@ def serve(root, qemu, qemu_img, image, firmware, ready):
         "ssh_pwauth": True,
         "chpasswd": {
             "expire": False,
-            "users": [{"name": "fixture", "password": "fixture-only", "type": "text"}],
+            "users": [{"name": "fixture", "password": "fixture-local-only", "type": "text"}],
         },
         "packages": ["git", "socat"],
         "write_files": [

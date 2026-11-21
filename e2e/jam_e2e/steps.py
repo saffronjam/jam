@@ -44,6 +44,10 @@ def execute(jam, step, memory):
         assert not ui.element(args[0]).is_enabled(), f"{args[0]} must be disabled"
     elif op == "count":
         jam.count(*args)
+    elif op == "remote_workspace_preserved":
+        ids = json.loads((profile.root / "fixture-ids.json").read_text())
+        state = profile.call("--remote", ids["remote"], "workspace", "list")["State"]
+        assert [workspace["id"] for workspace in state["workspaces"]] == [ids["remote_workspace"]]
     elif op == "settle_count":
         # Negative assertion remains true through a bounded observation window.
         until = time.monotonic() + 2

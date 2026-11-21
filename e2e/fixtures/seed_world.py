@@ -45,7 +45,14 @@ def seed(root, recipe):
     created = call("workspace", "create", repo, "--name", "Fixture")
     workspace = created["State"]["workspaces"][0]["id"]
     ids = {"workspace": workspace}
-    if recipe in ("remote-connected", "remote-offline", "remote-persistence-disabled"):
+    if recipe in (
+        "remote-connected",
+        "remote-offline",
+        "remote-persistence-disabled",
+        "remote-auth-rejected",
+        "remote-password-required",
+        "remote-host-untrusted",
+    ):
         ssh = [
             "/usr/bin/ssh",
             "-F",
@@ -89,6 +96,32 @@ def seed(root, recipe):
             control("loginctl", "disable-linger", "fixture")
         if recipe == "remote-offline":
             control("systemctl", "stop", "ssh.socket", "ssh.service")
+        if recipe in ("remote-auth-rejected", "remote-password-required", "remote-host-untrusted"):
+            for filename in ("config", "known_hosts"):
+                (root / ("ssh-healthy." + filename)).write_bytes(
+                    (root / "home/.ssh" / filename).read_bytes()
+                )
+        if recipe == "remote-auth-rejected":
+            # Keep the server, known host and original login key intact. Only
+            # the client's configured identity becomes an unauthorized real key.
+            ssh_dir = root / "home/.ssh"
+            rejected = ssh_dir / "rejected_ed25519"
+            subprocess.run(
+                ["/usr/bin/ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(rejected)],
+                check=True,
+                capture_output=True,
+                timeout=10,
+            )
+            config = ssh_dir / "config"
+            config.write_text(
+                config.read_text().replace(str(ssh_dir / "id_ed25519"), str(rejected))
+                + "  PreferredAuthentications publickey\n"
+            )
+        if recipe == "remote-password-required":
+            config = root / "home/.ssh/config"
+            config.write_text(config.read_text() + "  PreferredAuthentications password\n")
+        if recipe == "remote-host-untrusted":
+            (root / "home/.ssh/known_hosts").write_text("")
     if recipe in ("provider-installed", "provider-outdated"):
         call("skill", "setup", "--agent", "claude", "--agent", "codex")
         if recipe == "provider-outdated":

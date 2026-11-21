@@ -1,6 +1,6 @@
 # Desktop acceptance cases
 
-206 cases; identical collection on macOS and Linux. No skips or expected failures.
+210 cases; identical collection on macOS and Linux. No skips or expected failures.
 
 Each numbered step is performed externally. Fixture names identify required setup recipes, not alternate assertions.
 
@@ -837,6 +837,51 @@ Fixture: `update-required`.
 Fixture: `update-interrupted`.
 
 1. `('visible', 'Recover…')`
+
+## REMOTE-010: Cancel real SSH continue
+
+Fixture: `remote-password-required`.
+
+1. `('context', 'Fixture')`
+2. `('click', 'Reconnect')`
+3. `('visible', 'SSH Authentication')`
+4. `('click', 'Cancel', 'button')`
+5. `('absent', 'SSH Authentication')`
+6. `('visible', 'Permission denied')`
+
+## REMOTE-011: Accept real SSH continue
+
+Fixture: `remote-password-required`.
+
+1. `('context', 'Fixture')`
+2. `('click', 'Reconnect')`
+3. `('visible', 'SSH Authentication')`
+4. `('type', 'fixture-local-only')`
+5. `('click', 'Continue', 'button')`
+6. `('visible', 'Connected')`
+7. `('remote_workspace_preserved',)`
+
+## REMOTE-012: Cancel real SSH trust host
+
+Fixture: `remote-host-untrusted`.
+
+1. `('context', 'Fixture')`
+2. `('click', 'Reconnect')`
+3. `('visible', 'SSH Authentication')`
+4. `('click', 'Cancel', 'button')`
+5. `('absent', 'SSH Authentication')`
+6. `('visible', 'Host key verification failed')`
+
+## REMOTE-013: Accept real SSH trust host
+
+Fixture: `remote-host-untrusted`.
+
+1. `('context', 'Fixture')`
+2. `('click', 'Reconnect')`
+3. `('visible', 'SSH Authentication')`
+4. `('click', 'Trust Host', 'button')`
+5. `('visible', 'Connected')`
+6. `('remote_workspace_preserved',)`
 
 ## DEFAULT-001: Fresh profile uses documented worktrees_directory
 

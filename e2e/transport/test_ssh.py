@@ -108,3 +108,29 @@ def test_real_remote_failure_world(remote_profile, request):
             profile.call("--remote", remote, "workspace", "list")
     else:
         assert linger(profile) == "no"
+
+
+@pytest.mark.parametrize(
+    "remote_profile,error",
+    [
+        ("remote-auth-rejected", "Permission denied"),
+        ("remote-password-required", "Permission denied"),
+        ("remote-host-untrusted", "Host key verification failed"),
+    ],
+    indirect=["remote_profile"],
+)
+def test_real_ssh_authentication_failures_can_be_repaired(remote_profile, error):
+    profile = remote_profile
+    remote = json.loads((profile.root / "fixture-ids.json").read_text())["remote"]
+    with pytest.raises(subprocess.CalledProcessError) as rejected:
+        profile.call("--remote", remote, "workspace", "list")
+    assert error in rejected.value.stderr
+    # Restore the known-good private dependency settings. This repairs the
+    # external login, without accepting a key obtained through network scanning.
+    for filename in ("config", "known_hosts"):
+        shutil.copyfile(
+            profile.root / ("ssh-healthy." + filename), profile.home / ".ssh" / filename
+        )
+    expected = json.loads((profile.root / "fixture-ids.json").read_text())["remote_workspace"]
+    state = profile.call("--remote", remote, "workspace", "list")["State"]
+    assert [workspace["id"] for workspace in state["workspaces"]] == [expected]

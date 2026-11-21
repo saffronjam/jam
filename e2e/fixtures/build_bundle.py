@@ -43,7 +43,14 @@ HTTPS = (
     "update-bad-checksum",
     "update-download-failed",
 )
-REMOTE = ("remote-connected", "remote-offline", "remote-persistence-disabled")
+REMOTE = (
+    "remote-connected",
+    "remote-offline",
+    "remote-persistence-disabled",
+    "remote-auth-rejected",
+    "remote-password-required",
+    "remote-host-untrusted",
+)
 
 
 def recipes(ssh_image=None, engine=None, vm=None):
