@@ -842,7 +842,11 @@ Fixture: `update-available`.
 
 Fixture: `update-required`.
 
-1. `('visible', 'update')`
+1. `('visible', 'Upgrade…')`
+2. `('click', 'Upgrade…')`
+3. `('visible', 'The remote machine needs Jam 0.0.5 or newer before connecting.')`
+4. `('click', 'Cancel')`
+5. `('remote_workspace_preserved',)`
 
 ## UPDATE-003: update interrupted
 

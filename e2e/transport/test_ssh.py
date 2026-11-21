@@ -2,6 +2,7 @@
 
 import json
 import re
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -151,3 +152,57 @@ def test_real_remote_update_defers_while_a_shell_is_running(remote_profile, requ
     assert current["build"] == old["build"] and current["incarnation"] == old["incarnation"]
     state = profile.call("--remote", ids["remote"], "workspace", "list")["State"]
     assert [workspace["id"] for workspace in state["workspaces"]] == [ids["remote_workspace"]]
+
+
+def ssh_cli(profile, *args):
+    """Observe the installed server using its own public CLI after incompatibility."""
+    result = subprocess.run(
+        ["/usr/bin/ssh", "-F", str(profile.home / ".ssh/config"), "-oBatchMode=yes",
+         "jam-fixture", 'export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"; '
+         'exec "$HOME/.local/share/jam/servers/current/jam" --json ' + shlex.join(args)],
+        env=profile.env, check=True, capture_output=True, text=True, timeout=20,
+    )
+    value = json.loads(result.stdout)
+    assert "Error" not in value and "error" not in value, value
+    return value
+
+
+@pytest.mark.parametrize("remote_profile", ["update-required"], indirect=True)
+def test_real_newer_server_world_preserves_its_running_workspace(remote_profile, request):
+    profile = remote_profile
+    ids = json.loads((profile.root / "fixture-ids.json").read_text())
+    bundle = Path(request.config.getoption("--fixture-bundle")).resolve().parent
+    builds = json.loads((bundle / "remote/builds.json").read_text())
+    before = ssh_cli(profile, "daemon", "info")["HostInfo"]
+    assert before["build"] == builds["newer"]
+    state = ssh_cli(profile, "workspace", "list")["State"]
+    assert [workspace["id"] for workspace in state["workspaces"]] == [ids["remote_workspace"]]
+    assert state["panes"], "The newer server must have an actual running terminal"
+    assert ssh_cli(profile, "daemon", "info")["HostInfo"]["build"] == builds["newer"]
+    # This check proves the external dependency, not the GUI's upgrade gate.
+    # The ordinary CLI directly connects to compatible wire protocols; native
+    # UPDATE-002 must exercise the desktop's version check and required prompt.
+    version = subprocess.run(
+        [str(profile.cli), "--version"], check=True, capture_output=True, text=True, timeout=10,
+    ).stdout.strip().removeprefix("jam ")
+    numeric = lambda value: tuple(map(int, value.split(".")))
+    assert numeric(version) < numeric(builds["newer_version"])
+    after = ssh_cli(profile, "daemon", "info")["HostInfo"]
+    assert (after["build"], after["incarnation"]) == (before["build"], before["incarnation"])
+    current = ssh_cli(profile, "workspace", "list")["State"]
+    (profile.root / "fixture-newer-server.log").write_text(json.dumps({
+        "before": {"info": before, "state": state},
+        "after": {"info": after, "state": current},
+    }, indent=2))
+
+    def identity(snapshot):
+        # Repository discovery settles asynchronously; preserve the actual
+        # workspace layout and PTY generations rather than transient metadata.
+        return {
+            "workspaces": [(workspace["id"], workspace["name"], workspace["path"],
+                            workspace["tabs"]) for workspace in snapshot["workspaces"]],
+            "panes": [(pane["id"], pane["session_generation"], pane["exited"])
+                      for pane in snapshot["panes"]],
+        }
+
+    assert identity(current) == identity(state)

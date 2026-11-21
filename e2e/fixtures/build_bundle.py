@@ -54,9 +54,10 @@ REMOTE = (
 )
 
 
-def recipes(ssh_image=None, engine=None, vm=None, previous=False):
+def recipes(ssh_image=None, engine=None, vm=None, previous=False, newer=False):
     values = {}
     remote_worlds = REMOTE + (("remote-update-available",) if previous else ())
+    remote_worlds += (("update-required",) if newer else ())
     for recipe in LOCAL + HTTPS + (remote_worlds if ssh_image or vm else ()):
         values[recipe] = spec = {
             "setup": [["{python}", "{bundle}/provision_world.py", "{root}", recipe]],
@@ -65,7 +66,7 @@ def recipes(ssh_image=None, engine=None, vm=None, previous=False):
         }
         if recipe == "provider-missing":
             spec["setup"] = []
-        if recipe in HTTPS:
+        if recipe in HTTPS or recipe == "update-required":
             spec["services"].insert(
                 0,
                 {
@@ -88,6 +89,8 @@ def recipes(ssh_image=None, engine=None, vm=None, previous=False):
             archive = (
                 "{bundle}/remote/previous.tar.gz"
                 if recipe == "remote-update-available"
+                else "{bundle}/remote/newer.tar.gz"
+                if recipe == "update-required"
                 else "{bundle}/remote/server.tar.gz"
             )
             if vm:
@@ -170,11 +173,12 @@ def build(
     remote_archive=None,
     vm=None,
     remote_previous_archive=None,
+    remote_next_archive=None,
 ):
     if ssh_image and vm:
         raise ValueError("Choose exactly one owned SSH host backend")
-    if remote_previous_archive and not (ssh_image or vm):
-        raise ValueError("Previous remote archives require an owned SSH host backend")
+    if (remote_previous_archive or remote_next_archive) and not (ssh_image or vm):
+        raise ValueError("Additional remote archives require an owned SSH host backend")
     output.mkdir(parents=True, exist_ok=True)
     for source in Path(__file__).parent.glob("*.py"):
         shutil.copy2(source, output / source.name)
@@ -199,7 +203,7 @@ def build(
             fetch(Path(vm["image"]))
         (output / "remote").mkdir(exist_ok=True)
         shutil.copy2(remote_archive, output / "remote/server.tar.gz")
-        if remote_previous_archive:
+        if remote_previous_archive or remote_next_archive:
             import tarfile
 
             def build_info(archive):
@@ -213,21 +217,22 @@ def build(
                     return json.load(release.extractfile(candidates[0]))
 
             current = build_info(remote_archive)
-            previous = build_info(remote_previous_archive)
-            assert current["server_build"] != previous["server_build"], "Remote builds must differ"
-            assert current["arch"] == previous["arch"], "Remote archive architectures must match"
-            shutil.copy2(remote_previous_archive, output / "remote/previous.tar.gz")
-            (output / "remote/builds.json").write_text(
-                json.dumps(
-                    {
-                        "current": current["server_build"],
-                        "previous": previous["server_build"],
-                    }
-                )
-                + "\n"
-            )
+            builds = {"current": current["server_build"]}
+            for name, archive in (("previous", remote_previous_archive), ("newer", remote_next_archive)):
+                if archive is None:
+                    continue
+                other = build_info(archive)
+                assert current["server_build"] != other["server_build"], "Remote builds must differ"
+                assert current["arch"] == other["arch"], "Remote archive architectures must match"
+                if name == "newer":
+                    numeric = lambda value: tuple(map(int, value.split(".")))
+                    assert numeric(other["release_version"]) > numeric(current["release_version"])
+                    builds["newer_version"] = other["release_version"]
+                builds[name] = other["server_build"]
+                shutil.copy2(archive, output / f"remote/{name}.tar.gz")
+            (output / "remote/builds.json").write_text(json.dumps(builds) + "\n")
     (output / "manifest.json").write_text(
-        json.dumps(recipes(ssh_image, engine, vm, bool(remote_previous_archive)), indent=2) + "\n"
+        json.dumps(recipes(ssh_image, engine, vm, bool(remote_previous_archive), bool(remote_next_archive)), indent=2) + "\n"
     )
 
 
@@ -240,6 +245,7 @@ def main():
     parser.add_argument("--engine")
     parser.add_argument("--remote-archive", type=Path)
     parser.add_argument("--remote-previous-archive", type=Path)
+    parser.add_argument("--remote-next-archive", type=Path)
     parser.add_argument("--vm-image", type=Path)
     parser.add_argument("--qemu", type=Path)
     parser.add_argument("--qemu-img", type=Path)
@@ -265,6 +271,7 @@ def main():
         args.remote_archive,
         vm,
         args.remote_previous_archive,
+        args.remote_next_archive,
     )
 
 

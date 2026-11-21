@@ -402,7 +402,7 @@ DOMAINS = {
     ],
     "UPDATE": [
         ("update-available", None, "Upgrade…"),
-        ("update-required", None, "update"),
+        ("update-required", None, "Upgrade…"),
         ("update-interrupted", None, "Recover…"),
     ],
 }
@@ -411,11 +411,18 @@ for prefix, recipes in DOMAINS.items():
         steps = [("command", command)] if command else []
         if prefix == "COORD":
             steps += [("click", "Tasks and Agents")]
+        steps += [("visible", expected)]
+        if recipe == "update-required":
+            steps += [
+                ("click", "Upgrade…"),
+                ("visible", "The remote machine needs Jam 0.0.5 or newer before connecting."),
+                ("click", "Cancel"),
+                ("remote_workspace_preserved",),
+            ]
         case(
             f"{prefix}-{i:03}",
             recipe.replace("-", " "),
             *steps,
-            ("visible", expected),
             fixture=recipe,
         )
 

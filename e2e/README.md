@@ -192,10 +192,17 @@ virtualization. The image URL and SHA-512 digest are pinned in
 `fixtures/fetch_vm_image.py`; each case writes only its private overlay and
 NoCloud seed. Login and host keys are generated per case, and host key
 verification remains strict. Its HTTPS forwarder carries TLS unchanged to the
-host's fixture service. Its three real-transport checks passed on macOS in
-[run 44909920177](https://github.com/saffronjam/jam/actions/runs/44909920177).
+host's fixture service. Seven real-transport checks passed on macOS in
+[run 44915485897](https://github.com/saffronjam/jam/actions/runs/44915485897), including
+authentication failures, repair and update deferral while a shell runs.
 The full macOS UI workflow now provisions these guests for remote scenarios;
 transport proof alone is not a passing remote UI result.
+
+`--remote-previous-archive` supplies a genuinely different older server build
+for update deferral. `--remote-next-archive` supplies a newer release for the
+required-client-upgrade world. That world's workspace is created with the newer
+installation's own CLI over SSH. Dependency checks verify real build versions
+and stable sessions; the shared native UI scenario must prove the upgrade gate.
 
 ```sh
 python fixtures/fetch_vm_image.py /absolute/path/to/debian-arm64.qcow2

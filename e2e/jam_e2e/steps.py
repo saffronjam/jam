@@ -49,6 +49,11 @@ def execute(jam, step, memory):
         ids = json.loads((profile.root / "fixture-ids.json").read_text())
         state = profile.call("--remote", ids["remote"], "workspace", "list")["State"]
         assert [workspace["id"] for workspace in state["workspaces"]] == [ids["remote_workspace"]]
+        info = profile.call("--remote", ids["remote"], "daemon", "info")["HostInfo"]
+        assert (info["build"], info["incarnation"]) == (
+            ids["remote_build"], ids["remote_incarnation"]
+        )
+        assert {pane["id"]: pane["session_generation"] for pane in state["panes"]} == ids["remote_sessions"]
     elif op in ("remember_layout", "same_layout"):
 
         def identities():

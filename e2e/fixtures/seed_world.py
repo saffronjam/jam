@@ -57,6 +57,7 @@ def seed(root, recipe):
         "remote-password-required",
         "remote-host-untrusted",
         "remote-update-available",
+        "update-required",
     ):
         ssh = [
             "/usr/bin/ssh",
@@ -74,16 +75,29 @@ def seed(root, recipe):
         remote = call("remote", "add", "Fixture", "jam-fixture")
         ids["remote"] = remote["id"]
         call("remote", "install", ids["remote"], os.environ["JAM_E2E_REMOTE_ARCHIVE"])
-        remote_state = call(
-            "--remote",
-            ids["remote"],
-            "workspace",
-            "create",
-            "/home/fixture/project",
-            "--name",
-            "Remote project",
-        )
+        if recipe == "update-required":
+            # An older client must refuse this server. Seed its workspace
+            # through the newer installation's own shipped CLI over real SSH.
+            result = subprocess.run(
+                [*ssh, 'export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"; '
+                 'exec "$HOME/.local/share/jam/servers/current/jam" --json workspace create '
+                 '/home/fixture/project --name "Remote project"'],
+                check=True, capture_output=True, text=True, timeout=20,
+            )
+            remote_state = json.loads(result.stdout)
+            assert "State" in remote_state, remote_state
+        else:
+            remote_state = call(
+                "--remote", ids["remote"], "workspace", "create",
+                "/home/fixture/project", "--name", "Remote project",
+            )
         ids["remote_workspace"] = remote_state["State"]["workspaces"][0]["id"]
+        info = call("--remote", ids["remote"], "daemon", "info")["HostInfo"]
+        ids["remote_build"] = info["build"]
+        ids["remote_incarnation"] = info["incarnation"]
+        ids["remote_sessions"] = {
+            pane["id"]: pane["session_generation"] for pane in remote_state["State"]["panes"]
+        }
         host = json.loads((root / "ssh.ready").read_text())
 
         def control(*args):
