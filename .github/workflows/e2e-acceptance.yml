@@ -19,7 +19,7 @@ jobs:
       matrix:
         os: [ubuntu-24.04, macos-15]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 90
+    timeout-minutes: 180
     env:
       CARGO_BUILD_JOBS: 2
       APPIUM_HOME: ${{ github.workspace }}/.cache/appium-home

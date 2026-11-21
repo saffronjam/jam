@@ -1,5 +1,6 @@
 import json
 import shlex
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -48,6 +49,40 @@ def execute(jam, step, memory):
         ids = json.loads((profile.root / "fixture-ids.json").read_text())
         state = profile.call("--remote", ids["remote"], "workspace", "list")["State"]
         assert [workspace["id"] for workspace in state["workspaces"]] == [ids["remote_workspace"]]
+    elif op in ("remember_layout", "same_layout"):
+
+        def identities():
+            state = profile.layout()
+            return {
+                "workspaces": [
+                    (workspace["id"], [tab["id"] for tab in workspace["tabs"]])
+                    for workspace in state["workspaces"]
+                ],
+                "panes": sorted(pane["id"] for pane in state["panes"]),
+            }
+
+        if op == "remember_layout":
+            memory["layout"] = identities()
+            assert memory["layout"]["panes"], "No starting terminal to preserve"
+        else:
+            wait(
+                lambda: identities() == memory["layout"],
+                "preserved workspace, tab and pane identities",
+            )
+    elif op == "installed_version":
+
+        def version():
+            value = subprocess.run(
+                [str(profile.cli), "--version"],
+                check=True,
+                capture_output=True,
+                text=True,
+                env=profile.env,
+                timeout=10,
+            ).stdout.strip()
+            return value == "jam " + args[0]
+
+        wait(version, "installed release " + args[0], timeout=90)
     elif op == "settle_count":
         # Negative assertion remains true through a bounded observation window.
         until = time.monotonic() + 2

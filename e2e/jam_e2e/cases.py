@@ -738,9 +738,28 @@ INTEGRATION = [
         "UPDATE-010",
         "update-available",
         [
+            ("run", "printf x >> update-executions"),
+            ("remember_layout",),
             ("click", "Upgrade…"),
             ("click", "Upgrade and Restart"),
+            ("installed_version", "0.0.5"),
             ("visible", "Open Release Notes"),
+            ("same_layout",),
+            ("file_text", "update-executions", "x"),
+        ],
+    ),
+    (
+        "UPDATE-011",
+        "update-interrupted",
+        [
+            ("remember_layout",),
+            ("remember_pids",),
+            ("click", "Recover…"),
+            ("click", "Recover", "button"),
+            ("absent", "Recover Interrupted Upgrade"),
+            ("installed_version", "0.0.4"),
+            ("same_layout",),
+            ("same_pids",),
         ],
     ),
     (

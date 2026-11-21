@@ -120,6 +120,15 @@ def capture(item, jam):
     if log.exists():
         shutil.copyfile(log, folder / "jamd.log")
     try:
+        for transaction in (jam.profile.state / "upgrades").glob("apply-*"):
+            for source in transaction.iterdir():
+                if source.is_file() and source.suffix in {".json", ".log"}:
+                    destination = folder / "upgrades" / transaction.name / source.name
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(source, destination)
+    except Exception as error:  # noqa: BLE001 - retain the original acceptance failure
+        errors.append(f"upgrade diagnostics: {error}")
+    try:
         for pane in jam.profile.layout()["panes"]:
             (folder / ("pane-" + pane["id"] + ".txt")).write_text(jam.profile.capture(pane["id"]))
     except Exception as error:  # noqa: BLE001 - diagnostics must not mask the test failure

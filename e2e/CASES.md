@@ -1,6 +1,6 @@
 # Desktop acceptance cases
 
-210 cases; identical collection on macOS and Linux. No skips or expected failures.
+211 cases; identical collection on macOS and Linux. No skips or expected failures.
 
 Each numbered step is performed externally. Fixture names identify required setup recipes, not alternate assertions.
 
@@ -1786,9 +1786,27 @@ Fixture: `update-download-failed`.
 
 Fixture: `update-available`.
 
-1. `('click', 'Upgrade…')`
-2. `('click', 'Upgrade and Restart')`
-3. `('visible', 'Open Release Notes')`
+1. `('run', 'printf x >> update-executions')`
+2. `('remember_layout',)`
+3. `('click', 'Upgrade…')`
+4. `('click', 'Upgrade and Restart')`
+5. `('installed_version', '0.0.5')`
+6. `('visible', 'Open Release Notes')`
+7. `('same_layout',)`
+8. `('file_text', 'update-executions', 'x')`
+
+## UPDATE-011: update interrupted external user workflow
+
+Fixture: `update-interrupted`.
+
+1. `('remember_layout',)`
+2. `('remember_pids',)`
+3. `('click', 'Recover…')`
+4. `('click', 'Recover', 'button')`
+5. `('absent', 'Recover Interrupted Upgrade')`
+6. `('installed_version', '0.0.4')`
+7. `('same_layout',)`
+8. `('same_pids',)`
 
 ## WT-006: dirty checkout external user workflow
 

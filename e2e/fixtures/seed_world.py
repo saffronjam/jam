@@ -45,6 +45,10 @@ def seed(root, recipe):
     created = call("workspace", "create", repo, "--name", "Fixture")
     workspace = created["State"]["workspaces"][0]["id"]
     ids = {"workspace": workspace}
+    if recipe == "update-interrupted":
+        from interrupt_upgrade import interrupt
+
+        interrupt(root)
     if recipe in (
         "remote-connected",
         "remote-offline",

@@ -42,6 +42,7 @@ HTTPS = (
     "update-bad-signature",
     "update-bad-checksum",
     "update-download-failed",
+    "update-interrupted",
 )
 REMOTE = (
     "remote-connected",

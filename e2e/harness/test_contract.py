@@ -43,6 +43,8 @@ def test_unique_cases_have_assertions():
                 "agent_field",
                 "same_agent_session",
                 "remote_workspace_preserved",
+                "same_layout",
+                "installed_version",
                 "provider_inputs_unchanged",
             }
             for step in case.steps
