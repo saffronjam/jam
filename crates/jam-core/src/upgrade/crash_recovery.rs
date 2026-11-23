@@ -947,6 +947,7 @@ mod tests {
         data(&state, "new-work");
         bundle(&candidate_path(&path, &journal).unwrap(), "0.0.1");
         let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+        let (finished, wait_for_probe) = std::sync::mpsc::channel();
         let peer = std::thread::spawn(move || {
             // Presence check, read-only metadata probe, and kernel identity
             // lookup each connect once. No Stop message is ever accepted.
@@ -970,7 +971,13 @@ mod tests {
             )
             .unwrap();
             drop(stream);
-            drop(listener.accept().unwrap());
+            let (identity_probe, _) = listener.accept().unwrap();
+            // Keep the peer alive until credential inspection has finished.
+            // Darwin can discard LOCAL_PEERPID after the peer closes.
+            wait_for_probe
+                .recv_timeout(Duration::from_secs(10))
+                .unwrap();
+            drop(identity_probe);
         });
         let error = recover_local(
             &path,
@@ -983,8 +990,12 @@ mod tests {
             &socket,
         )
         .unwrap_err();
-        assert!(error.to_string().contains("Another installation"));
+        finished.send(()).unwrap();
         peer.join().unwrap();
+        assert!(
+            error.to_string().contains("Another installation"),
+            "unexpected recovery error: {error:#}"
+        );
         assert_eq!(evidence(&state), "new-work");
         assert_eq!(
             installed_version(&journal.plan.installation)

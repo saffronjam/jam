@@ -17,7 +17,12 @@ impl Daemon {
         let socket = dir.path().join("jamd.sock");
         let child = Self::launch(&socket, dir.path());
         let d = Self { child, dir, socket };
-        d.until(|| std::os::unix::net::UnixStream::connect(&d.socket).is_ok());
+        d.until(|| {
+            matches!(
+                call_at(&d.socket, Request::HostInfo),
+                Ok(Message::HostInfo { .. })
+            )
+        });
         d
     }
     fn launch(socket: &std::path::Path, dir: &std::path::Path) -> Child {
