@@ -848,9 +848,19 @@ fn terminate_local_peer(path: &std::path::Path, stream: &UnixStream) -> Result<(
                 {
                     return Ok(());
                 }
-                Ok(probe) if peer_identity(&probe)?.0 != pid => return Ok(()),
+                Ok(probe) => match peer_identity(&probe) {
+                    Ok((peer, _)) if peer != pid => return Ok(()),
+                    // Darwin can lose a connecting socket's peer while the
+                    // verified daemon exits. Keep polling for refusal rather
+                    // than reporting that transient probe as a failed stop.
+                    Err(error)
+                        if error
+                            .downcast_ref::<std::io::Error>()
+                            .is_some_and(|e| e.kind() == std::io::ErrorKind::NotConnected) => {}
+                    Err(error) => return Err(error),
+                    _ => {}
+                },
                 Err(e) => return Err(e.into()),
-                _ => {}
             }
             if std::time::Instant::now() >= deadline {
                 break;

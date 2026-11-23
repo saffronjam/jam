@@ -95,7 +95,27 @@ def test(cli, signing_key):
         assert (state / 'layout.json').read_text() == 'original layout'
         assert (state / 'coordination.sqlite').read_text() == 'original board'
         assert json.loads(journal_path.read_text())['phase'] in ('failed', 'rolled_back')
-        print('Signed upgrade rollback passed: previous app, layout and board restored. Private failure journal retained.')
+        print('Signed upgrade rollback passed: previous app, layout and board restored; private failure journal retained.')
+        # Refusal before preparation must not invoke old-version restoration,
+        # start a candidate, checkpoint live state, or leave recovery pending.
+        marker = previous / 'Contents/Resources/release.json'
+        marker.write_text(json.dumps({'version': '0.0.0'}))
+        journal_path.write_text(json.dumps(journal))
+        (state / 'candidate-started').unlink()
+        before = {name: (state / name).read_bytes() for name in ('layout.json', 'coordination.sqlite')}
+        checkpoint_before = {path.relative_to(transaction): path.read_bytes()
+                             for path in (transaction / 'checkpoint').rglob('*') if path.is_file()}
+        result = subprocess.run([str(previous / 'Contents/Resources/bin/jam'), '__upgrade-apply', str(journal_path)],
+                                env={**environment, **profile}, capture_output=True, text=True, timeout=60)
+        assert result.returncode != 0 and 'Installed version changed' in result.stderr, result
+        refusal = json.loads(journal_path.read_text())
+        assert refusal['phase'] == 'abandoned', refusal
+        assert not (state / 'candidate-started').exists()
+        assert all((state / name).read_bytes() == data for name, data in before.items())
+        assert all((transaction / name).read_bytes() == data for name, data in checkpoint_before.items())
+        assert json.loads(marker.read_text())['version'] == '0.0.0'
+        marker.write_text(json.dumps({'version': current}))
+        print('Early refusal passed: no restoration, candidate launch or live-state changes.')
         # A separate process must not replace the baseline while an older
         # transaction still needs recovery, even if UI discovery raced launch.
         import uuid
@@ -107,7 +127,7 @@ def test(cli, signing_key):
         older_journal.write_text(json.dumps(unfinished))
         older_journal.chmod(0o600)
         candidate_marker = state / 'candidate-started'
-        candidate_marker.unlink()
+        candidate_marker.unlink(missing_ok=True)
         journal_path.write_text(json.dumps(journal))
         before = {name: (state / name).read_bytes() for name in ('layout.json', 'coordination.sqlite')}
         result = subprocess.run([str(previous / 'Contents/Resources/bin/jam'), '__upgrade-apply', str(journal_path)],
