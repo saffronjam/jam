@@ -251,7 +251,6 @@ jobs:
           path: build/acceptance-shards
       - name: Reconcile every required case and platform
         env:
-          REVISION: ${{ inputs.ref || github.sha }}
           PRODUCER: ${{ inputs.fixture_run || github.run_id }}
         run: |
           cd e2e
@@ -259,7 +258,7 @@ jobs:
           import json, os, subprocess, sys
           from pathlib import Path
           from jam_e2e.cases import CASES
-          from jam_e2e.sharding import reconcile
+          from jam_e2e.sharding import AcceptanceFailed, reconcile
           revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
           results = {}
           root = Path('../build/acceptance-shards')
@@ -268,6 +267,8 @@ jobs:
                   results[platform] = reconcile(
                       [root / f'desktop-acceptance-{runner}-shard-{i}' for i in range(2)],
                       [case.id for case in CASES], platform, revision, os.environ['PRODUCER'])
+              except AcceptanceFailed as error:
+                  results[platform] = {**error.report, 'error': str(error)}
               except Exception as error:
                   results[platform] = {'error': str(error)}
           (root / 'summary.json').write_text(json.dumps(results, indent=2) + '\n')

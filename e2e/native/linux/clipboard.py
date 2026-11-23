@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import sys
 import threading
+import time
 
 import gi
 
@@ -120,6 +121,18 @@ def activate(application):
         GLib.timeout_add(25, active)
 
     def input_loop():
+        deadline = time.monotonic() + 6
+        try:
+            while window_origin(os.getpid(), TITLE, allow_unmapped=True) is None:
+                if time.monotonic() >= deadline:
+                    raise RuntimeError("GTK mapped the clipboard window but KWin did not publish it")
+                time.sleep(0.05)
+        except Exception as error:
+            reply(error)
+            GLib.idle_add(application.quit)
+            return
+        faulthandler.cancel_dump_traceback_later()
+        reply()
         for line in sys.stdin:
             try:
                 request = json.loads(line)
@@ -134,9 +147,7 @@ def activate(application):
         GLib.idle_add(application.quit)
 
     def ready(_window):
-        faulthandler.cancel_dump_traceback_later()
         threading.Thread(target=input_loop, daemon=True).start()
-        reply()
 
     window.connect("map", ready)
     print("Presenting GTK clipboard application window", file=sys.stderr, flush=True)

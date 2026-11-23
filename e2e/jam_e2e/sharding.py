@@ -7,6 +7,12 @@ from pathlib import Path
 from xml.etree import ElementTree
 
 
+class AcceptanceFailed(ValueError):
+    def __init__(self, report):
+        super().__init__("Acceptance failures, errors and skips block publication")
+        self.report = report
+
+
 def partition(ids, index, count):
     if len(ids) != len(set(ids)) or not ids:
         raise ValueError("Catalog must be nonempty and unique")
@@ -29,6 +35,7 @@ def manifest(ids, index, count, platform, revision, producer):
 def reconcile(folders, expected, platform, revision, producer, count=2):
     """Require all cases exactly once, including setup/teardown success."""
     seen, indices = [], set()
+    outcomes = dict(passed=0, failures=0, errors=0, skipped=0, missing_application=0)
     for folder in map(Path, folders):
         receipt = json.loads((folder / "shard.json").read_text())
         index = receipt["index"]
@@ -44,12 +51,23 @@ def reconcile(folders, expected, platform, revision, producer, count=2):
                for c in cases]
         if ids != receipt["selected"]:
             raise ValueError("JUnit cases differ from the assigned shard")
-        if any(c.find(tag) is not None for c in cases for tag in ("failure", "error", "skipped")):
-            raise ValueError("Acceptance failures, errors and skips block publication")
+        for case in cases:
+            failure = case.find("failure")
+            error = case.find("error")
+            skip = case.find("skipped")
+            outcomes["failures"] += failure is not None
+            outcomes["errors"] += error is not None
+            outcomes["skipped"] += skip is not None
+            outcomes["passed"] += all(outcome is None for outcome in (failure, error, skip))
+            if error is not None and "Missing application artifact" in error.get("message", ""):
+                outcomes["missing_application"] += 1
         seen.extend(ids)
     if indices != set(range(count)) or len(seen) != len(expected) or set(seen) != set(expected):
         raise ValueError("Missing, duplicate or incomplete catalog evidence")
-    return dict(platform=platform, cases=len(seen), revision=revision, producer=producer)
+    report = dict(platform=platform, cases=len(seen), revision=revision, producer=producer, **outcomes)
+    if outcomes["passed"] != len(seen):
+        raise AcceptanceFailed(report)
+    return report
 
 
 def main():

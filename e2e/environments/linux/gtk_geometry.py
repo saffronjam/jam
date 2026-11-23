@@ -79,7 +79,8 @@ def keyboard_layout(layout, inspect=False):
     return observation
 
 
-def window_origin(pid, title, rectangle=None, activate=False):
+def window_origin(pid, title, rectangle=None, activate=False, allow_unmapped=False):
+    assert not allow_unmapped or (not activate and rectangle is None)
     if rectangle is not None:
         assert set(rectangle) == {"x", "y", "width", "height"}
         assert all(type(value) is int for value in rectangle.values())
@@ -171,6 +172,8 @@ def window_origin(pid, title, rectangle=None, activate=False):
                 if time.monotonic() >= deadline:
                     raise AssertionError("Compositor did not report the native window geometry")
                 time.sleep(0.005)
+        if allow_unmapped and received == [[]]:
+            return None
         assert len(received) == 1 and len(received[0]) == 1, (
             f"Expected exactly one native window for PID {pid}, title {title!r}: {received}"
         )
