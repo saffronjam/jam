@@ -7,7 +7,7 @@ RUN dnf --disablerepo='*' --enablerepo=jam-fixture-base --enablerepo=jam-fixture
       git cmake ninja-build gcc-c++ extra-cmake-modules \
       qt6-qtbase-devel qt6-qtbase-private-devel qt6-qtwayland-devel \
       kf6-kwindowsystem-devel kf6-kcoreaddons-devel kwayland-devel kpipewire-devel \
-      plasma-wayland-protocols-devel wayland-devel libxkbcommon-devel \
+      plasma-wayland-protocols-devel wayland-devel wayland-protocols-devel libxkbcommon-devel \
       kwin libkscreen at-spi2-core gtk3 gtk4 libadwaita ibus ibus-gtk4 ibus-mozc \
       python3 python3-pip python3-pyatspi python3-gobject python3-lxml python3-numpy python3-pillow \
       xorg-x11-server-Xvfb \
@@ -23,6 +23,13 @@ RUN python3 -m venv --system-site-packages /opt/atspi \
     && /opt/atspi/bin/pip install Flask==3.0.0 Appium-Python-Client==4.5.1 selenium==4.29.0 uv==0.13.5
 COPY allow-gtk.patch /opt/allow-gtk.patch
 COPY gtk_geometry.py /usr/local/share/selenium-webdriver-at-spi/gtk_geometry.py
+COPY clipboard.c /opt/jam-e2e-clipboard/clipboard.c
+RUN protocol="$(pkg-config --variable=pkgdatadir wayland-protocols)/staging/ext-data-control/ext-data-control-v1.xml" \
+    && cd /opt/jam-e2e-clipboard \
+    && wayland-scanner client-header "$protocol" ext-data-control.h \
+    && wayland-scanner private-code "$protocol" ext-data-control.c \
+    && cc -std=c11 -O2 -Wall -Wextra -Werror -o /usr/local/bin/jam-e2e-clipboard \
+         clipboard.c ext-data-control.c $(pkg-config --cflags --libs wayland-client)
 COPY headless_screenshot.py /usr/local/share/selenium-webdriver-at-spi/headless_screenshot.py
 COPY run-wayland.sh /usr/local/bin/jam-e2e-wayland-run
 RUN chmod 755 /usr/local/bin/jam-e2e-wayland-run

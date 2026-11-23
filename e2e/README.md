@@ -129,7 +129,9 @@ controls, a physical slider drag, input, clipboard and screenshots in this envir
 probe is separate from Jam acceptance and cannot satisfy a product scenario.
 Use the mixed-format native clipboard control before evaluating clipboard cases.
 It checks that a real GTK field can paste the text representation while the
-native clipboard retains the original PNG bytes.
+native clipboard retains the original PNG and TIFF bytes. The pinned Linux
+environment builds its clipboard adapter with Wayland's data-control protocol.
+The adapter connects only to the KWin process owned by the test desktop.
 The complete GTK driver proof passed in
 [run 44928918319](https://github.com/saffronjam/jam/actions/runs/44928918319), including
 physical wheel scrolling, native composition, Unicode, resizing and later hit
