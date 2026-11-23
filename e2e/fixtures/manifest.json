@@ -1,0 +1,9 @@
+{
+  "schema": 1,
+  "recipes": {
+    "provider-missing": {"setup": []},
+    "provider-detected": {
+      "setup": [["{python}", "{bundle}/provision_provider.py", "{root}"]]
+    }
+  }
+}

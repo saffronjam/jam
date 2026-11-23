@@ -1,0 +1,515 @@
+import json
+import os
+import signal
+import shlex
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+from .driver import wait
+
+
+def execute(jam, step, memory):
+    op, *args = step
+    ui, profile = jam.ui, jam.profile
+    if op == "run":
+        jam.run(*args)
+    elif op in {"open_client", "use_client", "close_client"}:
+        if jam.clients is None:
+            from .clients import Clients
+
+            jam.clients = Clients(ui)
+        if op == "open_client":
+            jam.ui = jam.clients.open(args[0])
+        elif op == "use_client":
+            jam.ui = jam.clients.select(args[0])
+        else:
+            jam.ui = jam.clients.close(args[0])
+    elif op in {"remote_shell", "remote_run"}:
+        jam.remote_shell(*args)
+    elif op == "remote_exit":
+        ui.click("Remote project", "row")
+        jam.terminal()
+        ui.type("exit")
+        ui.key("ENTER")
+    elif op == "remote_server_changed":
+        from .remote import server_changed
+
+        server_changed(profile, args[0])
+    elif op == "remote_file_text":
+        from .remote import peer_command
+
+        assert peer_command(profile, "cat -- " + shlex.quote("/home/fixture/project/" + args[0])) == args[1]
+    elif op == "remote_server_stable":
+        from .remote import peer_call
+
+        ids = json.loads((profile.root / "fixture-ids.json").read_text())
+        until = time.monotonic() + args[0]
+        while True:
+            info = peer_call(profile, "daemon", "info")["HostInfo"]
+            assert (info["build"], info["incarnation"]) == (ids["remote_build"], ids["remote_incarnation"])
+            if time.monotonic() >= until:
+                break
+            time.sleep(0.5)
+    elif op == "remote_linger":
+        from .remote import peer_command
+
+        wait(lambda: peer_command(profile, "loginctl show-user fixture -p Linger --value").strip()
+             == args[0], "remote operating system Linger=" + args[0])
+    elif op == "machine_absent":
+        wait(lambda: not ui.machine_elements(args[0]), f"removed machine {args[0]}")
+    elif op == "remote_rejected":
+        ids = json.loads((profile.root / "fixture-ids.json").read_text())
+        try:
+            profile.call("--remote", ids["remote"], "workspace", "list")
+        except subprocess.CalledProcessError as error:
+            assert args[0].lower() in error.stderr.lower(), error.stderr
+        else:
+            raise AssertionError("The rejected remote unexpectedly accepted a connection")
+    elif op == "run_focused":
+        jam.run_focused(*args)
+    elif op == "command":
+        jam.command(*args)
+    elif op == "settings":
+        jam.settings(*args)
+    elif op == "save":
+        jam.save()
+    elif op == "click":
+        ui.click(*args)
+    elif op == "context":
+        ui.context(*args)
+    elif op == "fill":
+        ui.fill(*args)
+    elif op == "query_burst":
+        ui.query_burst(*args)
+    elif op == "type":
+        ui.type(*args)
+    elif op == "chord":
+        ui.chord(*args)
+    elif op == "key":
+        ui.key(*args)
+    elif op == "input_source":
+        ui.input_source(*args)
+    elif op == "restore_input_source":
+        ui.restore_input_source()
+    elif op == "visible":
+        ui.expect(*args)
+    elif op == "stable_visible":
+        ui.expect(args[0])
+        until = time.monotonic() + args[1]
+        while time.monotonic() < until:
+            assert ui.has(args[0]), "A later result replaced visible " + args[0]
+            time.sleep(.1)
+    elif op == "dialog":
+        ui.dialog(*args)
+    elif op == "dialog_button":
+        ui.dialog_button(*args)
+    elif op == "finish_dialogs":
+        ui.finish_dialogs()
+    elif op == "visual_text":
+        from .visual import terminal_text
+
+        terminal_text(ui, *args)
+    elif op == "target_visible":
+        ui.element(*args)
+    elif op == "absent":
+        wait(lambda: not ui.has(args[0]), f"absence of {args[0]}")
+        until = time.monotonic() + 2
+        while time.monotonic() < until:
+            assert not ui.has(args[0]), f"Unexpected visible {args[0]}"
+            time.sleep(0.1)
+    elif op == "disabled":
+        assert not ui.element(args[0]).is_enabled(), f"{args[0]} must be disabled"
+    elif op == "enabled":
+        wait(lambda: ui.element(*args).is_enabled(), f"enabled {args[0]}")
+    elif op == "count":
+        jam.count(*args)
+    elif op == "tab_name":
+        wait(lambda: any(tab["name"] == args[0] for workspace in profile.layout()["workspaces"]
+                         for tab in workspace["tabs"]), f"committed tab name {args[0]!r}")
+    elif op == "remote_workspace_preserved":
+        from .remote import peer_call
+
+        ids = json.loads((profile.root / "fixture-ids.json").read_text())
+        state = peer_call(profile, "workspace", "list")["State"]
+        assert [workspace["id"] for workspace in state["workspaces"]] == [ids["remote_workspace"]]
+        info = peer_call(profile, "daemon", "info")["HostInfo"]
+        assert (info["build"], info["incarnation"]) == (
+            ids["remote_build"], ids["remote_incarnation"]
+        )
+        assert {pane["id"]: pane["session_generation"] for pane in state["panes"]} == ids["remote_sessions"]
+    elif op in ("remember_layout", "same_layout"):
+
+        def identities():
+            state = profile.layout()
+            return {
+                "workspaces": [
+                    (workspace["id"], [tab["id"] for tab in workspace["tabs"]])
+                    for workspace in state["workspaces"]
+                ],
+                "panes": sorted(pane["id"] for pane in state["panes"]),
+            }
+
+        if op == "remember_layout":
+            memory["layout"] = identities()
+            assert memory["layout"]["panes"], "No starting terminal to preserve"
+        else:
+            wait(
+                lambda: identities() == memory["layout"],
+                "preserved workspace, tab and pane identities",
+            )
+    elif op == "installed_version":
+
+        def version():
+            value = subprocess.run(
+                [str(profile.cli), "--version"],
+                check=True,
+                capture_output=True,
+                text=True,
+                env=profile.env,
+                timeout=10,
+            ).stdout.strip()
+            return value == "jam " + args[0]
+
+        wait(version, "installed release " + args[0], timeout=90)
+    elif op == "remember_client":
+        memory["client_pids"] = ui.application_pids()
+        assert len(memory["client_pids"]) == 1, "Expected one private application process"
+    elif op == "client_restarted":
+        ui.follow_restart(memory["client_pids"])
+    elif op == "upgrade_rolled_back":
+        def rolled_back():
+            journals = list((profile.state / "upgrades").glob("apply-*/journal.json"))
+            if len(journals) != 1:
+                return False
+            value = json.loads(journals[0].read_text())
+            if value["phase"] != "rolled_back" or "healthy" not in (value["error"] or ""):
+                return False
+            assert value["staged"]["release"]["version"] == "0.0.5"
+            log = journals[0].parent / "daemon.log"
+            assert "E2E candidate daemon startup failure" in log.read_text()
+            return True
+
+        wait(rolled_back, "genuine candidate execution and automatic rollback", timeout=90)
+    elif op == "settle_count":
+        # Negative assertion remains true through a bounded observation window.
+        until = time.monotonic() + 2
+        while time.monotonic() < until:
+            state = profile.layout()
+            objects = (
+                state[args[0]]
+                if args[0] != "tabs"
+                else [t for w in state["workspaces"] for t in w["tabs"]]
+            )
+            assert len(objects) == args[1], f"Unexpected {args[0]} count during negative assertion"
+            time.sleep(0.1)
+    elif op == "write_config":
+        profile.write_config(*args)
+    elif op == "config":
+        jam.expect_config(*args)
+    elif op == "config_default":
+        if profile.config.exists():
+            jam.expect_config(*args)
+        else:
+            # Save a freshly opened draft to observe actual effective defaults.
+            jam.settings()
+            jam.save()
+            jam.expect_config(*args)
+    elif op == "relaunch":
+        ui.quit()
+        ui.launch()
+        wait(lambda: ui.has("Terminal"), "terminal after reopen")
+    elif op == "begin_input":
+        jam.terminal()
+        ui.type(args[0])
+        ui.key("ENTER")
+    elif op == "clipboard":
+        ui.clipboard(*args)
+    elif op in {"clipboard_equals", "clipboard_stable"}:
+        wait(lambda: ui.clipboard() == args[0], "clipboard contains the exact selected text")
+        if op == "clipboard_stable":
+            until = time.monotonic() + 2
+            while time.monotonic() < until:
+                assert ui.clipboard() == args[0], "Selection unexpectedly replaced the clipboard"
+                time.sleep(0.1)
+    elif op == "select_word":
+        ui.select_word(*args)
+    elif op == "copy":
+        ui.copy()
+    elif op == "paste":
+        ui.chord("cmd+v" if ui.platform == "macos" else "ctrl+shift+v")
+    elif op == "middle":
+        ui.middle(*args)
+    elif op == "drag":
+        ui.drag(*args)
+    elif op == "resize":
+        ui.resize(*args)
+    elif op == "display_scale":
+        if args[0] == "high":
+            ui.higher_display_scale()
+        elif args[0] == "normal":
+            ui.restore_display_scale()
+        else:
+            raise ValueError("Unknown native display scale " + args[0])
+    elif op == "native_scale":
+        assert ui.display_scale_state is not None, "No native display scale observation"
+
+        def scaled():
+            actual = ui.display_scale_state.observe()["scale"]
+            return actual > 1.1 if args[0] == "high" else abs(actual - 1) < .05
+
+        wait(scaled, "native output has " + args[0] + " scale")
+    elif op == "native_reduced_motion":
+        from .preferences import require_reduced_motion
+
+        require_reduced_motion(ui)
+    elif op == "geometry_probe":
+        output = profile.repo / "geometry.json"
+        script = Path(__file__).with_name("geometry_probe.py")
+        jam.terminal()
+        ui.type(shlex.join([sys.executable, str(script), str(output), *map(str, args)]))
+        ui.key("ENTER")
+        wait(lambda: output.with_suffix(".ready").exists(), "PTY geometry observer startup")
+        initial = json.loads(output.read_text())[0]
+        assert initial["rows"] > 0 and initial["columns"] > 0
+        memory["geometry"] = initial
+    elif op == "interrupt_probe":
+        output = profile.repo / "interrupt.json"
+        script = Path(__file__).with_name("interrupt_probe.py")
+        jam.terminal()
+        ui.type(shlex.join([sys.executable, str(script), str(output)]))
+        ui.key("ENTER")
+        wait(output.with_suffix(".ready").exists, "real foreground job ready for Control-C")
+        identity = json.loads(output.with_suffix(".ready").read_text())
+        assert identity["pid"] > 1 and identity["group"] == identity["foreground"]
+        memory["interrupt_job"] = identity
+    elif op == "interrupted":
+        output = profile.repo / "interrupt.json"
+        wait(output.exists, "foreground job receives the terminal's SIGINT")
+        assert json.loads(output.read_text()) == {**memory["interrupt_job"], "signal": signal.SIGINT}
+    elif op == "geometry_changed":
+        def changed():
+            observations = json.loads((profile.repo / "geometry.json").read_text())
+            return (len(observations) > 1 and observations[-1] != memory["geometry"]
+                    and observations[-1]["rows"] > 0 and observations[-1]["columns"] > 0)
+
+        wait(changed, "SIGWINCH and changed PTY rows/columns after native resize")
+        execute(jam, ("geometry_stop",), memory)
+    elif op in {"geometry_record", "geometry_matches", "geometry_differs"}:
+        output = profile.repo / "geometry.json"
+
+        def current():
+            return json.loads(output.read_text())[-1]
+
+        if op == "geometry_record":
+            expected = memory.setdefault("geometry_sizes", {})[args[0]] = current()
+        else:
+            recorded = memory["geometry_sizes"][args[0]]
+            wait(lambda: (current() == recorded) == (op == "geometry_matches"),
+                 f"focused client PTY size {op} {args[0]}")
+            expected = current()
+        assert expected["rows"] > 0 and expected["columns"] > 0
+        start = len(json.loads(output.read_text())) - 1
+        until = time.monotonic() + 2
+        while time.monotonic() < until:
+            observations = json.loads(output.read_text())[start:]
+            assert all(value == expected for value in observations), (
+                "Inactive client changed the focused terminal's PTY geometry", observations)
+            time.sleep(0.1)
+    elif op == "geometry_stop":
+        ui.type("exit")
+        ui.key("ENTER")
+        wait((profile.repo / "geometry.stopped").exists, "geometry observer exits through its terminal")
+    elif op == "field_value":
+        wait(lambda: ui.field_value(args[0]) == args[1], "field value")
+    elif op == "file_exists":
+        assert (profile.repo / args[0]).is_file()
+    elif op == "path_absent":
+        path = profile.repo / args[0]
+        wait(lambda: not path.exists(), f"removed path {args[0]}")
+    elif op == "agent_field":
+
+        def matches():
+            agents = profile.call("coordinate", "list")["Coordination"]["agents"]
+            return len(agents) == 1 and agents[0].get(args[0]) == args[1]
+
+        wait(matches, f"single agent {args[0]}={args[1]}")
+    elif op in ("remember_agent_session", "same_agent_session"):
+        agents = profile.call("coordinate", "list")["Coordination"]["agents"]
+        assert len(agents) == 1 and agents[0]["session"]
+        current = (agents[0]["id"], agents[0]["session"])
+        if op == "remember_agent_session":
+            memory["agent_session"] = current
+        else:
+            assert current == memory["agent_session"], "Resume replaced the saved conversation"
+    elif op in ("remember_provider_inputs", "provider_inputs_unchanged"):
+
+        def inputs():
+            path = profile.home / "provider-events.jsonl"
+            return [line for line in path.read_text().splitlines() if "input" in json.loads(line)]
+
+        if op == "remember_provider_inputs":
+            memory["provider_inputs"] = inputs()
+        else:
+            until = time.monotonic() + 2
+            while time.monotonic() < until:
+                assert inputs() == memory["provider_inputs"], (
+                    "Resume submitted unintended provider input"
+                )
+                time.sleep(0.1)
+    elif op == "probe":
+        output = profile.repo / "probe.json"
+        probe = Path(__file__).with_name("terminal_probe.py")
+        command = shlex.join([sys.executable, str(probe), str(output), *args])
+        jam.terminal()
+        ui.type(command)
+        ui.key("ENTER")
+        wait(lambda: output.with_suffix(".ready").exists(), "raw PTY probe ready")
+    elif op == "probe_key":
+        if "+" in args[0]:
+            ui.chord(args[0])
+        elif args[0].isupper():
+            ui.key(args[0])
+        else:
+            ui.type(args[0])
+    elif op == "begin_composition":
+        ui.begin_composition()
+    elif op == "finish_composition":
+        ui.finish_composition(*args)
+    elif op == "probe_no_input":
+        events = profile.repo / "probe.events"
+        until = time.monotonic() + 1
+        while time.monotonic() < until:
+            assert json.loads(events.read_text())["hex"] == "", "Preedit leaked terminal input"
+            time.sleep(.05)
+    elif op == "preedit_pixels":
+        assert ui.session.save_screenshot(str(profile.repo / "ime-preedit.png"))
+    elif op == "probe_hex":
+        output = profile.repo / "probe.json"
+        wait(lambda: output.exists(), "raw PTY probe result")
+        assert json.loads(output.read_text())["hex"] == args[0]
+    elif op in ("probe_key_events", "probe_mouse_events"):
+        import re
+
+        output = profile.repo / "probe.json"
+        wait(output.exists, "terminal event probe result")
+        data = bytes.fromhex(json.loads(output.read_text())["hex"])
+        if op == "probe_key_events":
+            assert re.fullmatch(rb"\x1b\[120(?:;1(?::1)?)?u\x1b\[120;1:3u", data), data
+        else:
+            events = re.findall(rb"\x1b\[<0;(\d+);(\d+)([Mm])", data)
+            assert len(events) == 2 and events[0][2] == b"M" and events[1][2] == b"m", data
+            assert events[0][:2] == events[1][:2] and all(int(v) > 0 for v in events[0][:2]), data
+    elif op in ("file_text", "home_file_text"):
+        path = (profile.repo if op == "file_text" else profile.home) / args[0]
+        wait(lambda: path.exists() and path.read_text() == args[1], f"file {args[0]} content")
+        if len(args) > 2:
+            until = time.monotonic() + args[2]
+            while time.monotonic() < until:
+                assert path.read_text() == args[1], f"File {args[0]} changed after the operation"
+                time.sleep(0.1)
+    elif op in ("home_json_contains", "home_json_equals"):
+        path = profile.home / args[0]
+
+        def contains(actual, expected):
+            if isinstance(expected, dict):
+                return isinstance(actual, dict) and all(
+                    key in actual and contains(actual[key], value)
+                    for key, value in expected.items()
+                )
+            if isinstance(expected, list):
+                return isinstance(actual, list) and all(
+                    any(contains(value, item) for value in actual) for item in expected
+                )
+            return type(actual) is type(expected) and actual == expected
+
+        def matches():
+            if not path.exists():
+                return False
+            value = json.loads(path.read_text())
+            return (
+                json.dumps(value, sort_keys=True) == json.dumps(args[1], sort_keys=True)
+                if op == "home_json_equals"
+                else contains(value, args[1])
+            )
+
+        wait(matches, f"preserved user JSON {args[0]}")
+    elif op in {"output", "output_repo", "output_regex", "no_output"}:
+        import re
+
+        # macOS /var is a symlink to /private/var. The shell reports its
+        # physical path, and terminal capture inserts newlines at soft wraps.
+        expected = str(profile.repo.resolve()) if op == "output_repo" else args[0]
+
+        def matches():
+            text = "\n".join(profile.capture(p["id"]) for p in profile.layout()["panes"])
+            if op == "output_repo":
+                text = text.replace("\r", "").replace("\n", "")
+            if op == "output_regex":
+                return re.search(expected, text)
+            return expected not in text if op == "no_output" else expected in text
+
+        wait(matches, f"terminal {op}: {expected}")
+        if op == "no_output":
+            until = time.monotonic() + 2
+            while time.monotonic() < until:
+                assert matches(), f"Unexpected terminal output: {expected}"
+                time.sleep(0.1)
+    elif op == "remember_pids":
+        memory["pids"] = jam.pids()
+    elif op in ("remember_tab_order", "tab_order_reversed"):
+
+        def order():
+            return [
+                tab["id"]
+                for workspace in profile.layout()["workspaces"]
+                for tab in workspace["tabs"]
+            ]
+
+        if op == "remember_tab_order":
+            memory["tab_order"] = order()
+        else:
+            wait(lambda: order() == list(reversed(memory["tab_order"])), "reordered tabs")
+    elif op == "same_pids":
+        assert jam.pids() == memory["pids"], "Shell process changed across client operation"
+    elif op == "remaining_pids":
+        remaining = jam.pids()
+        assert remaining and remaining.items() <= memory["pids"].items(), "An unaffected shell restarted"
+    elif op == "restart_server":
+        receipt = profile.socket.parent / "release.json"
+        before = json.loads(receipt.read_text())
+        ui.context("Local")
+        ui.click("Restart Server…")
+        ui.click("Restart Server", "button")
+
+        def restarted():
+            try:
+                after = json.loads(receipt.read_text())
+                if after["pid"] == before["pid"]:
+                    return False
+                os.kill(after["pid"], 0)
+            except (FileNotFoundError, ProcessLookupError, json.JSONDecodeError):
+                return False
+            assert (after["build"], after["protocol"]) == (before["build"], before["protocol"])
+            return after
+
+        after = wait(restarted, "a new live daemon after the UI restart")
+        (profile.repo / "server-restart.json").write_text(json.dumps({"before": before, "after": after}))
+        wait(lambda: ui.has("Terminal"), "fresh terminal after server restart")
+    elif op == "git_branch":
+        wait(
+            lambda: args[0] in profile.git("branch", "--format=%(refname:short)").splitlines(),
+            "created branch",
+        )
+    elif op == "git_no_branch":
+        assert args[0] not in profile.git("branch", "--format=%(refname:short)").splitlines()
+    elif op == "config_symlink":
+        target = profile.root / "settings-target.toml"
+        target.write_text('appearance = "system"\n')
+        profile.config.unlink(missing_ok=True)
+        profile.config.symlink_to(target)
+    elif op == "symlink_preserved":
+        assert profile.config.is_symlink()
+    else:
+        raise ValueError(f"Unknown scenario operation {op!r}")

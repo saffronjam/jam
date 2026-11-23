@@ -1,0 +1,38 @@
+--- a/WebDriverAgentMac/WebDriverAgentLib/Commands/AMActionCommands.m
++++ b/WebDriverAgentMac/WebDriverAgentLib/Commands/AMActionCommands.m
+@@ -31,9 +31,33 @@
+ 
+ + (id<FBResponsePayload>)handlePerformW3CActions:(FBRouteRequest *)request
+ {
+-  XCUIApplication *application = request.session.currentApplication;
++  NSArray *actions = (NSArray *)request.arguments[@"actions"];
++  // Explicit desktop event streams must not resolve a same-bundle AUT.
++  // They use viewport coordinates and XCTest's existing event synthesizer.
++  BOOL desktop = actions.count > 0;
++  for (NSDictionary *source in actions) {
++    if (![source[@"id"] isKindOfClass:NSString.class]
++        || ![source[@"id"] hasPrefix:@"desktop-"]) {
++      desktop = NO;
++      break;
++    }
++  }
++  if (desktop) {
++    for (NSDictionary *source in actions) {
++      for (NSDictionary *event in source[@"actions"]) {
++        id origin = event[@"origin"];
++        if (nil != origin && ![origin isEqual:@"viewport"] && ![origin isEqual:@"pointer"]) {
++          return FBResponseWithStatus([FBCommandStatus invalidArgumentErrorWithMessage:
++            @"Desktop input requires viewport/pointer coordinates, not element origins"
++            traceback:nil]);
++        }
++      }
++    }
++  }
++  XCUIApplication *application = desktop
++    ? [[XCUIApplication alloc] initWithBundleIdentifier:@"com.apple.finder"]
++    : request.session.currentApplication;
+   FBElementCache *cache = request.session.elementCache;
+-  NSArray *actions = (NSArray *)request.arguments[@"actions"];
+   NSError *error;
+   if (![application fb_performW3CActions:actions
+                             elementCache:cache
