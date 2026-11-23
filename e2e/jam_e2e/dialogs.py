@@ -11,7 +11,8 @@ from PIL import Image
 from .driver import wait
 
 
-def screen_target(ui, text, prefix="dialog", bounds=False, terminal=False, region=None):
+def screen_target(ui, text, prefix="dialog", bounds=False, terminal=False, region=None,
+                  forbidden=None):
     executable = shutil.which("tesseract")
     assert executable, "Desktop dialog observation requires Tesseract and English language data"
     root = ui.profile.repo
@@ -66,6 +67,8 @@ def screen_target(ui, text, prefix="dialog", bounds=False, terminal=False, regio
             (root / (stem + ".tsv")).write_text(result.stdout)
             words = [row for row in csv.DictReader(io.StringIO(result.stdout), delimiter="\t")
                      if row["level"] == "5" and row["text"].strip()]
+            if forbidden and forbidden in " ".join(word["text"] for word in words):
+                return False
             for start in range(len(words) - len(wanted) + 1):
                 run = words[start:start + len(wanted)]
                 if [word["text"] for word in run] != wanted:

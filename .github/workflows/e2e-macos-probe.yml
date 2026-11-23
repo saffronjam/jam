@@ -27,7 +27,7 @@ permissions:
   actions: read
 concurrency:
   group: macos-driver-${{ github.event.pull_request.number || github.ref }}-${{ inputs.fixture_run || 'stock' }}-${{ inputs.cases || 'default' }}-${{ inputs.remote_worlds || false }}-${{ inputs.native_cases || 'all-controls' }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 jobs:
   native-driver:
     runs-on: macos-26
@@ -79,8 +79,8 @@ jobs:
         run: |
           test "$(uname -m)" = arm64
           mkdir -p .cache/stock
-          gh release download v0.0.4 --repo saffronjam/jam --pattern Jam-v0.0.4-macos-arm64.zip --dir .cache/stock
-          ditto -xk .cache/stock/Jam-v0.0.4-macos-arm64.zip .cache/stock
+          gh release download v0.0.8 --repo saffronjam/jam --pattern Jam-v0.0.8-macos-arm64.zip --dir .cache/stock
+          ditto -xk .cache/stock/Jam-v0.0.8-macos-arm64.zip .cache/stock
           codesign --verify --deep --strict .cache/stock/Jam.app
       - name: Select the fixture installation for an explicit diagnostic run
         env:

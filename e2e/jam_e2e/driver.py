@@ -440,6 +440,18 @@ class Desktop:
     def copy(self):
         self.chord("cmd+c" if self.platform == "macos" else "ctrl+shift+c")
 
+    def choose_directory(self, path):
+        if self.platform == "macos":
+            wait(lambda: self.element("Open Workspace", "button"), "native directory chooser")
+            self.chord("cmd+shift+g")
+            self.type(str(path))
+            self.key("ENTER")
+            self.click("Open Workspace", "button")
+        else:
+            self.chord("ctrl+l")
+            self.type(str(path))
+            self.key("ENTER")
+
     def _actions(self, desktop=False):
         if (self.platform == "macos" and (desktop or self.observed_process is not None)
                 and not self.dialog_active):

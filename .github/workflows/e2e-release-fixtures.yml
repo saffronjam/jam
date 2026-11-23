@@ -146,7 +146,7 @@ jobs:
     needs: [trust, linux]
     if: needs.trust.outputs.cached != 'true'
     runs-on: macos-26
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
@@ -206,6 +206,20 @@ jobs:
           mkdir -p "$output"
           cp "$variant/build/release/Jam-v$TARGET_VERSION-macos-arm64.zip" "$output/"
           cp "$variant/fixture-variant.json" "$output/fixture-variant.json"
+      - name: Package an installation with a failing remote replacement candidate
+        run: |
+          export JAM_FIXTURE_ORIGIN=https://localhost:49651
+          export JAM_FIXTURE_CA_FILE="$PWD/build/e2e-trust/ca.pem"
+          export JAM_FIXTURE_UPDATE_KEY_FILE="$PWD/build/e2e-trust/update-public-key.hex"
+          variant="$PWD/.cache/variants/takeover-failure"
+          python3 scripts/e2e/prepare_variant.py --source "$PWD" --output "$variant" \
+            --version "$BASELINE_VERSION" --cargo-target "$PWD/.cache/fixture-target"
+          mkdir -p "$variant/build/remote" build/e2e-input/takeover-failure
+          cp build/e2e-input/failing/remote/* "$variant/build/remote/"
+          (cd "$variant" && scripts/release/build-macos.sh --fixture-services)
+          codesign --verify --deep --strict "$variant/build/packaging/Jam.app"
+          cp "$variant/build/release/Jam-v$BASELINE_VERSION-macos-arm64.zip" \
+            build/e2e-input/takeover-failure/Jam-macos-arm64.zip
       - name: Sign and package the complete external release bundle
         run: |
           python3 e2e/fixtures/sign_releases.py --artifacts build/e2e-input --trust build/e2e-trust \

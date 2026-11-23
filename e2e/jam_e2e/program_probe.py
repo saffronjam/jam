@@ -3,6 +3,7 @@
 import json
 import shlex
 import sys
+import time
 from pathlib import Path
 
 
@@ -19,6 +20,13 @@ def main():
         temporary.replace(output)
 
     emit("working")
+    if mode == ["done-on-file"]:
+        deadline = time.monotonic() + 55
+        while not output.with_suffix(".done").exists():
+            if time.monotonic() >= deadline:
+                raise TimeoutError("No completion signal for fixture program")
+            time.sleep(0.025)
+        emit("done")
     for line in sys.stdin:
         command = line.strip()
         if command == "exit":

@@ -94,7 +94,10 @@ def linux_clipboard(action, profile, data=None):
         helper = Path(__file__).parents[1] / "native/linux/clipboard.py"
         # This helper owns the clipboard. The app under test provides the
         # accessibility tree and input targets, so the helper needs no bridge.
-        env = dict(profile.env, GDK_BACKEND="wayland", GTK_A11Y="none", NO_AT_BRIDGE="1")
+        # Only this small GTK owner window uses Cairo. The Jam executable has
+        # its own renderer and receives the normal application environment.
+        env = dict(profile.env, GDK_BACKEND="wayland", GSK_RENDERER="cairo",
+                   GTK_A11Y="none", NO_AT_BRIDGE="1")
         _linux_log = profile.root / "native-clipboard.log"
         with _linux_log.open("w") as diagnostics:
             _linux_owner = subprocess.Popen(

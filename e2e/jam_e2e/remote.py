@@ -39,6 +39,29 @@ def peer_call(profile, *args):
     return value
 
 
+def takeover_rolled_back(profile):
+    ids = json.loads((profile.root / "fixture-ids.json").read_text())
+    bundle = Path(profile.env["JAM_E2E_REMOTE_ARCHIVE"]).parents[1]
+    candidate = json.loads((bundle / "releases/failing/remote/aarch64.json").read_text())
+    command = '''python3 -c 'import glob,json,os; print(json.dumps([json.load(open(path))
+for path in glob.glob(os.path.expanduser("~/.local/share/jam/servers/transactions/*.json"))]))' '''
+    transactions = json.loads(peer_command(profile, command))
+    [attempt] = [tx for tx in transactions if tx.get("phase") == "rolled_back"
+                 and tx.get("new_build") == candidate["build"]]
+    assert attempt["old_build"] != attempt["new_build"]
+    journal = peer_command(profile, "journalctl --user -u jamd.service --no-pager -n 100")
+    assert "E2E candidate daemon startup failure" in journal
+    info = peer_call(profile, "daemon", "info")["HostInfo"]
+    assert info["build"] == ids["remote_build"] and info["incarnation"] != ids["remote_incarnation"]
+    state = peer_call(profile, "workspace", "list")["State"]
+    assert [w["id"] for w in state["workspaces"]] == [ids["remote_workspace"]]
+    assert [t["id"] for w in state["workspaces"] for t in w["tabs"]] == ids["remote_tabs"]
+    assert {p["id"] for p in state["panes"]} == set(ids["remote_sessions"])
+    evidence = profile.root / "fixture-takeover-rollback.json"
+    evidence.write_text(json.dumps({"candidate": candidate, "transaction": attempt,
+                                    "restored": info}, indent=2))
+
+
 def server_changed(profile, kind):
     """Observe a UI-requested daemon transition; the peer CLI never starts it."""
     ids = json.loads((profile.root / "fixture-ids.json").read_text())

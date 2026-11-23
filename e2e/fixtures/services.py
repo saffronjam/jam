@@ -83,11 +83,14 @@ def handler(root, scenario, events):
         def do_GET(self):
             state = json.loads(scenario.read_text())
             path = urlsplit(self.path).path
-            # Do not log Authorization headers or provider credentials.
+            # Record only the origin marker reserved for the synthetic remote
+            # login. Never retain authorization headers or credential bytes.
+            auth = self.headers.get("Authorization", "")
             with events.open("a") as output:
                 output.write(
                     json.dumps(
-                        {"path": path, "authenticated": bool(self.headers.get("Authorization"))}
+                        {"path": path, "authenticated": bool(auth),
+                         "fixture_host": "remote" if auth.endswith(".fixture-remote") else "local"}
                     )
                     + "\n"
                 )
@@ -140,6 +143,8 @@ def handler(root, scenario, events):
                 if state.get("asset_error") and file.suffix in (".zip", ".gz"):
                     self.send_error(int(state["asset_error"]))
                     return
+                if state.get("asset_delay") and file.suffix in (".zip", ".gz"):
+                    time.sleep(min(15, state["asset_delay"]))
                 if state.get("bad_signature") and file.name == "manifest.sig":
                     data = b"00" * 64
                 if state.get("bad_checksum") and file.suffix in (".zip", ".gz"):

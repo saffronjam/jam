@@ -1,6 +1,6 @@
 # Desktop acceptance cases
 
-273 cases; identical collection on macOS and Linux. No skips or expected failures.
+286 cases; identical collection on macOS and Linux. No skips or expected failures.
 
 Each numbered step is performed externally. Fixture names identify required setup recipes, not alternate assertions.
 
@@ -2787,6 +2787,8 @@ Fixture: `provider-custom-hooks`.
 
 Fixture: `isolated local installation`.
 
+Behaviors: `identity`.
+
 1. `('program_identity', 'codex')`
 2. `('pane_field', 'agent_provider', 'codex')`
 3. `('pane_field', 'agent_source', 'reported')`
@@ -2809,6 +2811,8 @@ Fixture: `isolated local installation`.
 ## IDENTITY-002: Reported Claude identity survives activity acknowledgement and clear
 
 Fixture: `isolated local installation`.
+
+Behaviors: `identity`.
 
 1. `('program_identity', 'claude-code')`
 2. `('pane_field', 'agent_provider', 'claude')`
@@ -2833,6 +2837,8 @@ Fixture: `isolated local installation`.
 
 Fixture: `isolated local installation`.
 
+Behaviors: `identity`.
+
 1. `('run', "printf '\\033]0;codex build report\\007'")`
 2. `('pane_field', 'agent_provider', None)`
 3. `('pane_field', 'agent_source', None)`
@@ -2843,6 +2849,8 @@ Fixture: `isolated local installation`.
 ## IMAGE-001: PNG paste writes a private image on the local host
 
 Fixture: `isolated local installation`.
+
+Behaviors: `images`.
 
 1. `('run', 'true')`
 2. `('clipboard_image', 'png', True, False)`
@@ -2855,6 +2863,8 @@ Fixture: `isolated local installation`.
 ## IMAGE-002: TIFF paste writes a private image on the local host
 
 Fixture: `isolated local installation`.
+
+Behaviors: `images`.
 
 1. `('run', 'true')`
 2. `('clipboard_image', 'tiff', True, False)`
@@ -2869,6 +2879,8 @@ Fixture: `isolated local installation`.
 
 Fixture: `remote-connected`.
 
+Behaviors: `images`.
+
 1. `('remote_shell',)`
 2. `('clipboard_image', 'png', True, False)`
 3. `('type_terminal', "printf '%s\\n' ")`
@@ -2880,6 +2892,8 @@ Fixture: `remote-connected`.
 ## IMAGE-004: Control-V in a reported agent pane pastes the image before queued input
 
 Fixture: `isolated local installation`.
+
+Behaviors: `images`, `identity`.
 
 1. `('program_identity', 'codex', 'image-arguments')`
 2. `('pane_field', 'agent_source', 'reported')`
@@ -2893,6 +2907,8 @@ Fixture: `isolated local installation`.
 
 Fixture: `isolated local installation`.
 
+Behaviors: `images`.
+
 1. `('probe',)`
 2. `('clipboard_image', 'png', True, True)`
 3. `('paste',)`
@@ -2905,6 +2921,8 @@ Fixture: `isolated local installation`.
 
 Fixture: `remote-limited`.
 
+Behaviors: `images`.
+
 1. `('remote_shell',)`
 2. `('clipboard_image', 'png', True, False)`
 3. `('paste',)`
@@ -2915,6 +2933,8 @@ Fixture: `remote-limited`.
 ## CREATE-001: Failed worktree creation can be retried once after its base ref is repaired
 
 Fixture: `isolated local installation`.
+
+Behaviors: `creation`.
 
 1. `('command', 'New Worktree')`
 2. `('fill', 'Branch name', 'creation-retry')`
@@ -2936,6 +2956,8 @@ Fixture: `isolated local installation`.
 
 Fixture: `isolated local installation`.
 
+Behaviors: `creation`.
+
 1. `('remember_layout',)`
 2. `('remember_pids',)`
 3. `('command', 'New Worktree')`
@@ -2955,6 +2977,8 @@ Fixture: `isolated local installation`.
 
 Fixture: `remote-limited`.
 
+Behaviors: `creation`, `creation-recovery`.
+
 1. `('remote_shell',)`
 2. `('command', 'New Workspace')`
 3. `('created_workspace', '/home/fixture', True)`
@@ -2965,6 +2989,8 @@ Fixture: `remote-limited`.
 ## TAKEOVER-001: Cancelling a legacy server takeover preserves its running sessions
 
 Fixture: `remote-legacy`.
+
+Behaviors: `takeover`.
 
 1. `('visible', 'Takeover required', 60)`
 2. `('context', 'Fixture', 'machine')`
@@ -2980,19 +3006,25 @@ Fixture: `remote-legacy`.
 
 Fixture: `remote-legacy`.
 
+Behaviors: `takeover`.
+
 1. `('visible', 'Takeover required', 60)`
 2. `('context', 'Fixture', 'machine')`
 3. `('click', 'Take Over Server…', 'menu')`
 4. `('enabled', 'Take Over and Reconnect', 'button')`
 5. `('click', 'Take Over and Reconnect', 'button')`
-6. `('remote_server_changed', 'takeover')`
-7. `('remote_file_text', 'takeover-executions', 'x')`
-8. `('remote_shell', 'printf y >> takeover-executions')`
-9. `('remote_file_text', 'takeover-executions', 'xy')`
+6. `('visible', 'Remote project', 120)`
+7. `('click', 'Remote project', 'row')`
+8. `('remote_server_changed', 'takeover')`
+9. `('remote_file_text', 'takeover-executions', 'x')`
+10. `('remote_shell', 'printf y >> takeover-executions')`
+11. `('remote_file_text', 'takeover-executions', 'xy')`
 
 ## DIAG-001: Inspecting an unresponsive local server preserves its daemon and live shell
 
 Fixture: `isolated local installation`.
+
+Behaviors: `diagnostics`.
 
 1. `('remember_layout',)`
 2. `('remember_pids',)`
@@ -3013,6 +3045,8 @@ Fixture: `isolated local installation`.
 
 Fixture: `update-available`.
 
+Behaviors: `update-settings`.
+
 1. `('remember_layout',)`
 2. `('remember_pids',)`
 3. `('settings', 'General')`
@@ -3032,18 +3066,23 @@ Fixture: `update-available`.
 
 Fixture: `usage-configured-login`.
 
+Behaviors: `accounts`.
+
 1. `('visible', 'USAGE')`
 2. `('click', 'Codex, fixture@example.invalid', 'button')`
 3. `('visible', 'Codex usage')`
 4. `('visible', 'fixture@example.invalid')`
-5. `('key', 'ESCAPE')`
-6. `('pane_field', 'agent_provider', None)`
-7. `('run', 'printf configured-account-shell-usable')`
-8. `('output', 'configured-account-shell-usable')`
+5. `('visible', '0 active sessions')`
+6. `('key', 'ESCAPE')`
+7. `('pane_field', 'agent_provider', None)`
+8. `('run', 'printf configured-account-shell-usable')`
+9. `('output', 'configured-account-shell-usable')`
 
 ## RENDER-001: Synchronized output hides partial redraws
 
 Fixture: `isolated local installation`.
+
+Behaviors: `rendering`.
 
 1. `('remember_pids',)`
 2. `('synchronized_frames', 'complete')`
@@ -3055,6 +3094,8 @@ Fixture: `isolated local installation`.
 
 Fixture: `isolated local installation`.
 
+Behaviors: `rendering`.
+
 1. `('remember_pids',)`
 2. `('synchronized_frames', 'timeout')`
 3. `('run', 'printf input-after-synchronized-output')`
@@ -3064,6 +3105,8 @@ Fixture: `isolated local installation`.
 ## CREATE-004: A pending worktree becomes one selected workspace with a usable terminal
 
 Fixture: `isolated local installation`.
+
+Behaviors: `creation`.
 
 1. `('hold_worktree_checkout',)`
 2. `('command', 'New Worktree')`
@@ -3082,6 +3125,8 @@ Fixture: `isolated local installation`.
 ## CREATE-005: An interrupted creation resumes its existing operation after Retry
 
 Fixture: `isolated local installation`.
+
+Behaviors: `creation`, `creation-recovery`.
 
 1. `('hold_worktree_checkout',)`
 2. `('command', 'New Worktree')`
@@ -3105,6 +3150,8 @@ Fixture: `isolated local installation`.
 
 Fixture: `isolated local installation`.
 
+Behaviors: `focus-close`.
+
 1. `('write_config', 'close_empty_tabs = false\nclose_empty_workspaces = false\n')`
 2. `('relaunch',)`
 3. `('type_terminal', 'exit')`
@@ -3114,3 +3161,246 @@ Fixture: `isolated local installation`.
 7. `('command', 'Close Workspace')`
 8. `('settle_count', 'workspaces', 0)`
 9. `('file_text', 'tracked.txt', 'first\nsecond\n')`
+
+## IMAGE-007: Control-V is delivered as ordinary terminal input outside an agent pane
+
+Fixture: `isolated local installation`.
+
+Behaviors: `images`.
+
+1. `('probe',)`
+2. `('clipboard_image', 'png', True, False)`
+3. `('chord', 'ctrl+v')`
+4. `('probe_hex', '16')`
+
+## IMAGE-008: A failed upload keeps prior files and leaves the terminal usable
+
+Fixture: `isolated local installation`.
+
+Behaviors: `images`.
+
+1. `('block_clipboard_storage',)`
+2. `('probe',)`
+3. `('clipboard_image', 'png', True, False)`
+4. `('paste',)`
+5. `('visible', 'state/runtime directory must be an owned private directory')`
+6. `('probe_no_input',)`
+7. `('clipboard_storage_unchanged',)`
+8. `('probe_key', 'x')`
+9. `('probe_hex', '78')`
+
+## CREATE-006: Opening a local directory twice selects its one existing workspace
+
+Fixture: `isolated local installation`.
+
+Behaviors: `creation`.
+
+1. `('open_directory', 'Opened folder ü')`
+2. `('created_workspace', 'Opened folder ü', False)`
+3. `('run', 'printf preserved > open-result.txt')`
+4. `('home_file_text', 'Opened folder ü/open-result.txt', 'preserved')`
+5. `('remember_layout',)`
+6. `('remember_pids',)`
+7. `('open_directory', 'Opened folder ü')`
+8. `('same_layout',)`
+9. `('same_pids',)`
+10. `('settle_count', 'workspaces', 2)`
+
+## CREATE-007: Opening a remote directory twice keeps one remote workspace
+
+Fixture: `remote-connected`.
+
+Behaviors: `creation`.
+
+1. `('remote_shell', 'mkdir -p /home/fixture/opened-directory')`
+2. `('command', 'Open Workspace')`
+3. `('visible', 'Open Remote Workspace')`
+4. `('fill', 'Path', '/home/fixture/opened-directory')`
+5. `('click', 'Go', 'button')`
+6. `('enabled', 'Open', 'button')`
+7. `('click', 'Open', 'button')`
+8. `('created_workspace', '/home/fixture/opened-directory', True)`
+9. `('command', 'Open Workspace')`
+10. `('fill', 'Path', '/home/fixture/opened-directory')`
+11. `('click', 'Go', 'button')`
+12. `('enabled', 'Open', 'button')`
+13. `('click', 'Open', 'button')`
+14. `('created_workspace', '/home/fixture/opened-directory', True)`
+
+## TAKEOVER-003: A newer server offers a client upgrade and preserves its live sessions
+
+Fixture: `update-required`.
+
+Behaviors: `takeover`, `update-settings`.
+
+1. `('visible', 'Update Jam required', 60)`
+2. `('context', 'Fixture', 'machine')`
+3. `('enabled', 'Update Jam…', 'menu')`
+4. `('absent', 'Take Over Server…')`
+5. `('disabled', 'Update Server…', 'menu')`
+6. `('key', 'ESCAPE')`
+7. `('remote_workspace_preserved',)`
+8. `('remote_server_stable', 2)`
+
+## FOCUS-001: A background agent's completion is acknowledged only when its tab gains focus
+
+Fixture: `isolated local installation`.
+
+Behaviors: `focus-close`, `identity`.
+
+1. `('remember_pane',)`
+2. `('program_identity', 'codex', 'done-on-file')`
+3. `('pane_field', 'agent_source', 'reported')`
+4. `('command', 'New Tab')`
+5. `('target_visible', 'Tab 2', 'button')`
+6. `('release_program_completion',)`
+7. `('remembered_pane_field', 'status', 'done')`
+8. `('run', 'printf foreground-other-tab')`
+9. `('output', 'foreground-other-tab')`
+10. `('remembered_pane_field', 'status', 'done')`
+11. `('click', 'Tab 1', 'button')`
+12. `('remembered_pane_field', 'status', 'unknown')`
+13. `('remembered_pane_field', 'agent_provider', 'codex')`
+14. `('program_phase', 'exit')`
+15. `('remembered_pane_field', 'agent_provider', None)`
+
+## ACCOUNT-002: The same configured login on two machines shares one account page
+
+Fixture: `usage-remote-account`.
+
+Behaviors: `accounts`.
+
+1. `('remote_shell',)`
+2. `('usage_requests_from_both_hosts',)`
+3. `('visible', 'fixture@example.invalid')`
+4. `('visible', 'Claude')`
+5. `('absent', 'Next usage account')`
+6. `('click', 'Codex, fixture@example.invalid', 'button')`
+7. `('visible', '0 active sessions')`
+8. `('key', 'ESCAPE')`
+9. `('context', 'Fixture', 'machine')`
+10. `('click', 'Disconnect', 'menu')`
+11. `('click', 'Codex, fixture@example.invalid', 'button')`
+12. `('visible', '0 active sessions')`
+13. `('absent', 'Machine unavailable. Showing last known usage.')`
+14. `('key', 'ESCAPE')`
+15. `('remote_workspace_preserved',)`
+
+## ACCOUNT-003: Distinct accounts retain separate selectable pages across hosts
+
+Fixture: `usage-remote-other-account`.
+
+Behaviors: `accounts`.
+
+1. `('remote_shell',)`
+2. `('usage_requests_from_both_hosts',)`
+3. `('visible', 'second@example.invalid')`
+4. `('click', 'Next usage account', 'button')`
+5. `('visible', 'fixture@example.invalid')`
+6. `('visible', 'Claude')`
+7. `('click', 'Previous usage account', 'button')`
+8. `('visible', 'second@example.invalid')`
+9. `('click', 'Codex, second@example.invalid', 'button')`
+10. `('visible', '0 active sessions')`
+11. `('key', 'ESCAPE')`
+12. `('remote_workspace_preserved',)`
+
+## TAKEOVER-004: A compiled replacement that cannot start rolls back the remote server
+
+Fixture: `remote-takeover-failure`.
+
+Behaviors: `takeover`.
+
+1. `('visible', 'Takeover required', 60)`
+2. `('context', 'Fixture', 'machine')`
+3. `('click', 'Take Over Server…', 'menu')`
+4. `('enabled', 'Take Over and Reconnect', 'button')`
+5. `('click', 'Take Over and Reconnect', 'button')`
+6. `('visible', 'Try Again', 100)`
+7. `('takeover_rolled_back',)`
+8. `('remote_file_text', 'takeover-executions', 'x')`
+9. `('enabled', 'Try Again', 'button')`
+10. `('click', 'Cancel', 'button')`
+
+## RENAME-001: The inline tab editor replaces the old rendered label and returns focus
+
+Fixture: `isolated local installation`.
+
+Behaviors: `rendering`, `focus-close`.
+
+1. `('context', 'Tab 1', 'button')`
+2. `('click', 'Rename', 'menu')`
+3. `('fill', 'Tab name', 'BEFORE 9374')`
+4. `('key', 'ENTER')`
+5. `('tab_name', 'BEFORE 9374')`
+6. `('rendered_label', 'BEFORE 9374', None)`
+7. `('context', 'BEFORE 9374', 'button')`
+8. `('click', 'Rename', 'menu')`
+9. `('fill', 'Tab name', 'AFTER 2846')`
+10. `('rendered_label', 'AFTER 2846', 'BEFORE 9374')`
+11. `('key', 'ENTER')`
+12. `('tab_name', 'AFTER 2846')`
+13. `('run_focused', 'printf rename-returned-terminal-focus')`
+14. `('output', 'rename-returned-terminal-focus')`
+
+## CREATE-008: Completing a pending worktree keeps the workspace subsequently selected by the user
+
+Fixture: `isolated local installation`.
+
+Behaviors: `creation`.
+
+1. `('hold_worktree_checkout',)`
+2. `('command', 'New Worktree')`
+3. `('fill', 'Branch name', 'background-creation')`
+4. `('fill', 'Base revision', 'HEAD')`
+5. `('click', 'Create', 'button')`
+6. `('checkout_pending',)`
+7. `('visible', 'Opening workspace')`
+8. `('click', 'Project ü with spaces', 'row')`
+9. `('release_worktree_checkout',)`
+10. `('created_workspace', 'wt/Project ü with spaces/background-creation', False)`
+11. `('run', 'printf original-selection-kept > selection-result.txt')`
+12. `('file_text', 'selection-result.txt', 'original-selection-kept')`
+13. `('settle_count', 'workspaces', 2)`
+
+## UPDATE-SETTINGS-002: A slow Settings download shows one progress sheet and can be cancelled
+
+Fixture: `update-slow-prepare`.
+
+Behaviors: `update-settings`.
+
+1. `('remember_layout',)`
+2. `('remember_pids',)`
+3. `('settings', 'General')`
+4. `('click', 'Check for Updates…', 'button')`
+5. `('visible', 'Jam 0.0.5 is available')`
+6. `('enabled', 'Upgrade…', 'button')`
+7. `('click', 'Upgrade…', 'button')`
+8. `('visible', 'Downloading and verifying the update…')`
+9. `('disabled', 'Upgrade and Restart', 'button')`
+10. `('click', 'Cancel', 'button')`
+11. `('absent', 'Upgrade Jam')`
+12. `('installed_version', '0.0.4')`
+13. `('same_layout',)`
+14. `('same_pids',)`
+
+## UPDATE-SETTINGS-003: Update preparation routes a foreign live server to a takeover confirmation
+
+Fixture: `update-foreign-server`.
+
+Behaviors: `update-settings`, `takeover`.
+
+1. `('remember_layout',)`
+2. `('remember_pids',)`
+3. `('settings', 'General')`
+4. `('click', 'Check for Updates…', 'button')`
+5. `('visible', 'Jam 0.0.5 is available')`
+6. `('enabled', 'Upgrade…', 'button')`
+7. `('click', 'Upgrade…', 'button')`
+8. `('visible', 'Take over the server on Local?', 60)`
+9. `('visible', 'The server belongs to another Jam installation')`
+10. `('enabled', 'Take Over and Reconnect', 'button')`
+11. `('click', 'Cancel', 'button')`
+12. `('same_layout',)`
+13. `('same_pids',)`
+14. `('installed_version', '0.0.4')`

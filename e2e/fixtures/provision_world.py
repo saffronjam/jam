@@ -136,6 +136,8 @@ def prepare(root, recipe, repo):
             scenario["asset_error"] = 503
         if recipe == "update-rollback":
             scenario["release_set"] = "rollback"
+        if recipe == "update-slow-prepare":
+            scenario["asset_delay"] = 5
     if recipe == "usage-auth-error":
         scenario["http_error"] = 401
     if recipe == "usage-rate-limited":
