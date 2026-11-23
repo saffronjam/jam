@@ -390,7 +390,9 @@ fn coordinator_launch_registration_and_permission_preserving_restart() {
         panic!()
     };
     assert!(migrated.workspaces[0].coordinator.is_none());
-    assert_eq!(board.get(agent).unwrap()["closed"], true);
+    // State may return its cached layout while the database worker finishes
+    // marking the legacy coordinator closed.
+    f.wait(|| board.get(agent).unwrap()["closed"] == true);
 
     assert!(
         call_at(
