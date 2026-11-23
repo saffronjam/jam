@@ -83,19 +83,24 @@ def verify_image(profile, kind, remote=False):
 
 
 _linux_owner = None
+_linux_log = None
 
 
 def linux_clipboard(action, profile, data=None):
     # Wayland delivers data from its live owner. Keep the helper alive after
     # each case so restored clipboard contents are still available to the next.
-    global _linux_owner
+    global _linux_owner, _linux_log
     if _linux_owner is None:
         helper = Path(__file__).parents[1] / "native/linux/clipboard.py"
-        env = dict(profile.env, GDK_BACKEND="wayland")
-        _linux_owner = subprocess.Popen(
-            ["/usr/bin/python3", str(helper)], env=env, text=True,
-            stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-        )
+        # This helper owns the clipboard. The app under test provides the
+        # accessibility tree and input targets, so the helper needs no bridge.
+        env = dict(profile.env, GDK_BACKEND="wayland", GTK_A11Y="none", NO_AT_BRIDGE="1")
+        _linux_log = profile.root / "native-clipboard.log"
+        with _linux_log.open("w") as diagnostics:
+            _linux_owner = subprocess.Popen(
+                ["/usr/bin/python3", str(helper)], env=env, text=True,
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=diagnostics,
+            )
         atexit.register(stop_linux_clipboard)
         read_reply(_linux_owner)
     with tempfile.NamedTemporaryFile(dir=profile.root, mode="w+", encoding="utf-8") as exchange:
@@ -112,10 +117,12 @@ def linux_clipboard(action, profile, data=None):
 
 def read_reply(process):
     if not select.select([process.stdout], [], [], 20)[0]:
-        raise TimeoutError("Native Wayland clipboard helper did not respond")
+        raise TimeoutError("Native Wayland clipboard helper did not respond:\n" +
+                           _linux_log.read_text(errors="replace")[-4000:])
     line = process.stdout.readline()
     if not line:
-        raise RuntimeError(f"Native Wayland clipboard helper exited: {process.poll()}")
+        raise RuntimeError(f"Native Wayland clipboard helper exited: {process.poll()}\n" +
+                           _linux_log.read_text(errors="replace")[-4000:])
     error = json.loads(line)["error"]
     if error is not None:
         raise RuntimeError(error)
