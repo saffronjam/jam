@@ -41,3 +41,5 @@ pub const RELEASE_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub mod release_version;
 
 pub mod upgrade;
+
+mod services;

@@ -252,6 +252,7 @@ pub(super) fn fetch(profile: &Profile, allow_prompt: bool, cache: &Mutex<cache::
         .clone()
         .or_else(|| previous.as_ref()?.report.account_label.clone());
     let agent: ureq::Agent = ureq::Agent::config_builder()
+        .tls_config(crate::services::tls_config())
         .https_only(true)
         .max_redirects(0)
         .http_status_as_error(false)
@@ -259,8 +260,8 @@ pub(super) fn fetch(profile: &Profile, allow_prompt: bool, cache: &Mutex<cache::
         .build()
         .into();
     let url = match profile.provider {
-        Provider::Codex => "https://chatgpt.com/backend-api/codex/usage",
-        Provider::Claude => "https://api.anthropic.com/api/oauth/usage",
+        Provider::Codex => crate::services::CODEX_USAGE,
+        Provider::Claude => crate::services::CLAUDE_USAGE,
     };
     let result = get(&agent, url, &auth, profile.provider).and_then(|value| {
         let (windows, extra) = parse(profile.provider, &value);
@@ -273,7 +274,7 @@ pub(super) fn fetch(profile: &Profile, allow_prompt: bool, cache: &Mutex<cache::
             && report.account_key.is_none()
             && let Ok(identity) = get(
                 &agent,
-                "https://api.anthropic.com/api/oauth/profile",
+                crate::services::CLAUDE_PROFILE,
                 &auth,
                 profile.provider,
             )

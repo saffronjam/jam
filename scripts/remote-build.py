@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
-"""Run inside the Linux build container. Produce a verified, self-contained archive."""
-import hashlib, json, pathlib, platform, shutil, subprocess, tarfile
+"""Run inside the Linux build container; produce a verified, self-contained archive."""
+import argparse, hashlib, json, pathlib, platform, shutil, subprocess, tarfile
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument('--fixture-services', action='store_true')
+args = parser.parse_args()
+features = ['--features', 'jam-core/fixture-services'] if args.fixture_services else []
 root = pathlib.Path(__file__).resolve().parent.parent
 import os
 os.environ['JAM_BOOTSTRAP_CACHE'] = str(root / '.cache' / ('remote-' + platform.machine()))
 subprocess.run(['python3', 'scripts/bootstrap.py'], cwd=root, check=True)
 import os
 os.environ['PATH'] = str(pathlib.Path(os.environ['JAM_BOOTSTRAP_CACHE']) / 'zig') + ':' + os.environ['PATH']
-subprocess.run(['cargo', 'build', '--locked', '--release', '-p', 'jam'], cwd=root, check=True)
+subprocess.run(['cargo', 'build', '--locked', '--release', '-p', 'jam', *features], cwd=root, check=True)
 arch = os.environ.get('CARGO_BUILD_TARGET', platform.machine()).split('-')[0]
 if arch != platform.machine():
     loader = {'x86_64':'ld-linux-x86-64.so.2', 'aarch64':'ld-linux-aarch64.so.1'}[arch]
@@ -16,10 +20,10 @@ if arch != platform.machine():
     os.environ['CARGO_TARGET_' + os.environ['CARGO_BUILD_TARGET'].upper().replace('-', '_') + '_RUNNER'] = runner
 fixture = root / 'build/remote' / (arch + '.snapshot')
 fixture.parent.mkdir(parents=True, exist_ok=True)
-subprocess.run(['cargo', 'run', '--locked', '--release', '-p', 'jam-core', '--example', 'snapshot_fixture', '--', 'write', str(fixture)], cwd=root, check=True)
+subprocess.run(['cargo', 'run', '--locked', '--release', '-p', 'jam-core', *features, '--example', 'snapshot_fixture', '--', 'write', str(fixture)], cwd=root, check=True)
 local = fixture.parent / 'local.snapshot'
 if local.exists():
-    subprocess.run(['cargo', 'run', '--locked', '--release', '-p', 'jam-core', '--example', 'snapshot_fixture', '--', 'verify', str(local)], cwd=root, check=True)
+    subprocess.run(['cargo', 'run', '--locked', '--release', '-p', 'jam-core', *features, '--example', 'snapshot_fixture', '--', 'verify', str(local)], cwd=root, check=True)
 out = root / 'build/remote' / arch
 out.mkdir(parents=True, exist_ok=True)
 for name in ['jam', 'jamd']: shutil.copy2(pathlib.Path(os.environ.get('CARGO_TARGET_DIR', root / 'target')) / os.environ.get('CARGO_BUILD_TARGET', '') / 'release' / name, out / name)
