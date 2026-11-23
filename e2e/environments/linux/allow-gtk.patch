@@ -1,0 +1,142 @@
+diff --git a/selenium-webdriver-at-spi.py b/selenium-webdriver-at-spi.py
+--- a/selenium-webdriver-at-spi.py
++++ b/selenium-webdriver-at-spi.py
+@@ -98,2 +97,0 @@
+-    if accessible.toolkitName != "Qt" and accessible.toolkitName != "at-spi-registry":
+-        return
+@@ -493 +491 @@
+-        return json.dumps({'value': textElement.getText(0, -1)}), 200, {'content-type': 'application/json'}
++        return json.dumps({'value': textElement.getText(0, textElement.characterCount)}), 200, {'content-type': 'application/json'}
+@@ -502 +500,3 @@
+-    return json.dumps({'value': element.getState().contains(pyatspi.STATE_ENABLED)}), 200, {'content-type': 'application/json'}
++    gtk = (session.browsing_context.toolkitName or "").lower().startswith("gtk")
++    state = pyatspi.STATE_SENSITIVE if gtk else pyatspi.STATE_ENABLED
++    return json.dumps({'value': element.getState().contains(state)}), 200, {'content-type': 'application/json'}
+@@ -509,0 +510,9 @@
++    if (session.browsing_context.toolkitName or "").lower().startswith("gtk"):
++        from gtk_geometry import window_origin
++        window = element
++        while window.parent and window.parent.getRole() != pyatspi.ROLE_APPLICATION:
++            window = window.parent
++        origin = window_origin(element.get_process_id(), window.name)
++        x, y = element.queryComponent().getPosition(pyatspi.XY_WINDOW)
++        x += origin['x']
++        y += origin['y']
+@@ -660,0 +670,24 @@
++        case "linux: outputScale":
++            from gtk_geometry import output_scale
++            result = output_scale(args[0].get('scale'), args[0].get('inspect', False))
++            return json.dumps({'value': result}), 200, {'content-type': 'application/json'}
++        case "linux: keyboardLayout":
++            from gtk_geometry import keyboard_layout
++            result = keyboard_layout(args[0]['layout'], args[0].get('inspect', False))
++            return json.dumps({'value': result}), 200, {'content-type': 'application/json'}
++        case "linux: applicationPid":
++            return json.dumps({'value': session.browsing_context.get_process_id()}), 200, {'content-type': 'application/json'}
++        case "linux: resizeWindow" | "linux: windowRect" | "linux: activateWindow":
++            from gtk_geometry import window_origin
++            frames = [session.browsing_context.getChildAtIndex(index)
++                      for index in range(session.browsing_context.childCount)]
++            frames = [frame for frame in frames if frame.getRole() == pyatspi.ROLE_FRAME
++                      and frame.getState().contains(pyatspi.STATE_SHOWING)]
++            active = [frame for frame in frames if frame.getState().contains(pyatspi.STATE_ACTIVE)]
++            frames = active if len(active) == 1 else frames
++            assert len(frames) == 1, "Close other application windows before resizing"
++            frame = frames[0]
++            requested = args[0] if script == "linux: resizeWindow" else None
++            geometry = window_origin(frame.get_process_id(), frame.name, requested,
++                                     activate=script == "linux: activateWindow")
++            return json.dumps({'value': geometry['frame']}), 200, {'content-type': 'application/json'}
+@@ -798 +831 @@
+-            subprocess.run(["selenium-webdriver-at-spi-inputsynth", file.name])
++            subprocess.run(["selenium-webdriver-at-spi-inputsynth", file.name], check=True)
+@@ -863,0 +897,4 @@
++    if os.environ.get('JAM_E2E_NESTED_X11'):
++        from headless_screenshot import screenshot
++        return json.dumps({'value': screenshot()}), 200, {'content-type': 'application/json'}
++
+@@ -866 +903 @@
+-                            stdout=subprocess.PIPE)
++                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+@@ -867,0 +905,2 @@
++    if proc.returncode:
++        raise RuntimeError(f"Wayland screenshot helper exited with {proc.returncode}: {err.decode('utf-8', errors='replace')}")
+@@ -1007 +1046 @@
+-            subprocess.run(["selenium-webdriver-at-spi-inputsynth", fp.name])
++            subprocess.run(["selenium-webdriver-at-spi-inputsynth", fp.name], check=True)
+@@ -1065 +1104,2 @@
+-        data = clipboard.wait_for_text()
++        # A new private session has no selection, represented by None.
++        data = clipboard.wait_for_text() or ''
+diff --git a/run.rb b/run.rb
+--- a/run.rb
++++ b/run.rb
+@@ -113 +113 @@
+-    ENV['KWIN_PID'] = pid.to_s
++    ENV['KWIN_PID'] = Process.pid.to_s
+@@ -114,0 +115 @@
++    ENV.delete('KWIN_XKB_DEFAULT_KEYMAP') if ENV['JAM_E2E_NATIVE_LAYOUTS'] == '1'
+@@ -122 +123,5 @@
+-    extra_args << '--virtual' if ENV['LIBGL_ALWAYS_SOFTWARE']
++    if ENV['JAM_E2E_NESTED_X11']
++      extra_args << '--x11-display=' + ENV.fetch('JAM_E2E_HOST_DISPLAY')
++    elsif ENV['LIBGL_ALWAYS_SOFTWARE']
++      extra_args << '--virtual'
++    end
+@@ -129 +134 @@
+-         '--exit-with-session', "#{__FILE__} #{ARGV.shelljoin}", out: artifact_path("appium_artifact_#{File.basename(ARGV[0])}_kwin_stdout.log"))
++         '--exit-with-session', "#{__FILE__} #{ARGV.shelljoin}", out: artifact_path("appium_artifact_#{File.basename(ARGV[0])}_kwin_stdout.log"), err: [:child, :out])
+@@ -266 +271 @@
+-                  out: artifact_path("appium_artifact_#{File.basename(ARGV[0])}_webdriver_stdout.log"))
++                  out: artifact_path("appium_artifact_#{File.basename(ARGV[0])}_webdriver_stdout.log"), err: [:child, :out])
+@@ -292 +297 @@
+-ENV['PYTHONUNBUFFERED'] = '0' # same for python subprocesses
++ENV['PYTHONUNBUFFERED'] = '1' # flush diagnostics before the supervised driver exits
+diff --git a/inputsynth/interaction.cpp b/inputsynth/interaction.cpp
+--- a/inputsynth/interaction.cpp
++++ b/inputsynth/interaction.cpp
+@@ -19,0 +20 @@
++#include <QElapsedTimer>
+@@ -391,0 +393,27 @@
++    // Send a timed gesture instead of one smooth frame followed by a sleep.
++    // GTK establishes its scroll sequence on the first frame.
++    constexpr unsigned long frameDuration = 25;
++    const auto steps = qMax(1UL, (m_duration + frameDuration - 1) / frameDuration);
++    QElapsedTimer timer;
++    timer.start();
++    QPoint sent;
++    for (unsigned long step = 1; step <= steps; ++step) {
++        const QPoint total(qRound(double(m_deltaPos.x()) * step / steps),
++                           qRound(double(m_deltaPos.y()) * step / steps));
++        const QPoint delta = total - sent;
++        if (delta.x() != 0) {
++            s_interface->axis(WL_POINTER_AXIS_HORIZONTAL_SCROLL, wl_fixed_from_int(delta.x()));
++            s_interface->roundtrip();
++        }
++        if (delta.y() != 0) {
++            s_interface->axis(WL_POINTER_AXIS_VERTICAL_SCROLL, wl_fixed_from_int(delta.y()));
++            s_interface->roundtrip();
++        }
++        sent = total;
++        const qint64 targetTime = static_cast<qint64>(m_duration * step / steps);
++        const qint64 remaining = targetTime - timer.elapsed();
++        if (remaining > 0) {
++            QThread::msleep(static_cast<unsigned long>(remaining));
++        }
++    }
++    // Zero axis values terminate the Wayland smooth-scroll sequence.
+@@ -393 +421 @@
+-        s_interface->axis(WL_POINTER_AXIS_HORIZONTAL_SCROLL, wl_fixed_from_int(m_deltaPos.x()));
++        s_interface->axis(WL_POINTER_AXIS_HORIZONTAL_SCROLL, 0);
+@@ -397 +425 @@
+-        s_interface->axis(WL_POINTER_AXIS_VERTICAL_SCROLL, wl_fixed_from_int(m_deltaPos.y()));
++        s_interface->axis(WL_POINTER_AXIS_VERTICAL_SCROLL, 0);
+@@ -400,2 +427,0 @@
+-
+-    QThread::msleep(m_duration);
+@@ -480 +506 @@
+-        if (m_pointerType == PointerKind::Mouse) {
++        if (m_origin == Origin::Pointer) {
+@@ -496 +522 @@
+-        *lastPosIt = m_pos;
++        *lastPosIt = QPoint(wl_fixed_to_int(lastX), wl_fixed_to_int(lastY));
