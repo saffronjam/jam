@@ -647,16 +647,19 @@ done
         ui.finish_composition(*args)
     elif op == "probe_no_input":
         events = profile.repo / "probe.events"
+        finished = profile.repo / "probe.json"
         until = time.monotonic() + 1
         while time.monotonic() < until:
-            assert json.loads(events.read_text())["hex"] == "", "Preedit leaked terminal input"
+            assert not finished.exists(), "The raw PTY observer finished before checking input isolation"
+            assert json.loads(events.read_text())["hex"] == "", "Unexpected input reached the PTY"
             time.sleep(.05)
     elif op == "preedit_pixels":
         assert ui.session.save_screenshot(str(profile.repo / "ime-preedit.png"))
     elif op == "probe_hex":
         output = profile.repo / "probe.json"
         wait(lambda: output.exists(), "raw PTY probe result")
-        assert json.loads(output.read_text())["hex"] == args[0]
+        actual = json.loads(output.read_text())["hex"]
+        assert actual == args[0], f"Raw PTY input {actual!r}, expected {args[0]!r}"
     elif op in ("probe_key_events", "probe_mouse_events"):
         import re
 
