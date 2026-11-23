@@ -44,11 +44,17 @@ struct MachinePresentation: Equatable {
   let isAttempting: Bool
   let warning: Bool
 
-  init(status: ServerStatus?, connection: RemoteConnectionState, phase: String?, hasError: Bool) {
-    warning = status?.blocked == true || status?.state == "inspection_failed" || hasError
+  init(
+    status: ServerStatus?, connection: RemoteConnectionState, phase: String?, hasError: Bool,
+    unresponsive: Bool = false
+  ) {
+    warning =
+      status?.blocked == true || status?.state == "inspection_failed" || hasError || unresponsive
     isAttempting = phase != nil || (!warning && connection.isAttempting)
     if let phase {
       label = phase.capitalized + "…"
+    } else if unresponsive {
+      label = "Not responding"
     } else if hasError {
       label = "Needs attention"
     } else if let statusLabel = status?.label {

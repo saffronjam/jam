@@ -3,6 +3,13 @@ import CJam
 import SwiftUI
 import Vision
 
+// Off-screen CI windows cannot reliably become the active OS window. Control
+// that input here while exercising the real responder and daemon paths.
+final class FocusTestWindow: NSWindow {
+  var keyStatus: Bool?
+  override var isKeyWindow: Bool { keyStatus ?? super.isKeyWindow }
+}
+
 struct ServerSheetFixture: View {
   @ObservedObject var store: Store
   var body: some View {
@@ -68,6 +75,7 @@ struct WorktreeListFixture: View {
       if title == "Tab 1" { assert(tab.bounds.width < 92, "Short tabs should remain compact") }
     }
     checkMiddleClick()
+    try checkImageClipboard()
     try checkCoordinatorControls()
     checkActivityIndicators()
     checkEmptyWorkspaceNames()
@@ -96,7 +104,7 @@ struct WorktreeListFixture: View {
       workspace.tabs.map { (workspace.id, $0.id, $0.root.ids) }
     }
     assert(destinations.count == 3 && first != second)
-    let window = NSWindow(
+    let window = FocusTestWindow(
       contentRect: NSRect(x: -3000, y: -3000, width: 1100, height: 700),
       styleMask: [.titled, .resizable], backing: .buffered, defer: false)
     window.contentView = NSHostingView(rootView: ServerSheetFixture(store: store))
@@ -138,6 +146,7 @@ struct WorktreeListFixture: View {
       RunLoop.current.run(until: Date().addingTimeInterval(0.03))
     }
     try checkInlineRename(store: store, window: window)
+    try checkAutomaticFocusAcknowledgement(store: store, window: window)
     try checkServerRecovery(store: store, destinations: destinations, window: window)
     // A departing SwiftUI host may still receive layout. It must not steal the
     // pooled view back from its new destination or resize it to stale bounds.
@@ -185,6 +194,78 @@ struct WorktreeListFixture: View {
       details.fittingSize.height > 30 && details.fittingSize.height <= 180,
       "Warning details were clipped to height \(details.fittingSize.height)")
     details.removeFromSuperview()
+  }
+
+  static func checkAutomaticFocusAcknowledgement(store: Store, window: NSWindow) throws {
+    let focusWindow = window as! FocusTestWindow
+    focusWindow.keyStatus = true
+    defer { focusWindow.keyStatus = nil }
+    let workspace = store.workspaces[0]
+    let tab = workspace.tabs.first { $0.root.ids.count > 1 }!
+    let target = tab.root.ids[0]
+    let sibling = tab.root.ids[1]
+    store.select(store.workspaces[1].id)
+    try wait("focus away from target") { store.focus != target }
+    func markDone() {
+      for pane in [target, sibling] { _ = rpc(["Status": ["pane": pane, "state": "done"]]) }
+      apply(rpc("State"), to: store)
+    }
+    func status(_ pane: String) -> String? {
+      let state = rpc("State")["State"] as? [String: Any]
+      return (state?["panes"] as? [[String: Any]])?.first { $0["id"] as? String == pane }?["status"]
+        as? String
+    }
+    markDone()
+    store.select(workspace.id, tab: tab.id, pane: target)
+    try wait("automatic pane focus acknowledges status") { status(target) == "unknown" }
+    assert(status(sibling) == "done", "Focusing one pane cleared another pane's unread status")
+    markDone()
+    store.select(workspace.id, tab: tab.id, pane: target)
+    try wait("reselecting focused pane acknowledges status") { status(target) == "unknown" }
+    assert(status(sibling) == "done")
+    focusWindow.keyStatus = false
+    markDone()
+    store.terminalViews.existing(target)!.acknowledgeFocus()
+    assert(status(target) == "done", "An inactive window cleared unread status")
+    focusWindow.keyStatus = true
+    store.focusTerminal()
+    try wait("foreground focus acknowledges status") { status(target) == "unknown" }
+    print(
+      "Automatic focus acknowledges only the selected pane, including repeated workspace selection."
+    )
+  }
+
+  static func checkImageClipboard() throws {
+    let board = NSPasteboard(name: NSPasteboard.Name("jam.image-test.\(UUID())"))
+    defer { board.releaseGlobally() }
+    board.setString("plain text", forType: .string)
+    assert(!TerminalClipboard.hasImage(board))
+    let textOnly = try TerminalClipboard.image(board)
+    assert(textOnly == nil)
+    let bitmap = NSBitmapImageRep(
+      bitmapDataPlanes: nil, pixelsWide: 1, pixelsHigh: 1, bitsPerSample: 8,
+      samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+      colorSpaceName: .deviceRGB, bytesPerRow: 4, bitsPerPixel: 32)!
+    bitmap.bitmapData!.initialize(repeating: 255, count: 4)
+    let png = bitmap.representation(using: .png, properties: [:])!
+    board.clearContents()
+    board.setData(png, forType: .png)
+    board.setString("ignored image label", forType: .string)
+    assert(TerminalClipboard.hasImage(board))
+    let original = try TerminalClipboard.image(board)
+    assert(original == png, "Image data must take precedence over its text representation")
+    board.clearContents()
+    board.setData(bitmap.tiffRepresentation!, forType: .tiff)
+    let converted = try TerminalClipboard.image(board)!
+    assert(converted.starts(with: [137, 80, 78, 71, 13, 10, 26, 10]))
+    assert(TerminalClipboard.quotedPath("/tmp/a'b.png") == "'/tmp/a'\\''b.png' ")
+    board.clearContents()
+    board.setData(Data(count: TerminalClipboard.maximumImageBytes + 1), forType: .png)
+    do {
+      _ = try TerminalClipboard.image(board)
+      assertionFailure("Oversized clipboard image was accepted")
+    } catch TerminalClipboard.ImageError.tooLarge {}
+    print("Clipboard images passed: PNG, TIFF, text precedence, quoting, and size limit.")
   }
 
   static func checkInlineRename(store: Store, window: NSWindow) throws {
@@ -664,6 +745,10 @@ struct WorktreeListFixture: View {
     defer { window.orderOut(nil) }
     try wait("usage panel layout") { host.fittingSize.height > 80 }
     assert(host.fittingSize.height < 240, "Usage panel is not compact")
+    func containsScrollView(_ view: NSView) -> Bool {
+      view is NSScrollView || view.subviews.contains(where: containsScrollView)
+    }
+    assert(!containsScrollView(host), "Usage should fit its content without a scroll view")
     if let path = ProcessInfo.processInfo.environment["JAM_UI_SCREENSHOT"],
       let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds)
     {
@@ -1214,10 +1299,9 @@ struct WorktreeListFixture: View {
     let remote = "empty-test"
     store.remoteMessages[remote] = "Connected"
     store.capabilitiesByEndpoint[remote] = []
-    let creation = WorkspaceCreation(
-      endpoint: remote, home: "/home/test", previous: store.selected,
-      knownWorkspaceIDs: Set(store.workspaces.map(\.id)))
-    store.workspaceCreations[remote] = creation
+    var creation = WorkspaceCreation(
+      endpoint: remote, previous: store.selected, action: .new, name: "~", path: "/home/test")
+    store.workspaceCreations[creation.id] = creation
     store.selected = creation.id
     store.tab = ""
     store.focus = ""
@@ -1228,7 +1312,7 @@ struct WorktreeListFixture: View {
     let rect = outline.rect(ofRow: row)
     let count = outline.numberOfRows
     let pollEpoch = store.workspaceCreationEpochs[remote, default: 0]
-    let created = remote + "|created"
+    let created = creation.proposedID
     let state: [String: Any] = [
       "revision": 100,
       "workspaces": [["id": created, "name": "~", "path": "/home/test", "tabs": []]],
@@ -1240,7 +1324,8 @@ struct WorktreeListFixture: View {
     assert(!store.displayedWorkspaces.contains { $0.id == created })
     assert(outline.numberOfRows == count && outline.row(forItem: pending) == row)
 
-    store.finishWorkspaceCreation(creation, reply: ["State": state])
+    creation.result = created
+    store.finishWorkspaceCreation(creation, state: state)
     let deadline = Date().addingTimeInterval(0.35)
     repeat {
       RunLoop.current.run(until: Date().addingTimeInterval(0.002))
@@ -1256,7 +1341,39 @@ struct WorktreeListFixture: View {
       !store.applyRefresh(
         ["workspaces": [], "panes": []], endpoint: remote, creationEpoch: pollEpoch))
     assert(store.workspaces.contains { $0.id == created })
-    print("Workspace handoff passed: stable native row, early poll, and stale completion poll.")
+    // Finish another action after navigation, while a workspace drag is active.
+    var later = WorkspaceCreation(
+      endpoint: remote, previous: created, action: .open("/demo"), name: "demo", path: "/demo")
+    store.workspaceCreations[later.id] = later
+    store.select(later.id)
+    store.select(created)
+    later.result = later.proposedID
+    let newest: [String: Any] = [
+      "revision": 101, "panes": [],
+      "workspaces": [
+        ["id": created, "name": "~", "path": "/home/test", "tabs": []],
+        ["id": later.proposedID, "name": "demo", "path": "/demo", "tabs": []],
+        ["id": remote + "|other", "name": "Other", "path": "/other", "tabs": []],
+      ],
+    ]
+    store.reorderingWorkspaces = true
+    store.finishWorkspaceCreation(later, state: newest)
+    assert(store.isCreatingWorkspace(later.id))
+    store.reorderingWorkspaces = false
+    assert(store.selected == created && !store.isCreatingWorkspace(later.id))
+    assert(store.displayedWorkspaces.contains { $0.id == remote + "|other" })
+
+    var failed = WorkspaceCreation(
+      endpoint: remote, previous: created, action: .open("/missing"), name: "missing",
+      path: "/missing")
+    store.workspaceCreations[failed.id] = failed
+    store.select(failed.id)
+    failed.failure = "Missing directory"
+    store.finishWorkspaceCreation(failed, state: nil)
+    assert(store.selected == failed.id && store.workspaceCreations[failed.id]?.failure != nil)
+    store.dismissCreation(failed)
+    assert(store.selected == created && !store.isCreatingWorkspace(failed.id))
+    print("Workspace handoff, navigation, concurrent layout, and inline failure checks passed.")
   }
 
   static func checkActivityIndicators() {

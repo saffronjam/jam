@@ -28,6 +28,43 @@ pub fn is_worker_role(role: &str) -> bool {
 pub struct Board {
     db: Connection,
 }
+type BoardJob = Box<dyn FnOnce(&mut Board) + Send>;
+#[derive(Clone)]
+pub(crate) struct BoardWorker(crossbeam_channel::Sender<BoardJob>);
+impl BoardWorker {
+    pub fn start() -> Result<Self> {
+        let mut board = Board::open()?;
+        let (tx, rx) = crossbeam_channel::bounded::<BoardJob>(16);
+        std::thread::Builder::new()
+            .name("coordination database".into())
+            .spawn(move || {
+                for job in rx {
+                    job(&mut board);
+                }
+            })?;
+        Ok(Self(tx))
+    }
+    pub fn submit<T: Send + 'static>(
+        &self,
+        work: impl FnOnce(&mut Board) -> Result<T> + Send + 'static,
+    ) -> Result<crossbeam_channel::Receiver<Result<T>>> {
+        let (tx, rx) = crossbeam_channel::bounded(1);
+        self.0
+            .try_send(Box::new(move |board| {
+                let _ = tx.send(work(board));
+            }))
+            .map_err(|_| anyhow::anyhow!("Coordination database is busy"))?;
+        Ok(rx)
+    }
+    pub fn run<T: Send + 'static>(
+        &self,
+        work: impl FnOnce(&mut Board) -> Result<T> + Send + 'static,
+    ) -> Result<T> {
+        self.submit(work)?
+            .recv()
+            .context("Coordination database worker stopped")?
+    }
+}
 impl Board {
     pub fn open() -> Result<Self> {
         Self::at(&state_dir().join("coordination.sqlite"))
@@ -1332,17 +1369,16 @@ pub fn read_hook_input() -> Value {
 pub fn start_delivery() -> Result<()> {
     let mut board = Board::open()?;
     board.requeue_interrupted_deliveries()?;
-    std::thread::spawn(|| {
+    std::thread::spawn(move || {
         loop {
             std::thread::sleep(Duration::from_secs(2));
-            let _ = crate::recovery::deliver();
-            let _ = deliver();
+            let _ = crate::recovery::deliver(&mut board);
+            let _ = deliver(&mut board);
         }
     });
     Ok(())
 }
-fn deliver() -> Result<()> {
-    let mut board = Board::open()?;
+fn deliver(board: &mut Board) -> Result<()> {
     for message in board.all("message")? {
         if message["state"] != "queued" {
             continue;

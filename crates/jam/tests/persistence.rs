@@ -29,6 +29,7 @@ impl Daemon {
         Command::new(env!("CARGO_BIN_EXE_jamd"))
             .env("JAM_SOCKET", socket)
             .env("JAM_STATE_DIR", dir.join("state"))
+            .env("TMPDIR", dir)
             .env("SHELL", "/bin/sh")
             .spawn()
             .unwrap()
@@ -97,6 +98,151 @@ impl Drop for Daemon {
     fn drop(&mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();
+    }
+}
+
+#[test]
+fn a_blocked_coordination_write_does_not_block_health_or_terminal_input() {
+    assert!(rusqlite::version_number() >= 3_051_003);
+    let daemon = Daemon::start();
+    let pane = daemon.create().panes[0].id.clone();
+    let connection =
+        rusqlite::Connection::open(daemon.dir.path().join("state/coordination.sqlite")).unwrap();
+    let owner = id();
+    let agent =
+        serde_json::json!({"id": owner, "role": "coordinator", "provider": "codex", "root": id()});
+    connection
+        .execute(
+            "INSERT INTO records(kind, id, value) VALUES ('agent', ?1, ?2)",
+            rusqlite::params![owner, agent.to_string()],
+        )
+        .unwrap();
+    connection.execute_batch("BEGIN IMMEDIATE").unwrap();
+    let mut pending = daemon.connect();
+    write_request(
+        &mut pending,
+        &Request::Coordination(
+            serde_json::json!({"action":"task","owner":owner,"objective":"test"}),
+        ),
+    )
+    .unwrap();
+    pending
+        .set_read_timeout(Some(Duration::from_millis(150)))
+        .unwrap();
+    assert!(
+        read_frame::<Message>(&mut pending)
+            .unwrap_err()
+            .downcast_ref::<std::io::Error>()
+            .is_some_and(|e| matches!(
+                e.kind(),
+                std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
+            ))
+    );
+    let start = Instant::now();
+    assert!(matches!(
+        daemon.request(Request::HostInfo),
+        Message::HostInfo { .. }
+    ));
+    assert_eq!(daemon.state().panes.len(), 1);
+    daemon.send(&pane, "printf '%s%s\\n' JAM_ READY\r");
+    daemon.until(|| {
+        daemon
+            .capture(&pane)
+            .lines()
+            .any(|line| line.trim() == "JAM_READY")
+    });
+    assert!(start.elapsed() < Duration::from_secs(1));
+    connection.execute_batch("ROLLBACK").unwrap();
+    pending
+        .set_read_timeout(Some(Duration::from_secs(3)))
+        .unwrap();
+    let reply = read_frame::<Message>(&mut pending).unwrap();
+    assert!(
+        matches!(&reply, Message::Coordination(task) if task["state"] == "pending" && task["owner"] == owner),
+        "{reply:?}"
+    );
+}
+
+#[test]
+fn retrying_workspace_creation_returns_the_same_workspace_and_pane() {
+    let daemon = Daemon::start();
+    let Message::HostInfo { incarnation, .. } = daemon.request(Request::HostInfo) else {
+        panic!()
+    };
+    let token = id();
+    let request = Request::WorkspaceCreation {
+        id: token.clone(),
+        incarnation,
+        request: Box::new(Request::NewWorkspace {
+            path: daemon.dir.path().display().to_string(),
+        }),
+    };
+    let mut lost = daemon.connect();
+    write_request(&mut lost, &request).unwrap();
+    drop(lost);
+    daemon.until(|| matches!(daemon.request(request.clone()), Message::Operation { workspace: Some(id), done: true, error: None, .. } if id == token));
+    let state = daemon.state();
+    assert_eq!(state.workspaces.len(), 1);
+    assert_eq!(state.panes.len(), 1);
+    assert_eq!(state.workspaces[0].id, token);
+}
+
+#[test]
+fn clipboard_images_are_stored_on_the_target_host_before_pasting() {
+    let local = Daemon::start();
+    let proxy = Daemon::start();
+    let png = b"\x89PNG\r\n\x1a\nfixture";
+    let encoded = "iVBORw0KGgpmaXh0dXJl";
+    for (daemon, endpoint) in [(&local, ""), (&proxy, "image-proxy")] {
+        let state = daemon.create();
+        let pane = &state.panes[0].id;
+        let scoped_pane = if endpoint.is_empty() {
+            pane.clone()
+        } else {
+            format!("{endpoint}|{pane}")
+        };
+        let mut upload = serde_json::json!({"StoreClipboardImage": {
+            "pane": scoped_pane, "png": encoded
+        }});
+        if !endpoint.is_empty() {
+            assert_eq!(remote::request_endpoint(&upload).as_deref(), Some(endpoint));
+            remote::scope(&mut upload, endpoint, false).unwrap();
+        }
+        let path = match daemon.request(serde_json::from_value(upload).unwrap()) {
+            Message::ClipboardImage { path } => std::path::PathBuf::from(path),
+            response => panic!("Unexpected upload reply: {response:?}"),
+        };
+        assert!(
+            path.starts_with(daemon.dir.path()),
+            "Image was saved on the wrong host"
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), png);
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        daemon.send(pane, "test -r ");
+        assert!(matches!(
+            daemon.request(Request::Paste {
+                pane: pane.clone(),
+                text: format!("'{}' ", path.display())
+            }),
+            Message::Ok
+        ));
+        daemon.send(pane, "&& printf '\\111\\115\\101\\107\\105_OK\\n'\r");
+        daemon.until(|| {
+            daemon
+                .capture(pane)
+                .lines()
+                .any(|line| line.trim() == "IMAGE_OK")
+        });
+        assert!(matches!(
+            daemon.request(Request::StoreClipboardImage {
+                pane: "missing-pane".into(),
+                png: encoded.into()
+            }),
+            Message::Error(_)
+        ));
     }
 }
 

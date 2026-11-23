@@ -3,7 +3,6 @@ use crate::*;
 use anyhow::{Result, bail};
 use std::{
     collections::HashMap,
-    io,
     os::unix::net::UnixStream,
     path::{Path, PathBuf},
     sync::{Arc, Mutex, OnceLock},
@@ -40,6 +39,8 @@ pub fn observe_server(path: &Path, incarnation: &str) {
     }
 }
 pub fn send(path: &Path, request: Request) -> Result<Message> {
+    let started = std::time::Instant::now();
+    let diagnostic = |phase, error| request_error(path, &request, started, phase, error);
     let slot = connection(path);
     let mut slot = slot.lock().unwrap();
     if let Some(link) = slot.link.as_ref() {
@@ -50,9 +51,9 @@ pub fn send(path: &Path, request: Request) -> Result<Message> {
         }
     }
     if slot.link.is_none() {
-        let mut stream = connect_to(path)?;
-        write_frame(&mut stream, &Request::InputStream)?;
-        match read_frame::<Message>(&mut stream)? {
+        let mut stream = connect_to(path).map_err(|e| diagnostic("handshake", e))?;
+        write_frame(&mut stream, &Request::InputStream).map_err(|e| diagnostic("write", e))?;
+        match read_frame::<Message>(&mut stream).map_err(|e| diagnostic("reply", e))? {
             Message::Ok => (),
             Message::Error(e) => bail!(e),
             _ => bail!("Invalid input channel handshake"),
@@ -86,7 +87,7 @@ pub fn send(path: &Path, request: Request) -> Result<Message> {
     }
     if let Err(error) = write_request(&mut slot.link.as_mut().unwrap().stream, &request) {
         slot.link = None;
-        return Err(io::Error::other(error.to_string()).into());
+        return Err(diagnostic("write", error));
     }
     Ok(Message::Ok)
 }

@@ -14,6 +14,9 @@ fn json_result(f: impl FnOnce() -> anyhow::Result<serde_json::Value>) -> *mut c_
         Ok(Ok(v)) => v,
         Ok(Err(e)) => {
             let mut result = serde_json::json!({"error":format!("{e:#}")});
+            if let Some(timeout) = e.downcast_ref::<jam_core::RequestTimeout>() {
+                result["request_timeout"] = serde_json::json!(timeout);
+            }
             if e.downcast_ref::<jam_core::server_control::OwnershipConflict>()
                 .is_some()
             {
@@ -446,7 +449,9 @@ pub unsafe extern "C" fn jam_view_draw(
             return Ok(meta);
         }
         let viewport = Viewport(width, height, scale);
-        let blink = v.last_blink.elapsed() >= std::time::Duration::from_millis(500);
+        let blink = d.frame.cursor_visible
+            && d.frame.cursor_blink
+            && v.last_blink.elapsed() >= std::time::Duration::from_millis(500);
         if d.revision != v.revision
             || blink
             || resized

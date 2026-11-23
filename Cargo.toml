@@ -5,9 +5,10 @@ members = ["crates/jam-core", "crates/jam", "crates/jam-render", "crates/jam-nat
 license = "MIT"
 repository = "https://github.com/saffronjam/jam"
 edition = "2024"
-version = "0.0.7"
+version = "0.0.8"
 [workspace.dependencies]
 anyhow = "1"
+rusqlite = { version = "0.39", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 jam-core = { path = "crates/jam-core" }

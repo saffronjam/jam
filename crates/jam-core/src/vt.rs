@@ -69,7 +69,7 @@ pub fn text(t: &Terminal<'_, '_>) -> Result<String> {
     let b = f.format_alloc(None)?;
     Ok(String::from_utf8_lossy(&b).into_owned())
 }
-pub fn frame(t: &Terminal<'static, 'static>) -> Result<TerminalFrame> {
+pub fn frame(t: &Terminal<'_, '_>) -> Result<TerminalFrame> {
     let mut state = RenderState::new()?;
     let snap = state.update(t)?;
     let colors = snap.colors()?;

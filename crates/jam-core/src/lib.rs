@@ -20,6 +20,7 @@ pub mod search;
 pub mod remote;
 
 pub mod agents;
+mod clipboard;
 pub mod input;
 
 pub mod reviews;

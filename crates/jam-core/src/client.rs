@@ -25,6 +25,46 @@ enum Event {
     Request(Request),
     Stop,
 }
+// Capture the last completed frame at DEC 2026 boundaries, which can occur
+// several times inside a single PTY read. The callback stays on the VT thread.
+#[derive(Default)]
+struct RenderHold {
+    started: Option<Instant>,
+    boundary: Option<TerminalFrame>,
+}
+type HeldFrame = std::rc::Rc<std::cell::RefCell<RenderHold>>;
+
+fn observe_render_hold(term: &mut Terminal<'static, 'static>) -> Result<HeldFrame> {
+    let hold = HeldFrame::default();
+    if term.mode(libghostty_vt::mode::Mode::SYNC_OUTPUT)? {
+        // An attachment snapshot may have been taken mid-redraw.
+        hold.borrow_mut().started = Some(Instant::now());
+    }
+    let capture = hold.clone();
+    term.on_render_hold(move |term, held| {
+        if let Ok(mut state) = capture.try_borrow_mut() {
+            state.started = held.then(Instant::now);
+            state.boundary = if held { vt::frame(term).ok() } else { None };
+        }
+    })?;
+    Ok(hold)
+}
+
+fn complete_frame(
+    term: &mut Terminal<'static, 'static>,
+    hold: &HeldFrame,
+) -> Result<Option<TerminalFrame>> {
+    let mut state = hold.borrow_mut();
+    if let Some(start) = state.started {
+        if start.elapsed() < Duration::from_secs(1) {
+            return Ok(state.boundary.take());
+        }
+        term.set_mode(libghostty_vt::mode::Mode::SYNC_OUTPUT, false)?;
+        *state = RenderHold::default();
+    }
+    Ok(Some(vt::frame(term)?))
+}
+
 #[derive(Default)]
 pub struct Display {
     pub frame: Arc<TerminalFrame>,
@@ -121,6 +161,7 @@ impl Mirror {
         let resync = socket.clone();
         thread::spawn(move || {
             let (mut term, mut seq): (Option<Terminal<'static, 'static>>, u64) = (None, 0);
+            let mut hold = HeldFrame::default();
             let mut anchor: Option<(
                 u64,
                 libghostty_vt::grid_ref::TrackedGridRef,
@@ -132,6 +173,8 @@ impl Mirror {
             loop {
                 match rx.recv_timeout(if dirty {
                     Duration::from_millis(8)
+                } else if let Some(start) = hold.borrow().started {
+                    Duration::from_secs(1).saturating_sub(start.elapsed())
                 } else {
                     Duration::from_secs(60)
                 }) {
@@ -235,7 +278,9 @@ impl Mirror {
                                     call_at(&request_path, r)?;
                                 }
                                 Event::Network(Message::Snapshot { seq: n, bytes, .. }) => {
-                                    term = Some(Decoder::new_buf(&bytes)?.decode()?);
+                                    let mut snapshot = Decoder::new_buf(&bytes)?.decode()?;
+                                    hold = observe_render_hold(&mut snapshot)?;
+                                    term = Some(snapshot);
                                     seq = n;
                                     finder.revision(seq);
                                     shared.lock().unwrap().selection = None;
@@ -293,6 +338,7 @@ impl Mirror {
                         if let Err(e) = result {
                             shared.lock().unwrap().error = Some(e.to_string());
                             term = None;
+                            hold = HeldFrame::default();
                             if let Some(s) = resync.lock().unwrap().as_ref() {
                                 let _ = s.shutdown(Shutdown::Both);
                             }
@@ -300,10 +346,15 @@ impl Mirror {
                     }
                     Err(_) => {}
                 }
+                dirty |= hold
+                    .borrow()
+                    .started
+                    .is_some_and(|at| at.elapsed() >= Duration::from_secs(1));
                 if dirty && last.elapsed() >= Duration::from_millis(8) {
-                    if let Some(t) = &term {
-                        match vt::frame(t) {
-                            Ok(mut f) => {
+                    if let Some(t) = &mut term {
+                        match complete_frame(t, &hold) {
+                            Ok(None) => {}
+                            Ok(Some(mut f)) => {
                                 let mut d = shared.lock().unwrap();
                                 f.selection = d.selection;
                                 d.frame = Arc::new(f);
@@ -413,6 +464,24 @@ impl Drop for Mirror {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn fragmented_synchronized_redraws_only_publish_complete_frames() {
+        let mut term = vt::terminal(12, 2).unwrap();
+        let hold = observe_render_hold(&mut term).unwrap();
+        term.vt_write(b"first\x1b[?20");
+        term.vt_write(b"26h\x1b[?25l\rsecond");
+        let first = complete_frame(&mut term, &hold).unwrap().unwrap();
+        assert!(first.cursor_visible && first.cells[0].text == "f");
+        assert!(complete_frame(&mut term, &hold).unwrap().is_none());
+        term.vt_write(b"\x1b[?25h\x1b[?2026l\x1b[?2026h\x1b[?25l\rthird");
+        let second = complete_frame(&mut term, &hold).unwrap().unwrap();
+        assert!(second.cursor_visible && second.cells[0].text == "s");
+        term.vt_write(b"\x1b[?25h");
+        hold.borrow_mut().started = Some(Instant::now() - Duration::from_secs(2));
+        let third = complete_frame(&mut term, &hold).unwrap().unwrap();
+        assert!(third.cursor_visible && third.cells[0].text == "t");
+        assert!(!term.mode(libghostty_vt::mode::Mode::SYNC_OUTPUT).unwrap());
+    }
     #[test]
     fn selection_is_immediately_available_and_clearable() {
         let (tx, _) = bounded(1);

@@ -180,6 +180,11 @@ pub enum InitialTab {
 }
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub enum Request {
+    WorkspaceCreation {
+        id: String,
+        incarnation: String,
+        request: Box<Request>,
+    },
     AgentModels {
         provider: String,
         refresh: bool,
@@ -341,6 +346,10 @@ pub enum Request {
         pane: String,
         text: String,
     },
+    StoreClipboardImage {
+        pane: String,
+        png: String,
+    },
     Capture {
         pane: String,
     },
@@ -393,6 +402,9 @@ pub enum Message {
     Ok,
     Error(String),
     Capture(String),
+    ClipboardImage {
+        path: String,
+    },
     Snapshot {
         seq: u64,
         cols: u16,
@@ -511,10 +523,72 @@ pub fn write_request(w: &mut impl Write, request: &Request) -> Result<()> {
 pub fn call(req: Request) -> Result<Message> {
     call_at(&socket(), req)
 }
+#[derive(Debug, Serialize)]
+pub struct RequestTimeout {
+    pub endpoint: PathBuf,
+    pub operation: String,
+    pub phase: &'static str,
+    pub elapsed_ms: u64,
+}
+impl std::fmt::Display for RequestTimeout {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{} server is not responding. {} {} timed out after {} ms at {}",
+            if self.endpoint == socket() {
+                "Local"
+            } else {
+                "Remote"
+            },
+            self.operation,
+            self.phase,
+            self.elapsed_ms,
+            self.endpoint.display()
+        )
+    }
+}
+impl std::error::Error for RequestTimeout {}
+pub(crate) fn request_error(
+    path: &std::path::Path,
+    req: &Request,
+    started: std::time::Instant,
+    phase: &'static str,
+    error: anyhow::Error,
+) -> anyhow::Error {
+    if !error.downcast_ref::<std::io::Error>().is_some_and(|io| {
+        matches!(
+            io.kind(),
+            std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
+        )
+    }) {
+        return error;
+    }
+    let operation = match req {
+        Request::Key { .. } => "Key".to_owned(),
+        Request::Send { .. } => "Send".to_owned(),
+        Request::Mouse { .. } => "Mouse".to_owned(),
+        Request::Paste { .. } => "Paste".to_owned(),
+        _ => match serde_json::to_value(req).unwrap_or_default() {
+            serde_json::Value::String(name) => name,
+            serde_json::Value::Object(fields) => fields.keys().next().cloned().unwrap_or_default(),
+            _ => "request".into(),
+        },
+    };
+    error.context(RequestTimeout {
+        endpoint: path.to_owned(),
+        operation,
+        phase,
+        elapsed_ms: started.elapsed().as_millis() as u64,
+    })
+}
+
 pub fn call_at(path: &std::path::Path, req: Request) -> Result<Message> {
-    let mut s = connect_to(path)?;
-    write_request(&mut s, &req)?;
-    let m = read_frame(&mut s)?;
+    let started = std::time::Instant::now();
+    let diagnostic = |phase, error| request_error(path, &req, started, phase, error);
+    let mut s = connect_to(path).map_err(|e| diagnostic("handshake", e))?;
+    s.set_write_timeout(Some(std::time::Duration::from_secs(10)))?;
+    write_request(&mut s, &req).map_err(|e| diagnostic("write", e))?;
+    let m = read_frame(&mut s).map_err(|e| diagnostic("reply", e))?;
     if let Message::Error(e) = m {
         bail!("{e}")
     }

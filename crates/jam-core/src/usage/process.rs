@@ -98,6 +98,39 @@ pub(super) fn discover(roots: &[u32]) -> Vec<(Profile, u32)> {
     profiles.into_values().collect()
 }
 
+/// Each daemon can also report its configured login while no Jam tab uses it.
+/// Only this process's provider configuration directories are candidates.
+pub(super) fn configured_profiles() -> Vec<Profile> {
+    let environment = [
+        "HOME",
+        "CODEX_HOME",
+        "CLAUDE_CONFIG_DIR",
+        "CLAUDE_SECURESTORAGE_CONFIG_DIR",
+        "CLAUDE_CODE_OAUTH_TOKEN",
+        "ANTHROPIC_API_KEY",
+        "ANTHROPIC_AUTH_TOKEN",
+    ]
+    .into_iter()
+    .filter_map(|key| std::env::var(key).ok().map(|v| (key.to_owned(), v)))
+    .collect();
+    [Provider::Codex, Provider::Claude]
+        .into_iter()
+        .filter_map(|provider| {
+            let profile = profile(provider, &environment)?;
+            let configured = match provider {
+                Provider::Codex => profile.directory.join("auth.json").is_file(),
+                Provider::Claude => {
+                    !profile.api_key
+                        && (profile.token.is_some()
+                            || profile.directory.join(".credentials.json").is_file()
+                            || (cfg!(target_os = "macos") && profile.directory.is_dir()))
+                }
+            };
+            configured.then_some(profile)
+        })
+        .collect()
+}
+
 fn profile(provider: Provider, env: &HashMap<String, String>) -> Option<Profile> {
     let home = PathBuf::from(env.get("HOME")?);
     if !home.is_absolute() {

@@ -31,6 +31,10 @@ struct AgentUsageReport: Decodable, Equatable, Identifiable {
   let lastSuccessAt: Int64?
   let error: String?
   var id: String { provider + ":" + (accountKey ?? profileKey) }
+  var normalizedEmail: String? {
+    let label = accountLabel?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    return label?.contains("@") == true ? label : nil
+  }
   var name: String { provider == "codex" ? "Codex" : "Claude" }
   var needsKeychainAccess: Bool {
     provider == "claude" && error?.localizedCaseInsensitiveContains("Keychain") == true
@@ -39,10 +43,6 @@ struct AgentUsageReport: Decodable, Equatable, Identifiable {
     if checking { return "Reading usage…" }
     if needsKeychainAccess { return "Keychain access needed" }
     return error ?? "No usage limits reported"
-  }
-  var sidebarHeight: CGFloat {
-    let body = primaryWindows.isEmpty ? (checking ? 40 : 60) : 32 + primaryWindows.count * 18
-    return CGFloat(body + (needsKeychainAccess ? 28 : 0))
   }
   var primaryWindows: [AgentUsageWindow] {
     let main = windows.filter { ["five_hour", "weekly"].contains($0.key) }
@@ -62,50 +62,94 @@ struct AgentUsageReport: Decodable, Equatable, Identifiable {
 struct AgentUsagePage: Identifiable, Equatable {
   let id: String
   var endpoints: [String]
-  var names: [String]
+  let label: String
   var reports: [AgentUsageReport]
-  var label: String { names.joined(separator: " · ") }
+  var sources: [String: String]
 
-  static func build(reports: [String: [AgentUsageReport]], machines: [(String, String)]) -> [Self] {
-    var pages: [Self] = []
-    for (endpoint, name) in machines {
-      var cards: [AgentUsageReport] = []
-      for report in reports[endpoint] ?? [] where report.activeSessions > 0 {
-        if let index = cards.firstIndex(where: { $0.id == report.id }) {
-          let sessions = cards[index].activeSessions + report.activeSessions
-          if (report.lastSuccessAt ?? 0) > (cards[index].lastSuccessAt ?? 0) {
-            cards[index] = report
-          }
-          cards[index].activeSessions = sessions
-        } else {
-          cards.append(report)
+  static func build(
+    reports: [String: [AgentUsageReport]], machines: [(String, String)],
+    unavailable: Set<String> = []
+  ) -> [Self] {
+    struct Account {
+      var report: AgentUsageReport
+      var endpoint: String
+      var endpoints: [String]
+      var email: String?
+    }
+    var identities: [String: Set<String>] = [:]
+    for (endpoint, _) in machines {
+      for report in reports[endpoint] ?? [] {
+        if report.accountKey != nil, let email = report.normalizedEmail {
+          identities[report.provider + ":" + email, default: []].insert(report.id)
         }
-      }
-      guard !cards.isEmpty else { continue }
-      cards.sort {
-        ($0.provider == "codex" ? 0 : 1, $0.id) < ($1.provider == "codex" ? 0 : 1, $1.id)
-      }
-      // Unknown identities stay machine-local. Percentages and token values are
-      // never used to guess that two machines share an account.
-      let known = cards.allSatisfy { $0.accountKey != nil && $0.error == nil }
-      let id = known ? cards.map(\.id).joined(separator: "|") : "machine:" + endpoint
-      if known, let index = pages.firstIndex(where: { $0.id == id }) {
-        pages[index].endpoints.append(endpoint)
-        pages[index].names.append(name)
-        for card in cards {
-          guard let position = pages[index].reports.firstIndex(where: { $0.id == card.id }) else {
-            continue
-          }
-          let sessions = pages[index].reports[position].activeSessions + card.activeSessions
-          if (card.lastSuccessAt ?? 0) > (pages[index].reports[position].lastSuccessAt ?? 0) {
-            pages[index].reports[position] = card
-          }
-          pages[index].reports[position].activeSessions = sessions
-        }
-      } else {
-        pages.append(Self(id: id, endpoints: [endpoint], names: [name], reports: cards))
       }
     }
-    return pages
+    var accounts: [String: Account] = [:]
+    for (endpoint, _) in machines {
+      for report in reports[endpoint] ?? []
+      where report.activeSessions > 0 || report.accountKey != nil || report.accountLabel != nil {
+        let email = report.normalizedEmail
+        let key: String
+        if report.accountKey != nil {
+          key = report.id
+        } else if let email {
+          let login = report.provider + ":" + email
+          let matches = identities[login, default: []]
+          key = matches.count == 1 ? matches.first! : "login:" + login
+        } else {
+          key = "profile:\(endpoint):\(report.id)"
+        }
+        if var account = accounts[key] {
+          let sessions = account.report.activeSessions + report.activeSessions
+          func rank(_ r: AgentUsageReport, _ source: String) -> (Int, Int64, Int64) {
+            (
+              unavailable.contains(source) || r.error != nil ? 0 : 1,
+              r.lastSuccessAt ?? 0, r.checkedAt ?? 0
+            )
+          }
+          if rank(report, endpoint) > rank(account.report, account.endpoint) {
+            account.report = report
+            account.endpoint = endpoint
+            account.email = email ?? account.email
+          }
+          account.email = account.email ?? email
+          account.report.activeSessions = sessions
+          if !account.endpoints.contains(endpoint) { account.endpoints.append(endpoint) }
+          accounts[key] = account
+        } else {
+          accounts[key] = Account(
+            report: report, endpoint: endpoint, endpoints: [endpoint], email: email)
+        }
+      }
+    }
+
+    // A login can belong to multiple organizations at the same provider. Only
+    // link providers by email when each has one unambiguous account identity.
+    let known = accounts.values.filter { $0.email != nil }
+    let ambiguous = Set(
+      Dictionary(grouping: known, by: { $0.email! }).compactMap { email, group in
+        Set(group.map { $0.report.provider }).count < group.count ? email : nil
+      })
+    var pages: [String: Self] = [:]
+    for key in accounts.keys.sorted() {
+      guard let account = accounts[key] else { continue }
+      let report = account.report
+      let linked =
+        account.email != nil
+        && !ambiguous.contains(account.email ?? "")
+      let id = linked ? "email:" + (account.email ?? "") : key
+      let machine = machines.first { $0.0 == account.endpoint }?.1 ?? account.endpoint
+      var page =
+        pages[id]
+        ?? Self(id: id, endpoints: [], label: account.email ?? machine, reports: [], sources: [:])
+      page.endpoints += account.endpoints.filter { !page.endpoints.contains($0) }
+      page.sources[report.id] = account.endpoint
+      page.reports.append(report)
+      page.reports.sort {
+        ($0.provider != "codex" ? 1 : 0, $0.id) < ($1.provider != "codex" ? 1 : 0, $1.id)
+      }
+      pages[id] = page
+    }
+    return pages.values.sorted { ($0.label, $0.id) < ($1.label, $1.id) }
   }
 }

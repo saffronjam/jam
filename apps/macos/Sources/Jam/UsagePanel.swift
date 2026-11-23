@@ -15,7 +15,12 @@ extension Store {
     AgentUsagePage.build(
       reports: agentUsage.mapValues {
         $0.filter { config?.enabledAgents.contains($0.provider) != false }
-      }, machines: [("", "Local")] + remotes.map { ($0.id, $0.name) })
+      }, machines: [("", "Local")] + remotes.map { ($0.id, $0.name) },
+      unavailable: Set(([""] + remotes.map(\.id)).filter { usageUnavailable($0) }))
+  }
+  func usageUnavailable(_ endpoint: String) -> Bool {
+    (endpoint.isEmpty ? !connected : remoteMessages[endpoint] != "Connected")
+      || usageErrors[endpoint] != nil
   }
   func refreshAgentUsage() {
     for endpoint in [""] + remotes.map(\.id) {
@@ -63,28 +68,23 @@ extension Store {
 
 struct UsagePanel: View {
   @EnvironmentObject var store: Store
-  @State private var selectedEndpoint: String?
-  @State private var contentHeights: [String: CGFloat] = [:]
+  @State private var selectedAccount: String?
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   private var motion: Animation? {
     reduceMotion ? nil : .timingCurve(0.22, 0.8, 0.25, 1, duration: 0.24)
   }
-  private var contentHeight: CGFloat {
-    guard let page else { return 0 }
-    return min(
-      240, contentHeights[page.id] ?? page.reports.reduce(CGFloat.zero) { $0 + $1.sidebarHeight })
-  }
   private var headerHeight: CGFloat { pages.count > 1 ? 24 : 14 }
-  private var panelHeight: CGFloat { page == nil ? 0 : headerHeight + 9 + contentHeight + 16 }
   private var pages: [AgentUsagePage] { store.usagePages }
   private var page: AgentUsagePage? {
-    pages.first { $0.endpoints.contains(selectedEndpoint ?? store.currentEndpoint) } ?? pages.first
+    pages.first { $0.id == selectedAccount } ?? pages.first {
+      $0.endpoints.contains(store.currentEndpoint)
+    } ?? pages.first
   }
 
   private func move(_ direction: Int) {
     guard !pages.isEmpty else { return }
     let index = page.flatMap { current in pages.firstIndex { $0.id == current.id } } ?? 0
-    selectedEndpoint = pages[(index + direction + pages.count) % pages.count].endpoints.first
+    selectedAccount = pages[(index + direction + pages.count) % pages.count].id
   }
   var body: some View {
     VStack(spacing: 0) {
@@ -111,46 +111,23 @@ struct UsagePanel: View {
               }.help("Next usage account")
             }
           }.buttonStyle(.plain).frame(height: headerHeight)
-          ScrollView {
-            VStack(alignment: .leading, spacing: 10) {
-              ForEach(page.reports) { report in
-                UsageCard(
-                  report: report,
-                  authorize: page.endpoints == [""]
-                    ? { completion in
-                      store.authorizeUsage(profile: report.profileKey, completion: completion)
-                    } : nil,
-                  stale: page.endpoints.allSatisfy {
-                    ($0.isEmpty ? !store.connected : store.remoteMessages[$0] != "Connected")
-                      || store.usageErrors[$0] != nil
-                  }
-                ).transition(.opacity)
-              }
-            }.fixedSize(horizontal: false, vertical: true)
-              .background(
-                GeometryReader { geometry in
-                  Color.clear.preference(key: UsageContentHeight.self, value: geometry.size.height)
-                })
-          }.scrollIndicators(.hidden)
-            .frame(height: contentHeight)
-            .onPreferenceChange(UsageContentHeight.self) { height in
-              if height > 0 && abs((contentHeights[page.id] ?? 0) - height) > 0.5 {
-                contentHeights[page.id] = height
-              }
+          VStack(alignment: .leading, spacing: 10) {
+            ForEach(page.reports) { report in
+              UsageCard(
+                report: report,
+                authorize: page.sources[report.id] == ""
+                  ? { completion in
+                    store.authorizeUsage(profile: report.profileKey, completion: completion)
+                  } : nil,
+                stale: page.sources[report.id].map(store.usageUnavailable) ?? true
+              ).transition(.opacity)
             }
+          }.fixedSize(horizontal: false, vertical: true)
         }.padding(.horizontal, 14).padding(.vertical, 8)
           .transition(.opacity)
       }
-    }.frame(height: panelHeight, alignment: .top).clipped()
+    }.fixedSize(horizontal: false, vertical: true)
       .animation(motion, value: page)
-      .animation(motion, value: panelHeight)
-  }
-}
-
-private struct UsageContentHeight: PreferenceKey {
-  static var defaultValue: CGFloat = 0
-  static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-    value = max(value, nextValue())
   }
 }
 
@@ -194,7 +171,7 @@ private struct UsageCard: View {
             if let account = report.accountLabel {
               Text(account).font(.caption).textSelection(.enabled)
             }
-            if report.accountKey == nil {
+            if report.accountKey == nil && report.normalizedEmail == nil {
               Text("Account identity unavailable. Shown separately for this machine.").font(
                 .caption
               ).foregroundStyle(.secondary)

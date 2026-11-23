@@ -1,30 +1,64 @@
 import Foundation
 
-/// UI-only identity while the daemon creates a workspace. Never sent to the daemon.
+enum WorkspaceCreationAction: Equatable {
+  case new
+  case open(String)
+  case createWorktree(source: String, branch: String, base: String, path: String?)
+  case openWorktree(source: String, path: String)
+
+  var opensExisting: Bool {
+    switch self {
+    case .open, .openWorktree: return true
+    case .new, .createWorktree: return false
+    }
+  }
+  func request(home: String?) -> [String: Any]? {
+    switch self {
+    case .new:
+      guard let home else { return nil }
+      return ["NewWorkspace": ["path": home]]
+    case .open(let path): return ["CreateWorkspace": ["path": path, "name": ""]]
+    case .openWorktree(let source, let path):
+      return ["WorktreeOpen": ["path": path, "workspace": source]]
+    case .createWorktree(let source, let branch, let base, let path):
+      return [
+        "WorktreeCreate": [
+          "workspace": source, "branch": branch, "base": base,
+          "path": path as Any? ?? NSNull(),
+        ]
+      ]
+    }
+  }
+}
+
 struct WorkspaceCreation {
+  let started = ProcessInfo.processInfo.systemUptime
   let id: String
   let endpoint: String
-  let home: String?
   let previous: String
-  let knownWorkspaceIDs: Set<String>
+  let action: WorkspaceCreationAction
+  let name: String
+  let path: String
+  var parent: String?
+  var branch: String?
+  var repository: String?
+  var home: String?
+  var incarnation: String?
+  var token = UUID().uuidString.lowercased()
+  var operation: String?
+  var result: String?
+  var failure: String?
+  var canResubmit = false
 
-  init(endpoint: String, home: String?, previous: String, knownWorkspaceIDs: Set<String> = []) {
+  var proposedID: String { (endpoint.isEmpty ? "" : endpoint + "|") + token }
+  init(
+    endpoint: String, previous: String, action: WorkspaceCreationAction, name: String, path: String
+  ) {
     self.endpoint = endpoint
-    self.home = home
     self.previous = previous
-    self.knownWorkspaceIDs = knownWorkspaceIDs
-    id = (endpoint.isEmpty ? "" : endpoint + "|") + "pending-" + UUID().uuidString
-  }
-
-  func includesDuringCreation(_ workspace: String) -> Bool {
-    WorkspaceSelection.endpoint(of: workspace) != endpoint || knownWorkspaceIDs.contains(workspace)
-  }
-
-  func selection(after created: String?, selected: String, available: [String]) -> String {
-    // Completion must not take focus from a workspace the user selected meanwhile.
-    guard selected == id else { return selected }
-    if let created { return created }
-    if available.contains(previous) { return previous }
-    return available.first { WorkspaceSelection.endpoint(of: $0) == endpoint } ?? ""
+    self.action = action
+    self.name = name
+    self.path = path
+    id = (endpoint.isEmpty ? "" : endpoint + "|") + "pending-" + token
   }
 }

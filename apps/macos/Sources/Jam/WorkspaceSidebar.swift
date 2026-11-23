@@ -84,8 +84,9 @@ struct WorkspaceSidebar: NSViewRepresentable {
     private func item(key: String, workspace: Workspace?, path: String) -> Item {
       if let existing = items[key] { return existing }
       if let workspace, let origin = store.workspaceCreationOrigins[workspace.id],
-        let pending = items.removeValue(
-          forKey: WorkspaceSelection.endpoint(of: origin) + ":" + origin)
+        let pending = items.removeValue(forKey: origin)
+          ?? items.removeValue(
+            forKey: WorkspaceSelection.endpoint(of: origin) + ":" + origin)
       {
         // Preserve the native row and its stable key when its server ID arrives.
         items[key] = pending
@@ -100,7 +101,8 @@ struct WorkspaceSidebar: NSViewRepresentable {
       let context = workspace.context
       let summary = store.gitSummaries[workspace.id]
       let fields: [String] = [
-        workspace.id, workspace.parent ?? "", workspace.repository ?? "", workspace.name,
+        workspace.id, store.workspaceCreations[workspace.id]?.failure ?? "", workspace.parent ?? "",
+        workspace.repository ?? "", workspace.name,
         coordinator?.id ?? "", coordinator?.pane ?? "", workspace.sidebarBranch ?? "",
         context?.path ?? "", context?.repository ?? "", String(context?.ready ?? false),
         context?.createDisabledReason ?? "", store.workspaceTints[workspace.id] ?? "",
@@ -322,6 +324,10 @@ struct WorkspaceSidebar: NSViewRepresentable {
             outline.expandItem(parent)
             child = parent
           }
+          if store.workspaceCreations[store.selected] != nil {
+            let row = outline.row(forItem: selectedItem)
+            if row >= 0 { outline.scrollRowToVisible(row) }
+          }
         }
         lastSelected = selectionKey
       }
@@ -437,7 +443,7 @@ struct WorkspaceSidebar: NSViewRepresentable {
             : (item.repositoryGroup || parent == nil || parent?.machine != nil
               ? "folder" : "arrow.triangle.branch"),
         diff: item.isCoordinator ? nil : w.flatMap { store.gitSummaries[$0.id] },
-        loading: w.map { store.isCreatingWorkspace($0.id) } ?? false,
+        loading: w.flatMap { store.workspaceCreations[$0.id] }.map { $0.failure == nil } ?? false,
         leadingInset: parent != nil && parent?.machine == nil
           ? SidebarGeometry.worktreeIconInset : 0,
         detail: item.machineLabel,

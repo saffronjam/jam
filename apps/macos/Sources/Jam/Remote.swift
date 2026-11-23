@@ -72,7 +72,7 @@ extension Store {
         }
         self.appUpgrade.forgetRequirement(endpoint: id)
         self.workspaces.removeAll { $0.id.hasPrefix(id + "|") }
-        self.workspaceCreations.removeValue(forKey: id)
+        self.workspaceCreations = self.workspaceCreations.filter { $0.value.endpoint != id }
         self.loadedRemotes.remove(id)
         self.remoteConnecting.remove(id)
         self.remoteLoading.remove(id)
@@ -313,7 +313,7 @@ struct RemoteDirectoryPicker: View {
         }.keyboardShortcut(.cancelAction)
         Spacer()
         Button("Open") {
-          store.request(["CreateWorkspace": ["path": path, "name": ""]])
+          store.beginCreation(.open(path))
           dismiss()
         }.disabled(busy || !error.isEmpty).keyboardShortcut(.defaultAction)
       }

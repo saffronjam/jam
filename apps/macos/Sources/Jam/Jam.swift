@@ -88,6 +88,7 @@ struct Workspace: Identifiable {
 }
 struct RepositoryContext: Decodable {
   let path: String
+  var mainPath: String? = nil
   let checkoutPath: String?
   let ready: Bool
   let repository: String?
@@ -97,6 +98,7 @@ struct RepositoryContext: Decodable {
     case path, ready, repository, branch
     case createDisabledReason = "create_disabled_reason"
     case checkoutPath = "checkout_path"
+    case mainPath = "main_path"
   }
 }
 enum TerminalInputGate { static var blocked = false }
@@ -168,7 +170,7 @@ final class Store: ObservableObject {
     machine: JamDefaults.shared.string(forKey: "machine") ?? ""
   ) {
     didSet {
-      if !CommandLine.arguments.contains("--preview") {
+      if !CommandLine.arguments.contains("--preview") && !isCreatingWorkspace(selected) {
         JamDefaults.shared.set(selectedMachine, forKey: "machine")
       }
       updateInputGate()
@@ -186,6 +188,7 @@ final class Store: ObservableObject {
   }
   @Published var workspaces: [Workspace] = []
   @Published var workspaceCreations: [String: WorkspaceCreation] = [:]
+  @Published var awaitingCreatedFrames = Set<String>()
   var workspaceCreationOrigins: [String: String] = [:]
   var workspaceCreationEpochs: [String: UInt64] = [:]
   var displayedWorkspaces: [Workspace] {
@@ -193,25 +196,18 @@ final class Store: ObservableObject {
       return WorkspaceSelection.ordered(
         workspaces, machines: [""] + remotes.map(\.id), id: { $0.id })
     }
-    // A poll can discover the new workspace before its creation reply arrives.
-    // Keep that row represented by the placeholder until its identity is known.
-    let visible = workspaces.filter { workspace in
-      guard let creation = workspaceCreations[WorkspaceSelection.endpoint(of: workspace.id)] else {
-        return true
-      }
-      return creation.includesDuringCreation(workspace.id)
-        || workspaceCreationOrigins[workspace.id] == creation.id
+    let represented = Set(workspaceCreations.values.map(\.proposedID))
+    let visible = workspaces.filter { !represented.contains($0.id) }
+    let pending = workspaceCreations.values.sorted { $0.started < $1.started }.map {
+      Workspace(
+        id: $0.id, name: $0.name, path: $0.path, tabs: [], repository: $0.repository,
+        branch: $0.branch, parent: $0.parent)
     }
-    let represented = Set(visible.compactMap { workspaceCreationOrigins[$0.id] })
-    let pending = workspaceCreations.values.filter { !represented.contains($0.id) }
-      .sorted { $0.id < $1.id }.map {
-        Workspace(id: $0.id, name: "~", path: $0.home ?? "~", tabs: [])
-      }
     return WorkspaceSelection.ordered(
       visible + pending, machines: [""] + remotes.map(\.id), id: { $0.id })
   }
   func isCreatingWorkspace(_ id: String) -> Bool {
-    workspaceCreations.values.contains { $0.id == id }
+    workspaceCreations[id] != nil
   }
   @Published var panes: [String: Pane] = [:]
   @Published var selected = JamDefaults.shared.string(forKey: "workspace") ?? "" {
@@ -220,14 +216,15 @@ final class Store: ObservableObject {
         let endpoint = WorkspaceSelection.endpoint(of: selected)
         if selectedMachine != endpoint { selectedMachine = endpoint }
       }
-      if !CommandLine.arguments.contains("--preview") {
+      if !CommandLine.arguments.contains("--preview") && !isCreatingWorkspace(selected) {
         JamDefaults.shared.set(selected, forKey: "workspace")
       }
+      updateInputGate()
     }
   }
   @Published var tab = JamDefaults.shared.string(forKey: "tab") ?? "" {
     didSet {
-      if !CommandLine.arguments.contains("--preview") {
+      if !CommandLine.arguments.contains("--preview") && !isCreatingWorkspace(selected) {
         JamDefaults.shared.set(tab, forKey: "tab")
       }
     }
@@ -236,7 +233,7 @@ final class Store: ObservableObject {
     didSet {
       reportFocus()
       updateInputGate()
-      if !CommandLine.arguments.contains("--preview") {
+      if !CommandLine.arguments.contains("--preview") && !isCreatingWorkspace(selected) {
         JamDefaults.shared.set(focus, forKey: "pane")
       }
     }
@@ -298,7 +295,15 @@ final class Store: ObservableObject {
   @Published var draggingPane: String? { didSet { updateInputGate() } }
   @Published var canNameWorkspaces = false
   var canOrderWorkspaces = false
-  var reorderingWorkspaces = false
+  var deferredWorkspaceCreations: [String: (WorkspaceCreation, [String: Any])] = [:]
+  var reorderingWorkspaces = false {
+    didSet {
+      guard !reorderingWorkspaces, !deferredWorkspaceCreations.isEmpty else { return }
+      let completed = deferredWorkspaceCreations.values
+      deferredWorkspaceCreations.removeAll()
+      for (creation, state) in completed { finishWorkspaceCreation(creation, state: state) }
+    }
+  }
   var workspaceOrderGeneration: UInt64 = 0
   var terminalTrimWork: DispatchWorkItem?
   var capabilitiesByEndpoint: [String: Set<String>] = [:]
@@ -329,6 +334,7 @@ final class Store: ObservableObject {
   @Published var ready = false
   @Published var connected = false
   @Published var starting = false
+  @Published var localTimeout: String?
   var connectionError = ""
   @Published var fontScale =
     JamDefaults.shared.double(forKey: "fontScale") == 0
@@ -394,6 +400,7 @@ final class Store: ObservableObject {
           as? [String: Any], let error = values["error"] as? String
         {
           self.starting = false
+          if values["request_timeout"] != nil { self.localTimeout = error }
           self.connectionError = error
           self.checkServer("")
           self.connected = false
@@ -501,7 +508,13 @@ final class Store: ObservableObject {
     endpointQueue(endpoint).async {
       let r = rpc(value, endpoint: endpoint, revision: revision)
       DispatchQueue.main.async {
-        if let e = r["error"] as? String { self.error = e }
+        if let e = r["error"] as? String {
+          if endpoint.isEmpty && r["request_timeout"] != nil {
+            self.localTimeout = e
+          } else {
+            self.error = e
+          }
+        }
         if let state = r["State"] as? [String: Any] {
           let oldWorkspaces = Set(self.workspaces.map(\.id))
           let oldTabs =
@@ -562,6 +575,7 @@ final class Store: ObservableObject {
         }
         if let e = r["error"] as? String {
           self.connected = false
+          if r["request_timeout"] != nil { self.localTimeout = e }
           self.connectionError = e
           self.checkServer("")
           return
@@ -569,6 +583,7 @@ final class Store: ObservableObject {
         self.connected = true
         if let agents, self.availableAgents[""] != agents { self.availableAgents[""] = agents }
         if self.error == self.connectionError { self.error = "" }
+        self.localTimeout = nil
         self.connectionError = ""
         self.dismissedConnectionWarning = nil
         guard let s = r["State"] as? [String: Any] else { return }
@@ -701,6 +716,7 @@ final class Store: ObservableObject {
     } else if !visiblePaneIDs.contains(focus) {
       focus = visiblePaneIDs.first ?? ""
     }
+    if !awaitingCreatedFrames.isEmpty { awaitingCreatedFrames.formIntersection(panes.keys) }
     recoverVisiblePanes(endpoint: endpoint)
   }
   func openFolder() {
@@ -713,77 +729,11 @@ final class Store: ObservableObject {
     p.canChooseFiles = false
     p.prompt = "Open Workspace"
     if p.runModal() == .OK, let url = p.url {
-      request(["CreateWorkspace": ["path": url.path, "name": ""]])
+      beginCreation(.open(url.path))
     }
   }
   func newWorkspace() {
-    guard !serverBusy.contains(currentEndpoint) else { return }
-    guard canNameWorkspaces || !currentEndpoint.isEmpty else {
-      error = "New workspaces require the updated daemon. Existing shells are still running."
-      return
-    }
-    let endpoint = currentEndpoint
-    if let pending = workspaceCreations[endpoint] {
-      select(pending.id)
-      return
-    }
-    guard endpoint.isEmpty || remoteMessages[endpoint] == "Connected" else {
-      error = "Remote is unavailable"
-      return
-    }
-    let creation = WorkspaceCreation(
-      endpoint: endpoint,
-      home: endpoint.isEmpty
-        ? FileManager.default.homeDirectoryForCurrentUser.path : remoteHomes[endpoint],
-      previous: selected, knownWorkspaceIDs: Set(workspaces.map(\.id)))
-    if surface == .terminals { selections[selected] = (tab, focus) }
-    surface = .terminals
-    workspaceCreationEpochs[endpoint, default: 0] &+= 1
-    workspaceCreations[endpoint] = creation
-    selected = creation.id
-    tab = ""
-    focus = ""
-    endpointQueue(endpoint).async {
-      // An unknown remote home must be resolved on that host, never on this Mac.
-      let hostReply = creation.home == nil ? rpc("HostInfo", endpoint: endpoint) : [:]
-      let home =
-        creation.home ?? (hostReply["HostInfo"] as? [String: Any])?["home"] as? String
-      let reply: [String: Any]
-      if let home, !home.isEmpty {
-        reply = rpc(["NewWorkspace": ["path": home]], endpoint: endpoint)
-      } else {
-        reply = [
-          "error": hostReply["error"] as? String ?? "Could not determine the remote home directory"
-        ]
-      }
-      DispatchQueue.main.async { self.finishWorkspaceCreation(creation, reply: reply) }
-    }
-  }
-  func finishWorkspaceCreation(_ creation: WorkspaceCreation, reply: [String: Any]) {
-    guard workspaceCreations[creation.endpoint]?.id == creation.id else { return }
-    let state = reply["State"] as? [String: Any]
-    // NewWorkspace appends one workspace and returns its state under the same daemon lock.
-    let created = (state?["workspaces"] as? [[String: Any]])?.last?["id"] as? String
-    let wasSelected = selected == creation.id
-    let next = creation.selection(
-      after: created, selected: selected, available: workspaces.map(\.id))
-    workspaceCreationEpochs[creation.endpoint, default: 0] &+= 1
-    if let created { workspaceCreationOrigins[created] = creation.id }
-    // Keep the placeholder through snapshot reconciliation, then switch from it
-    // so select() preserves the previously saved tab and pane on failure.
-    if let state { apply(state, endpoint: creation.endpoint) }
-    workspaceCreations.removeValue(forKey: creation.endpoint)
-    if wasSelected {
-      if !next.isEmpty {
-        select(next)
-      } else {
-        selected = ""
-        tab = ""
-        focus = ""
-      }
-    }
-    selections.removeValue(forKey: creation.id)
-    if created == nil { error = reply["error"] as? String ?? "Could not create workspace" }
+    beginCreation(.new)
   }
   func reportFocus() {
     guard canNameWorkspaces, !focus.isEmpty else { return }
@@ -1150,9 +1100,9 @@ struct ContentView: View {
               }
               if store.surface == .coordinator, let coordinator = store.current?.coordinator {
                 PaneCard(id: coordinator.pane).padding(5)
-              } else if store.isCreatingWorkspace(store.selected) {
-                ProgressView("Creating workspace…")
-                  .frame(maxWidth: .infinity, maxHeight: .infinity)
+              } else if let creation = store.workspaceCreations[store.selected] {
+                WorkspaceCreationView(creation: creation).environmentObject(store)
+                  .frame(maxWidth: .infinity, maxHeight: .infinity).transition(.opacity)
               } else if let t = store.currentTab {
                 GeometryReader { geometry in
                   let viewport = CGSize(
@@ -1386,16 +1336,32 @@ struct PaneCard: View {
         TerminalSurface(
           pool: store.terminalViews, pane: id, fontScale: store.fontScale,
           copyOnSelect: store.config?.copyOnSelect ?? false,
+          isAIPane: pane?.isAIPane ?? false,
           focused: store.focus == id,
           onFocus: {
-            store.focus = id
+            guard store.visiblePaneIDs.contains(id) else { return }
+            if store.focus != id { store.focus = id }
             store.request(["Acknowledge": ["pane": id]])
-          }, onError: { store.paneErrors[id] = $0 }
+          }, onError: { store.paneErrors[id] = $0 },
+          onReady: store.awaitingCreatedFrames.contains(id)
+            ? { store.awaitingCreatedFrames.remove(id) } : nil
         ).id(
           "\(id)-\(pane?.exited ?? false)"
         ).frame(maxWidth: .infinity, maxHeight: .infinity)
           .padding(2)
           .background(Color(nsColor: TerminalAppearance.background))
+          .overlay {
+            if store.awaitingCreatedFrames.contains(id) && store.paneErrors[id] == nil {
+              ZStack {
+                Color(nsColor: TerminalAppearance.background)
+                ProgressView()
+              }.transition(.opacity)
+            }
+          }
+          .animation(
+            NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+              ? nil : .easeOut(duration: 0.18),
+            value: store.awaitingCreatedFrames.contains(id))
       }
     }.overlay(alignment: .bottomLeading) {
       if pane?.exited != true, let e = store.paneErrors[id] {
@@ -1417,17 +1383,21 @@ struct TerminalSurface: NSViewRepresentable {
   let pane: String
   let fontScale: Double
   let copyOnSelect: Bool
+  let isAIPane: Bool
   let focused: Bool
   let onFocus: () -> Void
   let onError: (String?) -> Void
+  var onReady: (() -> Void)? = nil
   func makeNSView(context: Context) -> TerminalSurfaceHost {
     TerminalSurfaceHost(terminal: pool.view(for: pane))
   }
   func updateNSView(_ host: TerminalSurfaceHost, context: Context) {
     let v = host.terminal
     v.copyOnSelect = copyOnSelect
+    v.isAIPane = isAIPane
     v.fontScale = fontScale
     v.onFocus = onFocus
+    v.onReady = onReady
     v.onError = onError
     if v.focused != focused {
       v.focused = focused
@@ -1449,11 +1419,13 @@ final class TerminalNSView: NSView, NSTextInputClient, NSMenuItemValidation {
   var marked = NSAttributedString(string: "")
   var onError: ((String?) -> Void)?
   var meta: [String: Any] = [:]
+  var onReady: (() -> Void)?
   var lastError = ""
   var fontScale: Double = 1
   var focused = false
   var tracking: NSTrackingArea?
   var copyOnSelect = false
+  var isAIPane = false
   var selectionOrigin: NSEvent?
   var selecting = false
   var applicationDrag = false
@@ -1491,6 +1463,31 @@ final class TerminalNSView: NSView, NSTextInputClient, NSMenuItemValidation {
   }
   required init?(coder: NSCoder) { fatalError("unsupported") }
   override var acceptsFirstResponder: Bool { true }
+  override func becomeFirstResponder() -> Bool {
+    let accepted = super.becomeFirstResponder()
+    if accepted {
+      // AppKit can hand off focus from a SwiftUI view update. Notify after
+      // that update, and only if this pane still owns keyboard focus.
+      DispatchQueue.main.async { [weak self] in
+        guard let self, self.window?.firstResponder === self else { return }
+        self.acknowledgeFocus()
+      }
+    }
+    return accepted
+  }
+  func acknowledgeFocus() {
+    guard window?.isKeyWindow == true, !isHiddenOrHasHiddenAncestor,
+      !TerminalInputGate.blocked
+    else { return }
+    onFocus?()
+  }
+  private func focusFromInteraction() {
+    if window?.firstResponder === self {
+      acknowledgeFocus()
+    } else {
+      window?.makeFirstResponder(self)
+    }
+  }
   override func viewDidMoveToWindow() {
     super.viewDidMoveToWindow()
     displayClock?.invalidate()
@@ -1566,6 +1563,10 @@ final class TerminalNSView: NSView, NSTextInputClient, NSMenuItemValidation {
         handle, UInt32(bounds.width * s), UInt32(bounds.height * s), Float(s * fontScale)))
     if let values = try? JSONSerialization.jsonObject(with: Data(result.utf8)) as? [String: Any] {
       meta = values
+      if values["ready"] as? Bool == true, let notify = onReady {
+        onReady = nil
+        DispatchQueue.main.async(execute: notify)
+      }
       if let e = values["error"] as? String, e != lastError {
         lastError = e
         onError?(e)
@@ -1607,8 +1608,7 @@ final class TerminalNSView: NSView, NSTextInputClient, NSMenuItemValidation {
       Int32(max(0, (bounds.height - p.y) / cellSize.height)))
   }
   override func mouseDown(with event: NSEvent) {
-    window?.makeFirstResponder(self)
-    onFocus?()
+    focusFromInteraction()
     applicationDrag = meta["mouse"] as? Bool == true && !event.modifierFlags.contains(.shift)
     if applicationDrag {
       mouse(event, 0, 0)
@@ -1660,8 +1660,7 @@ final class TerminalNSView: NSView, NSTextInputClient, NSMenuItemValidation {
     if meta["mouse"] as? Bool == true && !event.modifierFlags.contains(.shift) {
       mouse(event, 0, 1)
     } else {
-      window?.makeFirstResponder(self)
-      onFocus?()
+      focusFromInteraction()
       let menu = NSMenu()
       menu.allowsContextMenuPlugIns = false
       let item = menu.addItem(withTitle: "Copy", action: #selector(copy(_:)), keyEquivalent: "")
@@ -1693,7 +1692,8 @@ final class TerminalNSView: NSView, NSTextInputClient, NSMenuItemValidation {
   func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
     if menuItem.action == #selector(copy(_:)) { return !selectedText().isEmpty }
     if menuItem.action == #selector(paste(_:)) {
-      return NSPasteboard.general.string(forType: .string) != nil
+      return TerminalClipboard.hasImage(.general)
+        || NSPasteboard.general.string(forType: .string) != nil
     }
     return true
   }
@@ -1723,6 +1723,13 @@ final class TerminalNSView: NSView, NSTextInputClient, NSMenuItemValidation {
   }
   override func keyDown(with event: NSEvent) {
     guard !TerminalInputGate.blocked else { return }
+    if isAIPane,
+      event.modifierFlags.intersection([.control, .command, .option, .shift]) == .control,
+      event.charactersIgnoringModifiers?.lowercased() == "v", TerminalClipboard.hasImage(.general)
+    {
+      paste(nil)
+      return
+    }
     // AppKit hardware key codes -> libghostty-vt's pinned public Key enum.
     let special: [UInt16: Int] = [
       36: 58, 76: 58, 48: 64, 51: 53, 53: 120, 115: 71, 119: 69, 114: 72, 117: 68, 116: 74, 121: 73,
@@ -1774,6 +1781,15 @@ final class TerminalNSView: NSView, NSTextInputClient, NSMenuItemValidation {
   }
   @objc func paste(_ sender: Any?) {
     guard !TerminalInputGate.blocked else { return }
+    do {
+      if let png = try TerminalClipboard.image(.general) {
+        pasteImage(png)
+        return
+      }
+    } catch {
+      onError?(error.localizedDescription)
+      return
+    }
     if let text = NSPasteboard.general.string(forType: .string) {
       inputQueue.async { _ = rpc(["Paste": ["pane": self.pane, "text": text]]) }
     }

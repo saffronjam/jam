@@ -137,7 +137,11 @@ extension Store {
       else { return }
       // The inline editor's owning window can temporarily stop being key when
       // its field editor closes. Use the terminal's window for the handoff.
-      window.makeFirstResponder(terminal)
+      if window.firstResponder === terminal {
+        terminal.acknowledgeFocus()
+      } else {
+        window.makeFirstResponder(terminal)
+      }
     }
   }
   func shortcut(_ action: String) -> KeyboardShortcut? {
@@ -239,9 +243,11 @@ extension Store {
       }
     }
   }
-  func openCheckout(_ path: String, endpoint: String? = nil, workspace: String? = nil) {
+  func openCheckout(
+    _ path: String, endpoint: String? = nil, workspace: String? = nil, branch: String? = nil
+  ) {
     guard let source = workspace ?? current?.id else { return }
-    operation(["WorktreeOpen": ["path": path, "workspace": source]], endpoint: endpoint)
+    beginCreation(.openWorktree(source: source, path: path), endpoint: endpoint, branch: branch)
   }
   func containerID(for workspace: String) -> String {
     workspaces.first { $0.id == workspace }?.parent ?? workspace
@@ -516,10 +522,6 @@ struct WorktreeForm: View {
       TextField("Branch name", text: $branch)
       TextField("Base revision", text: $base)
       TextField("Checkout path (optional)", text: $path)
-      Text("Path template: \(store.config?.worktreesDirectory ?? "~/wt/{{repo}}/{{worktree}}")")
-        .font(
-          .caption
-        ).foregroundStyle(.secondary)
       HStack {
         Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
         Spacer()
@@ -528,12 +530,9 @@ struct WorktreeForm: View {
         }
         Button("Create") {
           guard let w = store.current else { return }
-          store.operation([
-            "WorktreeCreate": [
-              "workspace": w.id, "branch": branch, "base": base,
-              "path": path.isEmpty ? NSNull() : path as Any,
-            ]
-          ])
+          store.beginCreation(
+            .createWorktree(
+              source: w.id, branch: branch, base: base, path: path.isEmpty ? nil : path))
           dismiss()
         }.keyboardShortcut(.defaultAction).disabled(
           branch.isEmpty || !store.enabled("new_worktree"))

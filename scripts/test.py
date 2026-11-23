@@ -82,6 +82,11 @@ def macos_ui_tests():
                    JAM_DAEMON=str(ROOT / 'target/debug/jamd'),
                    XDG_CONFIG_HOME=str(directory / 'config'),
                    JAM_DEFAULTS_SUITE='dev.saffronjam.fixture.' + directory.name)
+        # Usage discovery can include configured logins without a running agent.
+        # Use fixture-owned profile directories for every provider.
+        env.update(CODEX_HOME=str(directory / 'codex'), CLAUDE_CONFIG_DIR=str(directory / 'claude'),
+                   CLAUDE_SECURESTORAGE_CONFIG_DIR=str(directory / 'claude'))
+        env.pop('CLAUDE_CODE_OAUTH_TOKEN', None)
         daemon = subprocess.Popen([str(ROOT / 'target/debug/jamd')], env=env)
         try:
             deadline = time.monotonic() + 10

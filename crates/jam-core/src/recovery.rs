@@ -198,11 +198,10 @@ pub fn should_restart(a: &Value) -> bool {
         && crate::config::host_settings().resume_interrupted_work
 }
 /// A persisted dispatch is never blindly resent after an ambiguous transport result.
-pub fn deliver() -> Result<()> {
+pub fn deliver(board: &mut Board) -> Result<()> {
     if STOPPING.load(std::sync::atomic::Ordering::Acquire) {
         return Ok(());
     }
-    let mut board = Board::open()?;
     for agent in board.agents()? {
         let id = agent["id"].as_str().unwrap_or("");
         if agent["recovery"]["state"] == "pending"

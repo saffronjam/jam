@@ -8,7 +8,9 @@ struct WarningContent {
     let clean = message.trimmingCharacters(in: .whitespacesAndNewlines)
     let lower = clean.lowercased()
     let friendly: String?
-    if lower.contains("incompatible jam daemon") || lower.contains("protocol mismatch") {
+    if lower.contains("local server is not responding") {
+      friendly = "Local server is not responding."
+    } else if lower.contains("incompatible jam daemon") || lower.contains("protocol mismatch") {
       friendly = "The Jam server needs an update. Update it from Machines."
     } else if lower.contains("permission denied (publickey")
       || lower.contains("authentication failed")

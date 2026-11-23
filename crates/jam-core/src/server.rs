@@ -204,6 +204,7 @@ enum Op {
     Attach(Sender<Message>),
 }
 struct Server {
+    agents: Vec<serde_json::Value>,
     contexts: crate::workspaces::RepositoryContexts,
     owners: HashMap<String, String>,
     draining: bool,
@@ -211,8 +212,32 @@ struct Server {
     upgrade_boot: Option<String>,
     coordination_inflight: usize,
     state: State,
-    panes: HashMap<String, Handle>,
+    panes: Arc<HashMap<String, Handle>>,
+    routes: Arc<Mutex<PaneRoutes>>,
     operations: HashMap<String, Message>,
+}
+#[derive(Default)]
+struct PaneRoutes {
+    panes: Arc<HashMap<String, Handle>>,
+    draining: bool,
+}
+impl Server {
+    fn set_draining(&mut self, value: bool) {
+        self.routes.lock().unwrap().draining = value;
+        self.draining = value;
+    }
+    fn change_handle(&mut self, pane: String, replacement: Option<Handle>) -> Option<Handle> {
+        let mut routes = self.routes.lock().unwrap();
+        // Give the layout and the input path the same immutable handle map.
+        routes.panes = Arc::default();
+        let panes = Arc::make_mut(&mut self.panes);
+        let previous = match replacement {
+            Some(handle) => panes.insert(pane, handle),
+            None => panes.remove(&pane),
+        };
+        routes.panes = self.panes.clone();
+        previous
+    }
 }
 struct UpgradeLease {
     token: String,
@@ -270,7 +295,7 @@ fn refresh_upgrade_lease(server: &mut Server) {
         .is_some_and(|lease| std::time::Instant::now() >= lease.expires)
     {
         server.upgrade_lease = None;
-        server.draining = server.upgrade_boot.is_some();
+        server.set_draining(server.upgrade_boot.is_some());
     }
 }
 fn upgrade_control(request: &Request) -> bool {
@@ -295,7 +320,7 @@ fn claim_upgrade_stop(server: &mut Server, token: &str) -> Result<()> {
             bail!("Upgrade boot ownership changed. Server was left running");
         }
         server.upgrade_lease = None;
-        server.draining = true;
+        server.set_draining(true);
         return Ok(());
     }
     if !server
@@ -308,7 +333,7 @@ fn claim_upgrade_stop(server: &mut Server, token: &str) -> Result<()> {
     // Stop consumes ownership under the same lock used to stop all panes. No
     // expiring lease can reopen admission between this check and shutdown.
     server.upgrade_lease = None;
-    server.draining = true;
+    server.set_draining(true);
     Ok(())
 }
 // Board mutations span requests to the pane actors. Account for the whole
@@ -826,7 +851,7 @@ fn new_pane(s: &mut Server, path: String, workspace: String) -> Result<String> {
         workspace,
     };
     let h = spawn(p.clone())?;
-    s.panes.insert(id.clone(), h);
+    s.change_handle(id.clone(), Some(h));
     s.state.panes.push(p);
     Ok(id)
 }
@@ -907,23 +932,29 @@ fn split(n: &mut Node, id: &str, new: &str, vertical: bool) -> bool {
         _ => false,
     }
 }
-fn create_workspace(s: &mut Server, path: String, name: String, reuse: bool) -> Result<()> {
+fn create_workspace(
+    s: &mut Server,
+    path: String,
+    name: String,
+    reuse: bool,
+    proposed: Option<&str>,
+) -> Result<String> {
     let path = fs::canonicalize(path)?;
     if !path.is_dir() {
         bail!("workspace must be a directory")
     }
     let path = path.to_string_lossy().into_owned();
-    if reuse && s.state.workspaces.iter().any(|w| w.path == path) {
-        return Ok(());
+    if reuse && let Some(existing) = s.state.workspaces.iter().find(|w| w.path == path) {
+        return Ok(existing.id.clone());
     }
     let identity = crate::worktree::identify(std::path::Path::new(&path));
-    let workspace = id();
+    let workspace = proposed.map(str::to_owned).unwrap_or_else(id);
     let p = new_pane(s, path.clone(), workspace.clone())?;
     s.state.workspaces.push(Workspace {
         coordinator: None,
         parent: None,
         context: None,
-        id: workspace,
+        id: workspace.clone(),
         auto_name: Some(name.is_empty()),
         active_pane: Some(p.clone()),
         last_cwd: None,
@@ -943,7 +974,7 @@ fn create_workspace(s: &mut Server, path: String, name: String, reuse: bool) -> 
             root: Node::Leaf(p),
         }],
     });
-    Ok(())
+    Ok(workspace)
 }
 fn folder_name(path: &str) -> String {
     std::path::Path::new(path)
@@ -982,31 +1013,12 @@ fn update_workspace_names(state: &mut State) {
     }
 }
 fn refresh_pane_metadata(s: &mut Server) {
-    let agents = crate::coordination::Board::open()
-        .and_then(|b| {
-            let mut agents = b.agents()?;
-            // Earlier versions kept closed tabs as paused agents. Migrate
-            // those records without touching their saved conversations or tasks.
-            for a in &mut agents {
-                if a["paused"] == true
-                    && a["closed"] != true
-                    && !s.state.panes.iter().any(|p| a["pane"] == p.id)
-                {
-                    a["closed"] = serde_json::json!(true);
-                    b.put("agent", a)?;
-                }
-            }
-            Ok(agents)
-        })
-        .ok();
+    let agents = &s.agents;
     for pane in &mut s.state.panes {
         if let Some(handle) = s.panes.get(&pane.id) {
             *pane = handle.info.lock().unwrap().clone();
         }
-        if let Some(agent) = agents
-            .as_deref()
-            .and_then(|items| items.iter().find(|a| a["pane"] == pane.id))
-        {
+        if let Some(agent) = agents.iter().find(|a| a["pane"] == pane.id) {
             let reported = if pane.agent_source == Some(crate::AgentSource::Reported) {
                 pane.agent_provider
                     .as_deref()
@@ -1045,33 +1057,27 @@ fn refresh_pane_metadata(s: &mut Server) {
                 .map(|p| p.cwd.clone());
         }
     }
-    if let Some(agents) = agents {
-        for w in &mut s.state.workspaces {
-            w.coordinator = agents
-                .iter()
-                .find(|a| {
-                    a["workspace"] == w.id && a["role"] == "coordinator" && a["closed"] != true
+    for w in &mut s.state.workspaces {
+        w.coordinator = agents
+            .iter()
+            .find(|a| a["workspace"] == w.id && a["role"] == "coordinator" && a["closed"] != true)
+            .map(|a| serde_json::json!({"id":a["id"],"pane":a["pane"],"provider":a["provider"]}));
+        // Coordinators own a dedicated surface, never a terminal tab. Lift
+        // legacy coordinator panes out without recreating their conversations
+        // or discarding ordinary panes from an old split layout.
+        if let Some(pane) = w.coordinator.as_ref().and_then(|a| a["pane"].as_str())
+            && w.tabs.iter().any(|tab| tab.root.contains(pane))
+        {
+            w.tabs = std::mem::take(&mut w.tabs)
+                .into_iter()
+                .filter_map(|mut tab| {
+                    tab.root = prune(tab.root, pane)?;
+                    if tab.agent_role.as_deref() == Some("coordinator") {
+                        tab.agent_role = None;
+                    }
+                    Some(tab)
                 })
-                .map(
-                    |a| serde_json::json!({"id":a["id"],"pane":a["pane"],"provider":a["provider"]}),
-                );
-            // Coordinators own a dedicated surface, never a terminal tab. Lift
-            // legacy coordinator panes out without recreating their conversations
-            // or discarding ordinary panes from an old split layout.
-            if let Some(pane) = w.coordinator.as_ref().and_then(|a| a["pane"].as_str())
-                && w.tabs.iter().any(|tab| tab.root.contains(pane))
-            {
-                w.tabs = std::mem::take(&mut w.tabs)
-                    .into_iter()
-                    .filter_map(|mut tab| {
-                        tab.root = prune(tab.root, pane)?;
-                        if tab.agent_role.as_deref() == Some("coordinator") {
-                            tab.agent_role = None;
-                        }
-                        Some(tab)
-                    })
-                    .collect();
-            }
+                .collect();
         }
     }
 }
@@ -1122,7 +1128,7 @@ fn request(s: &mut Server, r: Request) -> Result<Message> {
                     "New terminals or operations started after confirmation. Confirm the upgrade again"
                 );
             }
-            s.draining = true;
+            s.set_draining(true);
             s.upgrade_lease = Some(UpgradeLease {
                 token,
                 expires: std::time::Instant::now() + std::time::Duration::from_secs(120),
@@ -1144,7 +1150,7 @@ fn request(s: &mut Server, r: Request) -> Result<Message> {
             // token may retry if a previous directory fsync failed after unlink.
             fs::File::open(state_dir())?.sync_all()?;
             s.upgrade_boot = None;
-            s.draining = false;
+            s.set_draining(false);
             // Only the verified updater may restore its approved live pane IDs.
             // Starting all saved agents here could revive intentionally exited work.
             return Ok(Message::Ok);
@@ -1155,7 +1161,7 @@ fn request(s: &mut Server, r: Request) -> Result<Message> {
                     bail!("This client does not own the server upgrade");
                 }
                 s.upgrade_lease = None;
-                s.draining = false;
+                s.set_draining(false);
             } else if s.draining {
                 bail!("This client does not own the server upgrade");
             }
@@ -1173,7 +1179,7 @@ fn request(s: &mut Server, r: Request) -> Result<Message> {
             {
                 bail!("Running panes or operations prevent upgrade");
             }
-            s.draining = true;
+            s.set_draining(true);
             return Ok(Message::Ok);
         }
         Request::Guarded {
@@ -1187,16 +1193,7 @@ fn request(s: &mut Server, r: Request) -> Result<Message> {
         }
         Request::InputStream => bail!("Input stream requires a dedicated connection"),
         Request::Client { .. } => bail!("nested client envelope"),
-        Request::HostInfo => {
-            return Ok(Message::HostInfo {
-                release_version: Some(crate::RELEASE_VERSION.into()),
-                home: std::env::var("HOME")?,
-                protocol: VERSION.into(),
-                build: env!("JAM_BUILD_ID").into(),
-                engine: "ghostty/483ea3d:text".into(),
-                incarnation: incarnation().into(),
-            });
-        }
+        Request::HostInfo => return host_info(),
         Request::Directory { path } => {
             let home = std::env::var("HOME")?;
             let path = if path == "~" {
@@ -1279,6 +1276,7 @@ fn request(s: &mut Server, r: Request) -> Result<Message> {
         }
         Request::Capabilities => {
             return Ok(Message::Capabilities(vec![
+                "clipboard_images".into(),
                 "approved_upgrade_v1".into(),
                 "workspace_containers".into(),
                 "input_stream".into(),
@@ -1286,6 +1284,7 @@ fn request(s: &mut Server, r: Request) -> Result<Message> {
                 "remote_files".into(),
                 "move_tab".into(),
                 "workspace_names".into(),
+                "workspace_creation_v1".into(),
                 "workspace_order".into(),
                 "move_pane".into(),
                 "git_summary".into(),
@@ -1298,6 +1297,19 @@ fn request(s: &mut Server, r: Request) -> Result<Message> {
                 "app_settings_v1".into(),
                 "worktree_templates".into(),
             ]));
+        }
+        Request::StoreClipboardImage { pane, png } => {
+            let handle = s
+                .panes
+                .get(&pane)
+                .context("The terminal is no longer running")?;
+            if handle.info.lock().unwrap().exited {
+                bail!("The terminal is no longer running");
+            }
+            let path = crate::clipboard::store(&png)?;
+            return Ok(Message::ClipboardImage {
+                path: path.to_string_lossy().into_owned(),
+            });
         }
         Request::MovePane { pane, destination } => {
             if s.state
@@ -1390,8 +1402,12 @@ fn request(s: &mut Server, r: Request) -> Result<Message> {
             }
             return Ok(Message::State(s.state.clone()));
         }
-        Request::CreateWorkspace { path, name } => create_workspace(s, path, name, true)?,
-        Request::NewWorkspace { path } => create_workspace(s, path, String::new(), false)?,
+        Request::CreateWorkspace { path, name } => {
+            create_workspace(s, path, name, true, None)?;
+        }
+        Request::NewWorkspace { path } => {
+            create_workspace(s, path, String::new(), false, None)?;
+        }
         Request::FocusPane { pane } => {
             let p = s
                 .state
@@ -1538,6 +1554,7 @@ fn request(s: &mut Server, r: Request) -> Result<Message> {
                 } else {
                     let _ = request(s, Request::Restart { pane: pane_id });
                 }
+                s.agents = board.agents()?;
                 refresh_pane_metadata(s);
                 save(s)?;
                 return Ok(Message::Coordination(
@@ -1606,6 +1623,7 @@ fn request(s: &mut Server, r: Request) -> Result<Message> {
                     root: Node::Leaf(pane_id.clone()),
                 });
             }
+            s.agents = board.agents()?;
             refresh_pane_metadata(s);
             save(s)?;
             request(s, Request::Restart { pane: pane_id })?;
@@ -1709,7 +1727,7 @@ fn request(s: &mut Server, r: Request) -> Result<Message> {
                 }
             };
             *s.state.panes.iter_mut().find(|p| p.id == pane).unwrap() = replacement;
-            if let Some(previous) = s.panes.insert(pane.clone(), handle) {
+            if let Some(previous) = s.change_handle(pane.clone(), Some(handle)) {
                 // End the exited actor after installing its replacement. Existing
                 // subscribers must reconnect, not keep the old terminal's last frame.
                 let _ = ask(&previous, Request::Close { pane });
@@ -1764,7 +1782,8 @@ fn request(s: &mut Server, r: Request) -> Result<Message> {
                 bail!("pane not found")
             }
             crate::coordination::Board::open()?.close_pane(&pane)?;
-            s.panes.remove(&pane);
+            s.agents.retain(|a| a["pane"] != pane);
+            s.change_handle(pane.clone(), None);
             s.state.panes.retain(|p| p.id != pane);
             for w in &mut s.state.workspaces {
                 if w.coordinator.as_ref().is_some_and(|a| a["pane"] == pane) {
@@ -2053,7 +2072,12 @@ fn create_with_initial_tab(
 }
 
 static GIT_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-fn open_checkout(server: &Arc<Mutex<Server>>, path: &str, owner: Option<&str>) -> Result<String> {
+fn open_checkout(
+    server: &Arc<Mutex<Server>>,
+    path: &str,
+    owner: Option<&str>,
+    proposed: Option<&str>,
+) -> Result<String> {
     let path = std::fs::canonicalize(path)?;
     let repo = crate::worktree::inspect(&path)?;
     if !repo
@@ -2074,8 +2098,7 @@ fn open_checkout(server: &Arc<Mutex<Server>>, path: &str, owner: Option<&str>) -
     {
         main.id.clone()
     } else {
-        create_workspace(&mut s, repo.main_path.clone(), String::new(), false)?;
-        s.state.workspaces.last().unwrap().id.clone()
+        create_workspace(&mut s, repo.main_path.clone(), String::new(), false, None)?
     };
     let path = path.to_string_lossy().into_owned();
     if let Some(existing) = s
@@ -2086,7 +2109,7 @@ fn open_checkout(server: &Arc<Mutex<Server>>, path: &str, owner: Option<&str>) -
     {
         return Ok(existing.id.clone());
     }
-    create_workspace(&mut s, path, String::new(), false)?;
+    create_workspace(&mut s, path, String::new(), false, proposed)?;
     let child = s.state.workspaces.last_mut().unwrap();
     child.parent = Some(owner);
     let id = child.id.clone();
@@ -2094,8 +2117,49 @@ fn open_checkout(server: &Arc<Mutex<Server>>, path: &str, owner: Option<&str>) -
     save(&s)?;
     Ok(id)
 }
-fn request_input(server: &Arc<Mutex<Server>>, input: Request) -> Message {
-    request(&mut server.lock().unwrap(), input).unwrap_or_else(|e| Message::Error(format!("{e:#}")))
+fn host_info() -> Result<Message> {
+    Ok(Message::HostInfo {
+        release_version: Some(crate::RELEASE_VERSION.into()),
+        home: std::env::var("HOME")?,
+        protocol: VERSION.into(),
+        build: env!("JAM_BUILD_ID").into(),
+        engine: "ghostty/483ea3d:text".into(),
+        incarnation: incarnation().into(),
+    })
+}
+
+// Terminal traffic must not wait for an unrelated pane's actor or a metadata read.
+fn input_pane(request: &Request) -> Option<&str> {
+    match request {
+        Request::Key { pane, .. }
+        | Request::Send { pane, .. }
+        | Request::Paste { pane, .. }
+        | Request::Mouse { pane, .. }
+        | Request::Capture { pane }
+        | Request::Acknowledge { pane } => Some(pane),
+        _ => None,
+    }
+}
+fn live_handle(routes: &Mutex<PaneRoutes>, pane: &str) -> Result<Handle> {
+    let routes = routes.lock().unwrap();
+    if routes.draining {
+        bail!("Daemon is preparing an upgrade");
+    }
+    routes
+        .panes
+        .get(pane)
+        .cloned()
+        .context("pane is stopped or missing")
+}
+fn request_input(routes: &Mutex<PaneRoutes>, input: Request) -> Message {
+    let result = (|| {
+        let handle = live_handle(
+            routes,
+            input_pane(&input).context("Invalid terminal input")?,
+        )?;
+        ask(&handle, input)
+    })();
+    result.unwrap_or_else(|e| Message::Error(format!("{e:#}")))
 }
 
 pub fn serve() -> Result<()> {
@@ -2161,7 +2225,21 @@ pub fn serve() -> Result<()> {
     update_workspace_names(&mut state);
     crate::workspaces::migrate(&mut state);
     let upgrade_boot = upgrade_boot_token(&state_dir().join(UPGRADE_BOOT_FILE))?;
+    private_dir(&state_dir())?;
+    let monitor_board = crate::coordination::Board::open()?;
+    let mut agents = monitor_board.agents()?;
+    for agent in &mut agents {
+        // Legacy closed tabs were recorded as paused, with no corresponding pane.
+        if agent["paused"] == true
+            && agent["closed"] != true
+            && !state.panes.iter().any(|p| agent["pane"] == p.id)
+        {
+            agent["closed"] = true.into();
+            monitor_board.put("agent", agent)?;
+        }
+    }
     let server = Arc::new(Mutex::new(Server {
+        agents,
         contexts: crate::workspaces::RepositoryContexts::default(),
         owners: HashMap::new(),
         draining: upgrade_boot.is_some(),
@@ -2169,9 +2247,16 @@ pub fn serve() -> Result<()> {
         upgrade_lease: None,
         coordination_inflight: 0,
         state,
-        panes: HashMap::new(),
+        panes: Arc::default(),
+        routes: Arc::default(),
         operations: HashMap::new(),
     }));
+    let routes = {
+        let mut s = server.lock().unwrap();
+        let draining = s.draining;
+        s.set_draining(draining);
+        s.routes.clone()
+    };
     refresh_pane_metadata(&mut server.lock().unwrap());
     save(&server.lock().unwrap())?;
     let listener = UnixListener::bind(&sock)?;
@@ -2199,13 +2284,11 @@ pub fn serve() -> Result<()> {
     thread::spawn(move || {
         loop {
             thread::sleep(std::time::Duration::from_millis(500));
-            let Ok(board) = crate::coordination::Board::open() else {
-                continue;
-            };
-            let Ok(agents) = board.agents() else {
+            let Ok(agents) = monitor_board.agents() else {
                 continue;
             };
             let mut s = monitor.lock().unwrap();
+
             refresh_upgrade_lease(&mut s);
             if s.draining {
                 continue;
@@ -2227,8 +2310,34 @@ pub fn serve() -> Result<()> {
             }
         }
     });
+    // Limit outstanding handshakes and ordinary RPCs. Attached panes and
+    // ordered input streams release their slot once they become subscriptions.
+    let database = crate::coordination::BoardWorker::start()?;
+    struct Slot(Sender<()>);
+    impl Drop for Slot {
+        fn drop(&mut self) {
+            let _ = self.0.try_send(());
+        }
+    }
+    fn pool(size: usize) -> (Sender<()>, crossbeam_channel::Receiver<()>) {
+        let (tx, rx) = bounded(size);
+        for _ in 0..size {
+            tx.send(()).unwrap();
+        }
+        (tx, rx)
+    }
+    let (slots, available) = pool(64);
+    // Reserve admission for health checks and pane traffic during a backlog of
+    // layout or database requests. Rejected RPCs have not started executing.
+    let (ordinary_slots, ordinary_available) = pool(48);
     for stream in listener.incoming() {
         let mut stream = stream?;
+        available.recv()?;
+        let slot = Slot(slots.clone());
+        let ordinary_slots = ordinary_slots.clone();
+        let ordinary_available = ordinary_available.clone();
+        let database = database.clone();
+        let routes = routes.clone();
         let server = server.clone();
         thread::spawn(move || {
             let result = (|| -> Result<()> {
@@ -2261,24 +2370,26 @@ pub fn serve() -> Result<()> {
                     }
                 }
                 stream.set_read_timeout(Some(std::time::Duration::from_secs(10)))?;
+                stream.set_write_timeout(Some(std::time::Duration::from_secs(10)))?;
                 write_frame(&mut stream, &Message::Hello(VERSION.into()))?;
                 let incoming: Request = read_frame(&mut stream)?;
                 let (client, r) = match incoming {
                     Request::Client { client, request } => (client, *request),
                     request => (String::new(), request),
                 };
-                {
-                    let mut state = server.lock().unwrap();
-                    refresh_upgrade_lease(&mut state);
-                    if state.draining && !upgrade_control(&r) {
-                        write_frame(
-                            &mut stream,
-                            &Message::Error("Daemon is preparing an upgrade".into()),
-                        )?;
-                        return Ok(());
-                    }
+                if matches!(r, Request::HostInfo) {
+                    write_frame(&mut stream, &host_info()?)?;
+                    return Ok(());
+                }
+                if input_pane(&r).is_some() {
+                    write_frame(&mut stream, &request_input(&routes, r))?;
+                    return Ok(());
                 }
                 if matches!(r, Request::InputStream) {
+                    if routes.lock().unwrap().draining {
+                        bail!("Daemon is preparing an upgrade");
+                    }
+                    drop(slot);
                     stream.set_read_timeout(None)?;
                     write_frame(&mut stream, &Message::Ok)?;
                     loop {
@@ -2296,40 +2407,16 @@ pub fn serve() -> Result<()> {
                         ) {
                             bail!("Invalid input stream request");
                         }
-                        let reply = request_input(&server, request);
+                        let reply = request_input(&routes, request);
                         write_frame(&mut stream, &reply)?;
                     }
                 }
-                if matches!(r, Request::AcquireGui) {
-                    write_frame(&mut stream, &Message::Ok)?;
-                    return Ok(());
-                }
-                if let Request::FocusPane { ref pane } = r {
-                    server
-                        .lock()
-                        .unwrap()
-                        .owners
-                        .insert(pane.clone(), client.clone());
-                }
-                if let Request::Resize { ref pane, .. } = r {
-                    let mut state = server.lock().unwrap();
-                    let owner = state.owners.entry(pane.clone()).or_insert(client.clone());
-                    if *owner != client {
-                        write_frame(&mut stream, &Message::Ok)?;
-                        return Ok(());
-                    }
-                }
                 if let Request::Attach { pane } = r {
-                    let h = server
-                        .lock()
-                        .unwrap()
-                        .panes
-                        .get(&pane)
-                        .cloned()
-                        .context("pane unavailable")?;
+                    let h = live_handle(&routes, &pane)?;
                     let (tx, rx) = bounded(128);
-                    h.tx.send(Op::Attach(tx))?;
+                    h.tx.send_timeout(Op::Attach(tx), std::time::Duration::from_secs(2))?;
                     stream.set_write_timeout(Some(std::time::Duration::from_secs(30)))?;
+                    drop(slot);
                     let (gone, disconnected) = bounded(1);
                     let mut watch = stream.try_clone()?;
                     watch.set_read_timeout(None)?;
@@ -2351,6 +2438,100 @@ pub fn serve() -> Result<()> {
                     result?;
                     return Ok(());
                 }
+                if ordinary_available.try_recv().is_err() {
+                    write_frame(
+                        &mut stream,
+                        &Message::Error("Server is busy. Try again.".into()),
+                    )?;
+                    return Ok(());
+                }
+                let _ordinary = Slot(ordinary_slots);
+                {
+                    let mut state = server.lock().unwrap();
+                    refresh_upgrade_lease(&mut state);
+                    if state.draining && !upgrade_control(&r) {
+                        write_frame(
+                            &mut stream,
+                            &Message::Error("Daemon is preparing an upgrade".into()),
+                        )?;
+                        return Ok(());
+                    }
+                }
+                if matches!(r, Request::AcquireGui) {
+                    write_frame(&mut stream, &Message::Ok)?;
+                    return Ok(());
+                }
+                if let Request::FocusPane { ref pane } = r {
+                    server
+                        .lock()
+                        .unwrap()
+                        .owners
+                        .insert(pane.clone(), client.clone());
+                }
+                if let Request::Resize { ref pane, .. } = r {
+                    let mut state = server.lock().unwrap();
+                    let owner = state.owners.entry(pane.clone()).or_insert(client.clone());
+                    if *owner != client {
+                        write_frame(&mut stream, &Message::Ok)?;
+                        return Ok(());
+                    }
+                }
+                if matches!(r, Request::State) {
+                    let (revision, panes) = {
+                        let s = server.lock().unwrap();
+                        (
+                            s.state.revision,
+                            s.state
+                                .panes
+                                .iter()
+                                .map(|p| p.id.clone())
+                                .collect::<std::collections::HashSet<_>>(),
+                        )
+                    };
+                    let pending_agents = database.submit(move |board| {
+                        let mut agents = board.agents()?;
+                        for agent in &mut agents {
+                            if agent["archived"] == true
+                                && agent["paused"] == true
+                                && agent["closed"] != true
+                                && agent["pane"].as_str().is_some_and(|p| !panes.contains(p))
+                            {
+                                board.update_agent(
+                                    agent["id"].as_str().context("Missing agent ID")?,
+                                    |a| {
+                                        if a["paused"] == true {
+                                            a["closed"] = true.into();
+                                        }
+                                    },
+                                )?;
+                                *agent =
+                                    board.get(agent["id"].as_str().context("Missing agent ID")?)?;
+                            }
+                        }
+                        Ok(agents)
+                    });
+                    // Layout uses the most recent committed snapshot while the writer
+                    // is busy. A slow coordination transaction must not freeze polling.
+                    let agents = pending_agents
+                        .ok()
+                        .and_then(|pending| {
+                            pending
+                                .recv_timeout(std::time::Duration::from_millis(80))
+                                .ok()
+                        })
+                        .transpose()?;
+                    let reply = {
+                        let mut s = server.lock().unwrap();
+                        if s.state.revision == revision
+                            && let Some(agents) = agents
+                        {
+                            s.agents = agents;
+                        }
+                        request(&mut s, Request::State)?
+                    };
+                    write_frame(&mut stream, &reply)?;
+                    return Ok(());
+                }
                 if let Request::AgentModels {
                     ref provider,
                     refresh,
@@ -2369,6 +2550,22 @@ pub fn serve() -> Result<()> {
                         }
                         let admission = CoordinationAdmission::acquire(&server)?;
                         let result = (|| -> Result<Message> {
+                            if !matches!(
+                                value["action"].as_str(),
+                                Some(
+                                    "register"
+                                        | "instructions"
+                                        | "sessions"
+                                        | "recover"
+                                        | "pause"
+                                        | "resume"
+                                )
+                            ) {
+                                let value = value.clone();
+                                return database
+                                    .run(move |board| board.action(value))
+                                    .map(Message::Coordination);
+                            }
                             let mut board = crate::coordination::Board::open()?;
                             if value["action"] == "sessions" {
                                 let agent =
@@ -2530,13 +2727,40 @@ pub fn serve() -> Result<()> {
                     write_frame(&mut stream, &initial)?;
                     return Ok(());
                 }
-                if matches!(
-                    r,
-                    Request::WorktreeCreate { .. }
-                        | Request::WorktreeOpen { .. }
-                        | Request::WorktreeRemove { .. }
-                ) {
-                    let op = id();
+                let (creation_id, r) = match r {
+                    Request::WorkspaceCreation {
+                        id,
+                        incarnation: expected,
+                        request,
+                    } => {
+                        uuid::Uuid::parse_str(&id).context("Invalid workspace creation ID")?;
+                        if expected != incarnation() {
+                            bail!(
+                                "Server restarted during workspace creation. Check the workspace list."
+                            );
+                        }
+                        if !matches!(
+                            *request,
+                            Request::NewWorkspace { .. }
+                                | Request::CreateWorkspace { .. }
+                                | Request::WorktreeCreate { .. }
+                                | Request::WorktreeOpen { .. }
+                        ) {
+                            bail!("Invalid workspace creation request");
+                        }
+                        (Some(id), *request)
+                    }
+                    request => (None, request),
+                };
+                if creation_id.is_some()
+                    || matches!(
+                        r,
+                        Request::WorktreeCreate { .. }
+                            | Request::WorktreeOpen { .. }
+                            | Request::WorktreeRemove { .. }
+                    )
+                {
+                    let op = creation_id.clone().unwrap_or_else(id);
                     let initial = Message::Operation {
                         id: op.clone(),
                         done: false,
@@ -2547,6 +2771,14 @@ pub fn serve() -> Result<()> {
                         let mut s = server.lock().unwrap();
                         if s.draining {
                             bail!("Daemon is preparing an idle upgrade");
+                        }
+                        if let Some(existing) = s.operations.get(&op).cloned() {
+                            drop(s);
+                            write_frame(&mut stream, &existing)?;
+                            return Ok(());
+                        }
+                        if s.state.workspaces.iter().any(|w| w.id == op) {
+                            bail!("Workspace creation ID already exists");
                         }
                         let context = if let Request::WorktreeCreate { workspace, .. } = &r {
                             let w = s
@@ -2566,10 +2798,28 @@ pub fn serve() -> Result<()> {
                         context
                     };
                     let shared = server.clone();
+                    let directory_name = match &r {
+                        Request::CreateWorkspace { name, .. } => Some(name.clone()),
+                        _ => None,
+                    };
                     thread::spawn(move || {
                         let _git = GIT_LOCK.lock().unwrap();
                         let result = (|| -> Result<String> {
                             match r {
+                                Request::NewWorkspace { path }
+                                | Request::CreateWorkspace { path, .. } => {
+                                    let mut s = shared.lock().unwrap();
+                                    let workspace = create_workspace(
+                                        &mut s,
+                                        path,
+                                        directory_name.clone().unwrap_or_default(),
+                                        directory_name.is_some(),
+                                        creation_id.as_deref(),
+                                    )?;
+                                    s.state.revision += 1;
+                                    save(&s)?;
+                                    Ok(workspace)
+                                }
                                 Request::WorktreeCreate {
                                     workspace: _,
                                     branch,
@@ -2584,11 +2834,19 @@ pub fn serve() -> Result<()> {
                                         &base,
                                         path.as_deref(),
                                     )?;
-                                    open_checkout(&shared, &target.to_string_lossy(), Some(&owner))
+                                    open_checkout(
+                                        &shared,
+                                        &target.to_string_lossy(),
+                                        Some(&owner),
+                                        creation_id.as_deref(),
+                                    )
                                 }
-                                Request::WorktreeOpen { path, workspace } => {
-                                    open_checkout(&shared, &path, workspace.as_deref())
-                                }
+                                Request::WorktreeOpen { path, workspace } => open_checkout(
+                                    &shared,
+                                    &path,
+                                    workspace.as_deref(),
+                                    creation_id.as_deref(),
+                                ),
                                 Request::WorktreeRemove { workspace, force } => {
                                     if !crate::config::host_settings().allow_workspace_deletion {
                                         bail!("Deleting checkout files is disabled in Settings")
@@ -2693,9 +2951,9 @@ pub fn serve() -> Result<()> {
                     if let Request::StopUpgrade { token } = &r {
                         claim_upgrade_stop(&mut s, token)?;
                     }
-                    s.draining = true;
+                    s.set_draining(true);
                     crate::recovery::stopping();
-                    for (id, h) in &s.panes {
+                    for (id, h) in s.panes.iter() {
                         let _ = ask(h, Request::Close { pane: id.clone() });
                     }
                     write_frame(&mut stream, &Message::Ok)?;
@@ -2763,6 +3021,7 @@ mod tests {
     #[test]
     fn upgrade_lease_expiry_reopens_admission_but_cannot_authorize_stop() {
         let mut server = Server {
+            agents: vec![],
             contexts: crate::workspaces::RepositoryContexts::default(),
             owners: HashMap::new(),
             draining: true,
@@ -2773,13 +3032,14 @@ mod tests {
                 expires: std::time::Instant::now() - std::time::Duration::from_secs(1),
             }),
             state: State::default(),
-            panes: HashMap::new(),
+            panes: Arc::default(),
+            routes: Arc::default(),
             operations: HashMap::new(),
         };
         assert!(claim_upgrade_stop(&mut server, "old-owner").is_err());
         assert!(!server.draining);
         assert!(server.upgrade_lease.is_none());
-        server.draining = true;
+        server.set_draining(true);
         server.upgrade_lease = Some(UpgradeLease {
             token: "current-owner".into(),
             expires: std::time::Instant::now() + std::time::Duration::from_secs(120),

@@ -251,10 +251,16 @@ impl Monitor {
                     continue;
                 }
                 let roots = observed.lock().unwrap().clone();
-                let profiles = process::discover(&roots)
-                    .into_iter()
-                    .filter(|(p, _)| crate::config::agent_enabled(p.provider.name()))
-                    .collect();
+                let mut profiles = process::discover(&roots);
+                for configured in process::configured_profiles() {
+                    if !profiles
+                        .iter()
+                        .any(|(profile, _)| profile.key == configured.key)
+                    {
+                        profiles.push((configured, 0));
+                    }
+                }
+                profiles.retain(|(p, _)| crate::config::agent_enabled(p.provider.name()));
                 results
                     .lock()
                     .unwrap()

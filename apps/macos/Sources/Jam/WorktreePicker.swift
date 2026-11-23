@@ -68,7 +68,9 @@ struct WorktreePicker: View {
     guard canOpen, let checkout = choices.available.first(where: { $0.id == selected }) else {
       return
     }
-    store.openCheckout(checkout.path, endpoint: context.endpoint, workspace: context.workspace)
+    store.openCheckout(
+      checkout.path, endpoint: context.endpoint, workspace: context.workspace,
+      branch: checkout.branch)
     dismiss()
   }
 

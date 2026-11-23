@@ -10,7 +10,8 @@ extension Store {
       : remoteConnectionState(endpoint)
     return MachinePresentation(
       status: serverStatuses[endpoint], connection: connection,
-      phase: serverPhases[endpoint], hasError: serverActionErrors[endpoint] != nil)
+      phase: serverPhases[endpoint], hasError: serverActionErrors[endpoint] != nil,
+      unresponsive: endpoint.isEmpty && localTimeout != nil)
   }
 
   func machineActions(_ endpoint: String) -> MachineActions {
@@ -21,7 +22,9 @@ extension Store {
       status: serverStatuses[endpoint])
   }
   func reconnectMachine(_ endpoint: String) {
-    if serverStatuses[endpoint]?.state == "inspection_failed" {
+    if (endpoint.isEmpty && localTimeout != nil)
+      || serverStatuses[endpoint]?.state == "inspection_failed"
+    {
       showServerAction(endpoint, kind: .inspect)
       return
     }
@@ -315,7 +318,8 @@ struct ServerActionSheet: View {
           .frame(maxWidth: .infinity, alignment: .center)
       } else {
         Text(explanation).textSelection(.enabled)
-        if let error = store.serverActionErrors[action.endpoint] ?? status?.error,
+        if let error = store.serverActionErrors[action.endpoint]
+          ?? (action.endpoint.isEmpty ? store.localTimeout : nil) ?? status?.error,
           !error.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         {
           ErrorNotice(message: error)
@@ -371,7 +375,7 @@ struct ServerActionSheet: View {
     ).padding(24).frame(width: 540)
       .onChange(of: status?.state) { _, state in
         if action.kind == .inspect, state != nil, state != "inspection_failed",
-          status?.error == nil
+          !(action.endpoint.isEmpty && store.localTimeout != nil), status?.error == nil
         {
           dismiss()
         }
