@@ -192,14 +192,15 @@ pub(super) fn fetch(profile: &Profile, allow_prompt: bool) -> Report {
         report.account_key = auth.account_key.clone();
         report.account_label = auth.label.clone();
         let agent: ureq::Agent = ureq::Agent::config_builder()
+            .tls_config(crate::services::tls_config())
             .https_only(true)
             .max_redirects(0)
             .timeout_global(Some(std::time::Duration::from_secs(10)))
             .build()
             .into();
         let url = match profile.provider {
-            Provider::Codex => "https://chatgpt.com/backend-api/codex/usage",
-            Provider::Claude => "https://api.anthropic.com/api/oauth/usage",
+            Provider::Codex => crate::services::CODEX_USAGE,
+            Provider::Claude => crate::services::CLAUDE_USAGE,
         };
         let value = get(&agent, url, &auth, profile.provider)?;
         (report.windows, report.extra) = parse(profile.provider, &value);
@@ -209,7 +210,7 @@ pub(super) fn fetch(profile: &Profile, allow_prompt: bool) -> Report {
         if profile.provider == Provider::Claude
             && let Ok(identity) = get(
                 &agent,
-                "https://api.anthropic.com/api/oauth/profile",
+                crate::services::CLAUDE_PROFILE,
                 &auth,
                 profile.provider,
             )

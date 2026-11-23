@@ -115,6 +115,13 @@ fn ssh(destination: &str) -> Result<Command> {
     #[cfg(not(test))]
     let executable = "/usr/bin/ssh";
     let mut cmd = Command::new(executable);
+    #[cfg(feature = "fixture-services")]
+    cmd.arg("-F").arg(
+        std::path::PathBuf::from(
+            std::env::var_os("HOME").context("Fixture SSH requires an isolated HOME")?,
+        )
+        .join(".ssh/config"),
+    );
     cmd.args([
         "-T",
         "-oConnectTimeout=10",
