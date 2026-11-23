@@ -1,6 +1,7 @@
 """Own a native multi-format clipboard on the isolated Wayland desktop."""
 
 import base64
+import faulthandler
 import json
 import os
 from pathlib import Path
@@ -20,8 +21,10 @@ TITLE = "Jam E2E Clipboard"
 
 
 def main():
+    faulthandler.dump_traceback_later(12)
     if not os.environ.get("WAYLAND_DISPLAY") or not os.environ.get("KWIN_PID"):
         raise RuntimeError("Clipboard requires the isolated Wayland desktop")
+    print("Opening GTK Wayland display", file=sys.stderr, flush=True)
     Gtk.init()
     display = Gdk.Display.get_default()
     if display is None:
@@ -30,6 +33,7 @@ def main():
     loop = GLib.MainLoop()
     window = Gtk.Window(title=TITLE, default_width=240, default_height=96)
     window.set_child(Gtk.Label(label=TITLE))
+    print("Presenting clipboard owner window", file=sys.stderr, flush=True)
     window.present()
 
     def reply(error=None):
@@ -120,7 +124,12 @@ def main():
         GLib.idle_add(loop.quit)
 
     threading.Thread(target=input_loop, daemon=True).start()
-    reply()
+    def ready():
+        faulthandler.cancel_dump_traceback_later()
+        reply()
+        return GLib.SOURCE_REMOVE
+
+    GLib.idle_add(ready)
     loop.run()
 
 
