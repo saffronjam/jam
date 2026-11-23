@@ -26,7 +26,7 @@ permissions:
   contents: read
   actions: read
 concurrency:
-  group: macos-driver-${{ github.event.pull_request.number || github.ref }}-${{ inputs.fixture_run || 'stock' }}-${{ inputs.cases || 'default' }}-${{ inputs.remote_worlds || false }}-${{ inputs.native_cases || 'all-controls' }}
+  group: macos-driver-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.event.pull_request.number || github.ref }}
   cancel-in-progress: false
 jobs:
   native-driver:

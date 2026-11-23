@@ -1,6 +1,6 @@
 # Desktop acceptance cases
 
-298 cases; identical collection on macOS and Linux. No skips or expected failures.
+312 cases; identical collection on macOS and Linux. No skips or expected failures.
 
 Each numbered step is performed externally. Fixture names identify required setup recipes, not alternate assertions.
 
@@ -954,13 +954,17 @@ Fixture: `remote-connected`.
 
 Fixture: `remote-offline`.
 
-1. `('visible', 'Offline')`
+Behaviors: `diagnostics`.
+
+1. `('visible', 'Server unavailable')`
 
 ## REMOTE-003: remote auth rejected
 
 Fixture: `remote-auth-rejected`.
 
-1. `('visible', 'Offline')`
+Behaviors: `diagnostics`.
+
+1. `('visible', 'Server unavailable')`
 2. `('absent', 'SSH Authentication')`
 3. `('remote_rejected', 'Permission denied')`
 4. `('context', 'Fixture', 'machine')`
@@ -1772,6 +1776,8 @@ Fixture: `isolated local installation`.
 
 Fixture: `isolated local installation`.
 
+Behaviors: `rendering`.
+
 1. `('resize', 900, 580)`
 2. `('remember_layout',)`
 3. `('remember_pids',)`
@@ -1964,6 +1970,8 @@ Fixture: `provider-launch-failed`.
 
 Fixture: `usage-two-providers`.
 
+Behaviors: `accounts`.
+
 1. `('visible', 'Codex')`
 2. `('visible', 'Claude')`
 3. `('visible', '5h')`
@@ -1972,11 +1980,15 @@ Fixture: `usage-two-providers`.
 
 Fixture: `usage-weekly`.
 
+Behaviors: `accounts`.
+
 1. `('visible', '7d')`
 
 ## USAGE-003: usage unknown account external user workflow
 
 Fixture: `usage-unknown-account`.
+
+Behaviors: `accounts`.
 
 1. `('click', 'Codex', 'button')`
 2. `('visible', 'Codex usage')`
@@ -1987,11 +1999,15 @@ Fixture: `usage-unknown-account`.
 
 Fixture: `usage-no-sessions`.
 
+Behaviors: `accounts`.
+
 1. `('absent', 'USAGE')`
 
 ## USAGE-005: usage auth error external user workflow
 
 Fixture: `usage-auth-error`.
+
+Behaviors: `accounts`.
 
 1. `('visible', 'Sign in again to read usage')`
 2. `('click', 'Codex, fixture@example.invalid', 'button')`
@@ -2004,6 +2020,8 @@ Fixture: `usage-auth-error`.
 ## USAGE-006: usage rate limited external user workflow
 
 Fixture: `usage-rate-limited`.
+
+Behaviors: `accounts`.
 
 1. `('visible', 'Usage service rate limited. Retrying later')`
 2. `('click', 'Codex, fixture@example.invalid', 'button')`
@@ -2100,6 +2118,8 @@ Fixture: `remote-connected`.
 
 Fixture: `update-available`.
 
+Behaviors: `update-settings`.
+
 1. `('click', 'Skip This Version')`
 2. `('absent', 'Upgrade…')`
 3. `('relaunch',)`
@@ -2109,6 +2129,8 @@ Fixture: `update-available`.
 
 Fixture: `update-available`.
 
+Behaviors: `update-settings`.
+
 1. `('click', 'Upgrade…')`
 2. `('visible', 'Upgrade and Restart')`
 3. `('click', 'Cancel')`
@@ -2117,6 +2139,8 @@ Fixture: `update-available`.
 
 Fixture: `update-interrupted`.
 
+Behaviors: `update-settings`.
+
 1. `('click', 'Recover…')`
 2. `('visible', 'Recover')`
 3. `('click', 'Cancel')`
@@ -2124,6 +2148,8 @@ Fixture: `update-interrupted`.
 ## UPDATE-007: update bad signature external user workflow
 
 Fixture: `update-bad-signature`.
+
+Behaviors: `update-settings`.
 
 1. `('settings', 'General')`
 2. `('click', 'Check for Updates…', 'button')`
@@ -2134,6 +2160,8 @@ Fixture: `update-bad-signature`.
 
 Fixture: `update-bad-checksum`.
 
+Behaviors: `update-settings`.
+
 1. `('click', 'Upgrade…')`
 2. `('click', 'Details', 'disclosure')`
 3. `('visible', 'checksum')`
@@ -2141,6 +2169,8 @@ Fixture: `update-bad-checksum`.
 ## UPDATE-009: update download failed external user workflow
 
 Fixture: `update-download-failed`.
+
+Behaviors: `update-settings`.
 
 1. `('remember_pids',)`
 2. `('remember_layout',)`
@@ -2155,6 +2185,8 @@ Fixture: `update-download-failed`.
 ## UPDATE-010: update available external user workflow
 
 Fixture: `update-available`.
+
+Behaviors: `update-settings`.
 
 1. `('run', 'printf x >> update-executions')`
 2. `('remember_layout',)`
@@ -2172,6 +2204,8 @@ Fixture: `update-available`.
 
 Fixture: `update-interrupted`.
 
+Behaviors: `update-settings`.
+
 1. `('remember_layout',)`
 2. `('remember_pids',)`
 3. `('click', 'Recover…')`
@@ -2184,6 +2218,8 @@ Fixture: `update-interrupted`.
 ## UPDATE-012: update rollback external user workflow
 
 Fixture: `update-rollback`.
+
+Behaviors: `update-settings`.
 
 1. `('run', 'printf x >> rollback-executions')`
 2. `('remember_layout',)`
@@ -2219,6 +2255,8 @@ Fixture: `checkout-deletion-disabled`.
 
 Fixture: `existing-checkouts`.
 
+Behaviors: `creation`.
+
 1. `('command', 'Open Worktree')`
 2. `('fill', 'Filter by branch or path', 'feature/existing')`
 3. `('visible', 'feature/existing')`
@@ -2226,6 +2264,8 @@ Fixture: `existing-checkouts`.
 ## WT-009: existing checkouts external user workflow
 
 Fixture: `existing-checkouts`.
+
+Behaviors: `creation`.
 
 1. `('command', 'Open Worktree')`
 2. `('fill', 'Filter by branch or path', 'feature/existing')`
@@ -2449,6 +2489,8 @@ Fixture: `remote-update-available`.
 
 Fixture: `isolated local installation`.
 
+Behaviors: `rendering`.
+
 1. `('resize', 900, 580)`
 2. `('remember_pids',)`
 3. `('remember_layout',)`
@@ -2468,6 +2510,8 @@ Fixture: `isolated local installation`.
 
 Fixture: `isolated local installation`.
 
+Behaviors: `rendering`.
+
 1. `('resize', 900, 580)`
 2. `('remember_pids',)`
 3. `('remember_layout',)`
@@ -2486,6 +2530,8 @@ Fixture: `isolated local installation`.
 ## VISUAL-003: Resizing preserves actual rendered terminal text and its live shell
 
 Fixture: `isolated local installation`.
+
+Behaviors: `rendering`.
 
 1. `('resize', 1000, 660)`
 2. `('remember_layout',)`
@@ -3063,21 +3109,22 @@ Behaviors: `diagnostics`.
 1. `('remember_layout',)`
 2. `('remember_pids',)`
 3. `('suspend_daemon',)`
-4. `('visible', 'Local server is not responding', 45)`
+4. `('visible', 'Not responding', 60)`
 5. `('context', 'Local', 'machine')`
 6. `('click', 'Server Details…', 'menu')`
 7. `('visible', 'Server — Local')`
 8. `('visible', 'without stopping running sessions')`
-9. `('enabled', 'Retry', 'button')`
-10. `('click', 'Retry', 'button')`
-11. `('enabled', 'Retry', 'button')`
-12. `('visible', 'without stopping running sessions')`
-13. `('resume_daemon',)`
-14. `('absent', 'Server — Local')`
-15. `('same_layout',)`
-16. `('same_pids',)`
-17. `('run', 'printf daemon-recovered-without-restart')`
-18. `('output', 'daemon-recovered-without-restart')`
+9. `('visible', 'Local server is not responding')`
+10. `('enabled', 'Retry', 'button')`
+11. `('click', 'Retry', 'button')`
+12. `('enabled', 'Retry', 'button')`
+13. `('visible', 'without stopping running sessions')`
+14. `('resume_daemon',)`
+15. `('absent', 'Server — Local')`
+16. `('same_layout',)`
+17. `('same_pids',)`
+18. `('run', 'printf daemon-recovered-without-restart')`
+19. `('output', 'daemon-recovered-without-restart')`
 
 ## DIAG-002: A broken SSH path exposes inspection and Retry without enabling destructive actions
 
@@ -3119,12 +3166,13 @@ Behaviors: `update-settings`.
 6. `('enabled', 'Upgrade…', 'button')`
 7. `('click', 'Upgrade…', 'button')`
 8. `('visible', 'Upgrade Jam')`
-9. `('enabled', 'Upgrade and Restart', 'button')`
-10. `('click', 'Cancel', 'button')`
-11. `('absent', 'Upgrade Jam')`
-12. `('installed_version', '0.0.4')`
-13. `('same_layout',)`
-14. `('same_pids',)`
+9. `('single_sheet', 'Upgrade Jam')`
+10. `('enabled', 'Upgrade and Restart', 'button')`
+11. `('click', 'Cancel', 'button')`
+12. `('absent', 'Upgrade Jam')`
+13. `('installed_version', '0.0.4')`
+14. `('same_layout',)`
+15. `('same_pids',)`
 
 ## ACCOUNT-001: A configured login appears without any active agent session
 
@@ -3177,6 +3225,22 @@ Behaviors: `rendering`.
 3. `('run', 'printf input-after-cursor-changes')`
 4. `('output', 'input-after-cursor-changes')`
 5. `('same_pids',)`
+
+## SIDEBAR-001: A narrow inset sidebar keeps the status legible beside a long machine name
+
+Fixture: `remote-long-sidebar`.
+
+Behaviors: `rendering`, `diagnostics`.
+
+1. `('remote_shell',)`
+2. `('resize', 840, 560)`
+3. `('peer_transport', True)`
+4. `('visible', 'Server unavailable', 60)`
+5. `('sidebar_status_pixels', 'Fixture diagnostics with a name that exceeds the narrow sidebar', 'Server unavailable')`
+6. `('peer_transport', False)`
+7. `('remote_shell',)`
+8. `('absent', 'Server unavailable')`
+9. `('remote_workspace_preserved',)`
 
 ## CREATE-004: A pending worktree becomes one selected workspace with a usable terminal
 
@@ -3294,6 +3358,30 @@ Behaviors: `focus-close`.
 19. `('settle_count', 'panes', 0)`
 20. `('file_text', 'tracked.txt', 'first\nsecond\n')`
 
+## CLOSE-004: A project and worktree with no live terminals close together without confirmation
+
+Fixture: `dirty-checkout`.
+
+Behaviors: `focus-close`.
+
+1. `('write_config', 'close_empty_tabs = false\nclose_empty_workspaces = false\n')`
+2. `('relaunch',)`
+3. `('click', 'Fixture checkout', 'row')`
+4. `('type_terminal', 'exit')`
+5. `('key', 'ENTER')`
+6. `('live_panes', 1)`
+7. `('click', 'Fixture', 'row')`
+8. `('type_terminal', 'exit')`
+9. `('key', 'ENTER')`
+10. `('live_panes', 0)`
+11. `('count', 'workspaces', 2)`
+12. `('context', 'Fixture', 'row')`
+13. `('click', 'Close Workspace', 'menu')`
+14. `('absent', 'Close project and its open worktrees?')`
+15. `('settle_count', 'workspaces', 0)`
+16. `('file_text', '../Fixture checkout/dirty.txt', 'Keep this uncommitted work\n')`
+17. `('git_branch', 'feature/existing')`
+
 ## IMAGE-007: Control-V is delivered as ordinary terminal input outside an agent pane
 
 Fixture: `isolated local installation`.
@@ -3396,6 +3484,36 @@ Behaviors: `focus-close`, `identity`.
 14. `('program_phase', 'exit')`
 15. `('remembered_pane_field', 'agent_provider', None)`
 
+## FOCUS-002: An inactive window keeps completion unread and repeating workspace selection acknowledges it
+
+Fixture: `isolated local installation`.
+
+Behaviors: `focus-close`, `identity`.
+
+1. `('remember_pane',)`
+2. `('program_identity', 'codex', 'done-on-file')`
+3. `('remembered_pane_field', 'agent_source', 'reported')`
+4. `('open_client', 'second')`
+5. `('command', 'New Tab')`
+6. `('target_visible', 'Tab 2', 'button')`
+7. `('remember_pids',)`
+8. `('release_program_completion',)`
+9. `('remembered_pane_field', 'status', 'done')`
+10. `('run', 'printf second-window-keeps-focus')`
+11. `('output', 'second-window-keeps-focus')`
+12. `('remembered_pane_field', 'status', 'done')`
+13. `('use_client', 'primary')`
+14. `('click', 'Tab 1', 'button')`
+15. `('remembered_pane_field', 'status', 'unknown')`
+16. `('program_phase', 'done')`
+17. `('remembered_pane_field', 'status', 'done')`
+18. `('click', 'Project ü with spaces', 'row')`
+19. `('remembered_pane_field', 'status', 'unknown')`
+20. `('remembered_pane_field', 'agent_provider', 'codex')`
+21. `('program_phase', 'exit')`
+22. `('close_client', 'second')`
+23. `('same_pids',)`
+
 ## ACCOUNT-002: The same configured login on two machines shares one account page
 
 Fixture: `usage-remote-account`.
@@ -3486,14 +3604,34 @@ Fixture: `usage-remote-account`.
 
 Behaviors: `accounts`.
 
-1. `('run', "bash -c 'exec -a codex /bin/sleep 180' &")`
-2. `('remote_shell', "bash -c 'exec -a codex /bin/sleep 180' &")`
+1. `('run', "bash -c 'exec -a codex /bin/sleep 180' & fixture_job=$!")`
+2. `('remote_shell', "bash -c 'exec -a codex /bin/sleep 180' & fixture_job=$!")`
 3. `('usage_requests_from_both_hosts',)`
 4. `('click', 'Codex, fixture@example.invalid', 'button')`
 5. `('visible', '2 active sessions')`
 6. `('key', 'ESCAPE')`
 7. `('absent', 'Next usage account')`
 8. `('remote_workspace_preserved',)`
+
+## ACCOUNT-007: A rejected remote login shows its own error with no local authorization action
+
+Fixture: `usage-remote-auth-error`.
+
+Behaviors: `accounts`.
+
+1. `('remote_shell',)`
+2. `('usage_requests_from_both_hosts',)`
+3. `('visible', 'Sign in again to read usage')`
+4. `('click', 'Codex, second@example.invalid', 'button')`
+5. `('visible', 'Sign in again to read usage')`
+6. `('absent', 'Allow Keychain Access')`
+7. `('key', 'ESCAPE')`
+8. `('click', 'Next usage account', 'button')`
+9. `('click', 'Codex, fixture@example.invalid', 'button')`
+10. `('visible', '25%')`
+11. `('absent', 'Sign in again to read usage')`
+12. `('key', 'ESCAPE')`
+13. `('remote_workspace_preserved',)`
 
 ## TAKEOVER-004: A compiled replacement that cannot start rolls back the remote server
 
@@ -3512,6 +3650,83 @@ Behaviors: `takeover`.
 9. `('enabled', 'Try Again', 'button')`
 10. `('click', 'Cancel', 'button')`
 
+## TAKEOVER-005: An interrupted remote installation requires explicit recovery before replacing its sessions
+
+Fixture: `remote-update-available`.
+
+Behaviors: `takeover`.
+
+1. `('remote_run', 'printf x >> recovery-executions')`
+2. `('interrupt_remote_install',)`
+3. `('context', 'Fixture', 'machine')`
+4. `('click', 'Update Server…', 'menu')`
+5. `('enabled', 'Update and Restart', 'button')`
+6. `('click', 'Update and Restart', 'button')`
+7. `('visible', 'Could not complete the server action.', 95)`
+8. `('observed_interrupted_install',)`
+9. `('remote_workspace_preserved',)`
+10. `('remote_server_stable', 2)`
+11. `('click', 'Cancel', 'button')`
+12. `('context', 'Fixture', 'machine')`
+13. `('click', 'Take Over Server…', 'menu')`
+14. `('enabled', 'Try Again', 'button')`
+15. `('click', 'Try Again', 'button')`
+16. `('visible', 'Finish the interrupted server operation and reconnect')`
+17. `('enabled', 'Recover and Reconnect', 'button')`
+18. `('remote_workspace_preserved',)`
+19. `('click', 'Recover and Reconnect', 'button')`
+20. `('remote_server_changed', 'restart')`
+21. `('observed_recovered_install',)`
+22. `('remote_file_text', 'recovery-executions', 'x')`
+23. `('remote_run', 'printf y >> recovery-executions')`
+24. `('remote_file_text', 'recovery-executions', 'xy')`
+
+## TAKEOVER-006: A takeover confirmation expires when the inspected peer process changes
+
+Fixture: `remote-legacy`.
+
+Behaviors: `takeover`.
+
+1. `('visible', 'Takeover required', 60)`
+2. `('context', 'Fixture', 'machine')`
+3. `('click', 'Take Over Server…', 'menu')`
+4. `('enabled', 'Take Over and Reconnect', 'button')`
+5. `('restart_peer_outside_client',)`
+6. `('click', 'Take Over and Reconnect', 'button')`
+7. `('visible', 'The server changed. Inspect it again before taking over', 60)`
+8. `('restarted_peer_preserved',)`
+9. `('click', 'Try Again', 'button')`
+10. `('enabled', 'Take Over and Reconnect', 'button')`
+11. `('click', 'Take Over and Reconnect', 'button')`
+12. `('visible', 'Remote project', 120)`
+13. `('click', 'Remote project', 'row')`
+14. `('remote_server_changed', 'takeover')`
+15. `('remote_file_text', 'takeover-executions', 'x')`
+16. `('remote_shell', 'printf y >> takeover-executions')`
+17. `('remote_file_text', 'takeover-executions', 'xy')`
+
+## TAKEOVER-007: Explicit local takeover replaces a foreign daemon and restores the saved workspace
+
+Fixture: `update-foreign-server`.
+
+Behaviors: `takeover`.
+
+1. `('visible', 'Takeover required', 45)`
+2. `('run', 'printf x >> local-takeover-executions')`
+3. `('remember_layout',)`
+4. `('remember_local_server',)`
+5. `('context', 'Local', 'machine')`
+6. `('click', 'Take Over Server…', 'menu')`
+7. `('visible', 'The server belongs to another Jam installation')`
+8. `('enabled', 'Take Over and Reconnect', 'button')`
+9. `('click', 'Take Over and Reconnect', 'button')`
+10. `('local_server_replaced',)`
+11. `('same_layout',)`
+12. `('absent', 'Takeover required')`
+13. `('file_text', 'local-takeover-executions', 'x')`
+14. `('run', 'printf y >> local-takeover-executions')`
+15. `('file_text', 'local-takeover-executions', 'xy')`
+
 ## RENAME-001: The inline tab editor replaces the old rendered label and returns focus
 
 Fixture: `isolated local installation`.
@@ -3523,11 +3738,11 @@ Behaviors: `rendering`, `focus-close`.
 3. `('fill', 'Tab name', 'BEFORE 9374')`
 4. `('key', 'ENTER')`
 5. `('tab_name', 'BEFORE 9374')`
-6. `('rendered_label', 'BEFORE 9374', None)`
+6. `('rendered_label', 'BEFORE 9374', None, 'BEFORE 9374', 'button')`
 7. `('context', 'BEFORE 9374', 'button')`
 8. `('click', 'Rename', 'menu')`
 9. `('fill', 'Tab name', 'AFTER 2846')`
-10. `('rendered_label', 'AFTER 2846', 'BEFORE 9374')`
+10. `('rendered_label', 'AFTER 2846', 'BEFORE 9374', 'Tab name', 'field')`
 11. `('key', 'ENTER')`
 12. `('tab_name', 'AFTER 2846')`
 13. `('run_focused', 'printf rename-returned-terminal-focus')`
@@ -3617,6 +3832,74 @@ Behaviors: `creation`.
 18. `('run', 'printf reordered-selection-ready > selected-workspace.txt')`
 19. `('home_file_text', 'Second workspace/selected-workspace.txt', 'reordered-selection-ready')`
 
+## CREATE-012: Retry finds a persisted checkout after the remote daemon restarts
+
+Fixture: `remote-creation-transport`.
+
+Behaviors: `creation`, `creation-recovery`.
+
+1. `('remote_shell',)`
+2. `('hold_worktree_checkout', 'remote')`
+3. `('command', 'New Worktree')`
+4. `('fill', 'Branch name', 'restart-creation')`
+5. `('fill', 'Base revision', 'HEAD')`
+6. `('click', 'Create', 'button')`
+7. `('peer_checkout', 'restart-creation')`
+8. `('peer_transport', True)`
+9. `('visible', 'Retry', 45)`
+10. `('release_peer_checkout',)`
+11. `('created_workspace', '/home/fixture/wt/project/restart-creation', True)`
+12. `('restart_peer_outside_client',)`
+13. `('peer_transport', False)`
+14. `('click', 'Retry', 'button')`
+15. `('absent', 'Retry')`
+16. `('type_terminal', 'pwd > /home/fixture/project/restart-result.txt')`
+17. `('key', 'ENTER')`
+18. `('remote_file_text', 'restart-result.txt', '/home/fixture/wt/project/restart-creation\n')`
+19. `('created_workspace', '/home/fixture/wt/project/restart-creation', True)`
+20. `('peer_checkout', 'restart-creation')`
+
+## CREATE-013: Retry refuses to resubmit an unconfirmed checkout after the remote daemon restarts
+
+Fixture: `remote-creation-transport`.
+
+Behaviors: `creation`, `creation-recovery`.
+
+1. `('remote_shell',)`
+2. `('hold_worktree_checkout', 'remote')`
+3. `('command', 'New Worktree')`
+4. `('fill', 'Branch name', 'restart-creation')`
+5. `('fill', 'Base revision', 'HEAD')`
+6. `('click', 'Create', 'button')`
+7. `('peer_checkout', 'restart-creation')`
+8. `('peer_transport', True)`
+9. `('visible', 'Retry', 45)`
+10. `('restart_peer_outside_client',)`
+11. `('peer_transport', False)`
+12. `('click', 'Retry', 'button')`
+13. `('visible', 'The server restarted. Check the workspace list before starting again.')`
+14. `('click', 'Dismiss', 'button')`
+15. `('remote_shell', 'printf original-shell-recovered')`
+16. `('remote_server_changed', 'restart')`
+17. `('peer_checkout', 'restart-creation')`
+
+## CREATE-014: Opening an existing remote worktree starts a shell in its selected branch
+
+Fixture: `remote-creation-transport`.
+
+Behaviors: `creation`.
+
+1. `('remote_shell', 'git worktree add -b peer-existing /home/fixture/remote-existing HEAD')`
+2. `('command', 'Open Worktree')`
+3. `('fill', 'Filter by branch or path', 'peer-existing')`
+4. `('visible', 'peer-existing')`
+5. `('enabled', 'Open', 'button')`
+6. `('key', 'ENTER')`
+7. `('created_workspace', '/home/fixture/remote-existing', True)`
+8. `('type_terminal', '{ pwd; git branch --show-current; } > /home/fixture/project/open-branch.txt')`
+9. `('key', 'ENTER')`
+10. `('remote_file_text', 'open-branch.txt', '/home/fixture/remote-existing\npeer-existing\n')`
+
 ## UPDATE-SETTINGS-002: A slow Settings download shows one progress sheet and can be cancelled
 
 Fixture: `update-slow-prepare`.
@@ -3631,12 +3914,13 @@ Behaviors: `update-settings`.
 6. `('enabled', 'Upgrade…', 'button')`
 7. `('click', 'Upgrade…', 'button')`
 8. `('visible', 'Downloading and verifying the update…')`
-9. `('disabled', 'Upgrade and Restart', 'button')`
-10. `('click', 'Cancel', 'button')`
-11. `('absent', 'Upgrade Jam')`
-12. `('installed_version', '0.0.4')`
-13. `('same_layout',)`
-14. `('same_pids',)`
+9. `('single_sheet', 'Upgrade Jam')`
+10. `('disabled', 'Upgrade and Restart', 'button')`
+11. `('click', 'Cancel', 'button')`
+12. `('absent', 'Upgrade Jam')`
+13. `('installed_version', '0.0.4')`
+14. `('same_layout',)`
+15. `('same_pids',)`
 
 ## UPDATE-SETTINGS-003: Update preparation routes a foreign live server to a takeover confirmation
 
@@ -3658,3 +3942,75 @@ Behaviors: `update-settings`, `takeover`.
 12. `('same_layout',)`
 13. `('same_pids',)`
 14. `('installed_version', '0.0.4')`
+
+## UPDATE-SETTINGS-004: An unmanaged installation reports a release in Settings without offering an upgrade
+
+Fixture: `update-unmanaged`.
+
+Behaviors: `update-settings`.
+
+1. `('remember_layout',)`
+2. `('remember_pids',)`
+3. `('settings', 'General')`
+4. `('click', 'Check for Updates…', 'button')`
+5. `('visible', 'Jam 0.0.5 is available')`
+6. `('disabled', 'Upgrade…', 'button')`
+7. `('absent', 'Upgrade Jam')`
+8. `('click', 'Cancel', 'button')`
+9. `('absent', 'Jam 0.0.5 is available')`
+10. `('installed_version', '0.0.4')`
+11. `('same_layout',)`
+12. `('same_pids',)`
+
+## UPDATE-SETTINGS-005: An unavailable minimum client release leaves the newer server untouched
+
+Fixture: `update-required-without-compatible-release`.
+
+Behaviors: `update-settings`.
+
+1. `('visible', 'Update Jam required', 60)`
+2. `('settings', 'General')`
+3. `('enabled', 'Check for Updates…', 'button')`
+4. `('click', 'Check for Updates…', 'button')`
+5. `('visible', 'This machine requires Jam 0.0.5')`
+6. `('visible', 'no matching published update is available')`
+7. `('absent', 'Upgrade…')`
+8. `('click', 'Cancel', 'button')`
+9. `('remote_workspace_preserved',)`
+10. `('remote_server_stable', 2)`
+
+## UPDATE-SETTINGS-006: Settings offers an explicitly requested upgrade after the user skipped its notice
+
+Fixture: `update-available`.
+
+Behaviors: `update-settings`.
+
+1. `('click', 'Skip This Version')`
+2. `('absent', 'Upgrade…')`
+3. `('settings', 'General')`
+4. `('visible', 'Jam 0.0.5 is available')`
+5. `('enabled', 'Upgrade…', 'button')`
+6. `('click', 'Upgrade…', 'button')`
+7. `('single_sheet', 'Upgrade Jam')`
+8. `('enabled', 'Upgrade and Restart', 'button')`
+9. `('click', 'Cancel', 'button')`
+10. `('visible', 'Automatically check for updates')`
+11. `('installed_version', '0.0.4')`
+
+## UPDATE-SETTINGS-007: Settings opens one recovery sheet for an actual unfinished app upgrade
+
+Fixture: `update-interrupted`.
+
+Behaviors: `update-settings`.
+
+1. `('remember_layout',)`
+2. `('remember_pids',)`
+3. `('settings', 'General')`
+4. `('click', 'Recover Interrupted Upgrade…', 'button')`
+5. `('single_sheet', 'Recover Interrupted Upgrade')`
+6. `('enabled', 'Recover', 'button')`
+7. `('click', 'Cancel', 'button')`
+8. `('target_visible', 'Recover Interrupted Upgrade…', 'button')`
+9. `('installed_version', '0.0.4')`
+10. `('same_layout',)`
+11. `('same_pids',)`

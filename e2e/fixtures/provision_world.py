@@ -128,6 +128,8 @@ def prepare(root, recipe, repo):
     scenario = {}
     if recipe.startswith("update-"):
         scenario["version"] = "0.0.5"
+        if recipe == "update-required-without-compatible-release":
+            scenario["version"] = "0.0.4"
         if recipe == "update-bad-signature":
             scenario["bad_signature"] = True
         if recipe == "update-bad-checksum":
@@ -144,6 +146,8 @@ def prepare(root, recipe, repo):
         scenario["http_error"] = 429
     if recipe == "usage-remote-other-organization":
         scenario["distinct_organization_usage"] = True
+    if recipe == "usage-remote-auth-error":
+        scenario["remote_auth_error"] = True
     write(root / "service-world.json", scenario)
 
 

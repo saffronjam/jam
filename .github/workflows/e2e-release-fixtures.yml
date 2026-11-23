@@ -220,6 +220,16 @@ jobs:
           codesign --verify --deep --strict "$variant/build/packaging/Jam.app"
           cp "$variant/build/release/Jam-v$BASELINE_VERSION-macos-arm64.zip" \
             build/e2e-input/takeover-failure/Jam-macos-arm64.zip
+      - name: Seal an unmanaged installation of the same application
+        run: |
+          source=".cache/variants/$BASELINE_VERSION/build/packaging/Jam.app"
+          app="$PWD/.cache/unmanaged/Jam.app"
+          mkdir -p "$(dirname "$app")" build/e2e-input/unmanaged
+          ditto "$source" "$app"
+          rm "$app/Contents/Resources/release.json"
+          codesign --force --sign - "$app"
+          codesign --verify --deep --strict "$app"
+          ditto -c -k --sequesterRsrc --keepParent "$app" build/e2e-input/unmanaged/Jam-macos-arm64.zip
       - name: Sign and package the complete external release bundle
         run: |
           python3 e2e/fixtures/sign_releases.py --artifacts build/e2e-input --trust build/e2e-trust \

@@ -542,6 +542,18 @@ class Desktop:
     def expect(self, text, timeout=20):
         return wait(lambda: self.has(text), repr(text), timeout=timeout)
 
+    def expect_single_sheet(self, heading):
+        modal = "XCUIElementTypeSheet" if self.platform == "macos" else "dialog"
+
+        def visible_count():
+            root = ElementTree.fromstring(self.tree())
+            elements = {node for sheet in root.iter(modal) for node in sheet.iter()
+                        if heading in (node.get(key) for key in ("name", "label", "value", "title"))}
+            assert len(elements) <= 1, f"Duplicate sheet heading {heading!r}"
+            return len(elements) == 1
+
+        wait(visible_count, f"one native sheet with heading {heading!r}")
+
     def element(self, name, role=None, index=None):
         if role == "machine":
             return self._machine_element(name)

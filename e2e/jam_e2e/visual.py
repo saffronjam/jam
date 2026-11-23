@@ -19,22 +19,31 @@ def terminal_pixels(ui):
 
 
 def surface_pixels(ui, name, role, index=None):
+    capture, bounds = surface_sampler(ui, name, role, index)
+    return capture(), bounds
+
+
+def surface_sampler(ui, name, role, index=None):
     surface = ui.element(name, role, index=index)
     bounds = surface.rect
     if ui.platform == "macos":
         # XCTest's element screenshot handles native point/pixel scaling.
-        return surface.screenshot_as_png, bounds
+        return lambda: surface.screenshot_as_png, bounds
     # AT-SPI bounds are logical points; the real compositor screenshot contains
     # physical output pixels, including fractional scaling.
-    screen = Image.open(io.BytesIO(ui.session.get_screenshot_as_png()))
     scale = ui.capture_scale
     box = (round(bounds["x"] * scale), round(bounds["y"] * scale),
            round((bounds["x"] + bounds["width"]) * scale),
            round((bounds["y"] + bounds["height"]) * scale))
-    assert 0 <= box[0] < box[2] <= screen.width and 0 <= box[1] < box[3] <= screen.height
-    output = io.BytesIO()
-    screen.crop(box).save(output, format="PNG")
-    return output.getvalue(), bounds
+
+    def crop():
+        screen = Image.open(io.BytesIO(ui.session.get_screenshot_as_png()))
+        assert 0 <= box[0] < box[2] <= screen.width and 0 <= box[1] < box[3] <= screen.height
+        output = io.BytesIO()
+        screen.crop(box).save(output, format="PNG")
+        return output.getvalue()
+
+    return crop, bounds
 
 
 def terminal_text(ui, expected, appearance=None):
@@ -85,14 +94,15 @@ def synchronized_frames(jam, mode):
     path = root / "render-probe.json"
     probe = Path(__file__).with_name("render_probe.py")
     jam.terminal()
-    ui.type(shlex.join([sys.executable, str(probe), str(path), mode]))
+    ui.type(shlex.join([sys.executable, str(probe), path.name, mode]))
     ui.key("ENTER")
     wait(path.exists, "synchronized output program startup")
+    take_picture, _ = surface_sampler(ui, "Terminal", "terminal", 0)
     colors = {"before": (24, 169, 78), "partial": (236, 18, 174), "after": (28, 108, 232)}
 
     def capture():
         start = time.monotonic_ns()
-        png, _ = terminal_pixels(ui)
+        png = take_picture()
         end = time.monotonic_ns()
         image = Image.open(io.BytesIO(png)).convert("RGB")
         counts = image.getcolors(image.width * image.height)
@@ -144,11 +154,12 @@ def cursor_frames(jam):
     path = root / "render-probe.json"
     probe = Path(__file__).with_name("render_probe.py")
     jam.terminal()
-    ui.type(shlex.join([sys.executable, str(probe), str(path), "cursor"]))
+    ui.type(shlex.join([sys.executable, str(probe), path.name, "cursor"]))
     ui.key("ENTER")
+    take_picture, _ = surface_sampler(ui, "Terminal", "terminal", 0)
 
     def observe():
-        png, _ = terminal_pixels(ui)
+        png = take_picture()
         return Image.open(io.BytesIO(png)).convert("RGB")
 
     def stable(image):

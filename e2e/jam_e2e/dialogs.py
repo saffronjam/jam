@@ -12,7 +12,7 @@ from .driver import wait
 
 
 def screen_target(ui, text, prefix="dialog", bounds=False, terminal=False, region=None,
-                  forbidden=None):
+                  forbidden=None, mode=None):
     executable = shutil.which("tesseract")
     assert executable, "Desktop dialog observation requires Tesseract and English language data"
     root = ui.profile.repo
@@ -61,7 +61,7 @@ def screen_target(ui, text, prefix="dialog", bounds=False, terminal=False, regio
             pixels.save(root / (stem + ".png"))
             result = subprocess.run(
                 [executable, str(root / (stem + ".png")), "stdout", "-l", "eng", "--psm",
-                 "6" if terminal else "11", "tsv"],
+                 mode or ("6" if terminal else "11"), "tsv"],
                 check=True, capture_output=True, text=True, timeout=15,
             )
             (root / (stem + ".tsv")).write_text(result.stdout)
