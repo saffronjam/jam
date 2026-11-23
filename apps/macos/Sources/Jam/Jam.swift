@@ -1015,7 +1015,19 @@ struct ContentView: View {
           .frame(maxWidth: .infinity, maxHeight: .infinity)
         UsagePanel().environmentObject(store)
         MachineList().environmentObject(store)
-      }.navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 320)
+      }
+      .padding(.vertical, 4)
+      .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+      .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+      .overlay {
+        RoundedRectangle(cornerRadius: 14, style: .continuous)
+          .strokeBorder(Color.primary.opacity(0.12), lineWidth: 1)
+      }
+      .padding(.horizontal, 8)
+      .padding(.top, 4)
+      .padding(.bottom, 8)
+      .background(Color(nsColor: .windowBackgroundColor))
+      .navigationSplitViewColumnWidth(min: 196, ideal: 236, max: 336)
     } detail: {
       ZStack {
         if store.isLoadingSelectedRemote {
