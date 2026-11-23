@@ -93,8 +93,8 @@ def linux_clipboard(action, profile, data=None):
     global _linux_owner, _linux_log, _linux_directory
     if _linux_owner is None:
         helper = Path(__file__).parents[1] / "native/linux/clipboard.py"
-        env = dict(profile.env, GDK_BACKEND="wayland")
         _linux_directory = tempfile.TemporaryDirectory(prefix="je-clipboard-")
+        env = dict(profile.env, GDK_BACKEND="wayland", TMPDIR=_linux_directory.name)
         _linux_log = Path(_linux_directory.name) / "native-clipboard.log"
         with _linux_log.open("w") as diagnostics:
             _linux_owner = subprocess.Popen(

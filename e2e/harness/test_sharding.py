@@ -8,7 +8,7 @@ from xml.etree import ElementTree
 
 import pytest
 
-from jam_e2e.sharding import manifest, partition, reconcile
+from jam_e2e.sharding import AcceptanceFailed, manifest, partition, reconcile
 
 
 def reports(tmp_path):
@@ -77,6 +77,7 @@ def test_real_pytest_shards_execute_the_entire_missing_app_contract(tmp_path):
     env = dict(os.environ, PYTHONPATH=str(copied))
     platform = "macos" if sys.platform == "darwin" else "linux"
     combined = []
+    reports = []
     for index in range(2):
         folder = tmp_path / f"results-{index}"
         command = [sys.executable, "-m", "pytest", "-c", "pyproject.toml", "tests", "-q",
@@ -87,6 +88,7 @@ def test_real_pytest_shards_execute_the_entire_missing_app_contract(tmp_path):
                                 text=True, timeout=30)
         assert result.returncode == 1, result.stdout + result.stderr
         root = ElementTree.parse(folder / "acceptance.xml").getroot()
+        reports.append(folder)
         cases = list(root.iter("testcase"))
         receipt = json.loads((folder / "shard.json").read_text())
         assert [c.get("name").removeprefix("test_user_journey[").removesuffix("]")
@@ -97,8 +99,14 @@ def test_real_pytest_shards_execute_the_entire_missing_app_contract(tmp_path):
         combined.extend(receipt["selected"])
         if index == 0:
             for extra in (["-k", "TERM"], ["-m", "acceptance"], ["--allow-subset"]):
-                rejected = subprocess.run(command + extra, cwd=copied, env=env,
+                rejected_xml = tmp_path / "rejected-selection.xml"
+                rejected = subprocess.run(command[:-1] + [str(rejected_xml), *extra], cwd=copied, env=env,
                                           capture_output=True, text=True, timeout=30)
                 assert rejected.returncode == 4, rejected.stdout + rejected.stderr
     assert len(combined) == len(set(combined)) == len(CASES)
     assert set(combined) == {c.id for c in CASES}
+    with pytest.raises(AcceptanceFailed) as rejected:
+        reconcile(reports, [case.id for case in CASES], platform, "source", "producer")
+    assert rejected.value.report["cases"] == rejected.value.report["missing_application"] == len(CASES)
+    assert rejected.value.report["errors"] == len(CASES)
+    assert rejected.value.report["passed"] == rejected.value.report["skipped"] == 0

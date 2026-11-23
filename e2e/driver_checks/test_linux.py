@@ -176,12 +176,13 @@ def test_native_mixed_clipboard_keeps_binary_and_text_formats(request, tmp_path)
     ui = Desktop("linux", request.config.getoption("--webdriver-url"), launcher, profile)
     ui.launch()
     try:
-        image, _ = image_fixture("png")
         before = linux_clipboard("capture", profile)
-        ui.clipboard_image("png", image, "GTK clipboard 日本語")
-        expected = representations("linux", "png", image, "GTK clipboard 日本語")
-        actual = linux_clipboard("capture", profile)
-        assert {mime: actual[mime] for mime in expected} == expected
+        for kind in ("png", "tiff"):
+            image, _ = image_fixture(kind)
+            ui.clipboard_image(kind, image, "GTK clipboard 日本語")
+            expected = representations("linux", kind, image, "GTK clipboard 日本語")
+            actual = linux_clipboard("capture", profile)
+            assert {mime: actual[mime] for mime in expected} == expected
         ui.activate()
         ui.click("Probe text", "field")
         ui.chord("ctrl+v")
