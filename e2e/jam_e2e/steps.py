@@ -27,28 +27,57 @@ def execute(jam, step, memory):
     elif op == "git_update_ref":
         profile.git("update-ref", "refs/tags/" + args[0], "HEAD")
     elif op == "hold_worktree_checkout":
-        ready = shlex.quote(str(profile.root / "checkout.ready"))
-        release = shlex.quote(str(profile.root / "checkout.release"))
-        hook = profile.repo / ".git/hooks/post-checkout"
-        hook.write_text(f"""#!/bin/sh
+        remote = bool(args and args[0] == "remote")
+        root = Path("/home/fixture") if remote else profile.root
+        ready = shlex.quote(str(root / "checkout.ready"))
+        release = shlex.quote(str(root / "checkout.release"))
+        script = f"""#!/bin/sh
 set -eu
-touch {ready}
+git branch --show-current >> {ready}
 remaining=900
 while [ ! -e {release} ]; do
   test "$remaining" -gt 0
   remaining=$((remaining - 1))
   sleep 0.1
 done
-""")
-        hook.chmod(0o700)
+"""
+        if remote:
+            from .remote import peer_command
+
+            peer_command(profile, "umask 077; cd /home/fixture/project; "
+                         f"printf '%s' {shlex.quote(script)} > .git/hooks/post-checkout; "
+                         "chmod 700 .git/hooks/post-checkout")
+        else:
+            hook = profile.repo / ".git/hooks/post-checkout"
+            hook.write_text(script)
+            hook.chmod(0o700)
     elif op == "checkout_pending":
         wait((profile.root / "checkout.ready").exists, "real Git post-checkout hook", timeout=30)
     elif op == "release_worktree_checkout":
         profile.release_checkout()
+    elif op == "peer_checkout":
+        from .remote import peer_command
+
+        branch, = args
+        wait(lambda: peer_command(profile, "if test -s ~/checkout.ready; then cat ~/checkout.ready; fi")
+             == branch + "\n", "one remote Git checkout of " + branch, timeout=45)
+    elif op == "release_peer_checkout":
+        from .remote import peer_command
+
+        peer_command(profile, "touch ~/checkout.release")
+    elif op == "peer_transport":
+        cut = profile.root / "ssh.cut"
+        receipt = profile.root / "ssh.blocked"
+        assert (profile.root / "ssh-transport.ready").is_file()
+        if args[0]:
+            cut.touch(exist_ok=False)
+        else:
+            cut.unlink()
+        wait(lambda: receipt.exists() == args[0], "owned SSH transport switched", timeout=5)
     elif op == "created_workspace":
         path, remote = args
         if not remote:
-            path = str(profile.home / path)
+            path = str((profile.home / path).resolve())
         if remote:
             from .remote import peer_call
 
@@ -58,7 +87,8 @@ done
 
         def ready():
             state = observe()
-            matches = [entry for entry in state["workspaces"] if entry["path"] == path]
+            matches = [entry for entry in state["workspaces"]
+                       if (entry["path"] if remote else str(Path(entry["path"]).resolve())) == path]
             if not matches:
                 return False
             assert len(matches) == 1, "Creation produced duplicate workspace paths"
@@ -173,6 +203,10 @@ done
         from .visual import terminal_text
 
         terminal_text(ui, *args)
+    elif op == "cursor_frames":
+        from .visual import cursor_frames
+
+        cursor_frames(jam)
     elif op == "target_visible":
         ui.element(*args)
     elif op == "absent":
@@ -187,6 +221,13 @@ done
         wait(lambda: ui.element(*args).is_enabled(), f"enabled {args[0]}")
     elif op == "count":
         jam.count(*args)
+    elif op == "live_panes":
+        wait(lambda: sum(not pane["exited"] for pane in profile.layout()["panes"]) == args[0],
+             f"exactly {args[0]} live terminal(s)")
+    elif op == "workspace_prefix":
+        expected = [(profile.home / path).resolve() for path in args]
+        wait(lambda: [Path(w["path"]).resolve() for w in profile.layout()["workspaces"]][:len(expected)] == expected,
+             "the reordered workspace paths " + repr(args))
     elif op == "tab_name":
         wait(lambda: any(tab["name"] == args[0] for workspace in profile.layout()["workspaces"]
                          for tab in workspace["tabs"]), f"committed tab name {args[0]!r}")
@@ -322,6 +363,26 @@ done
             return hosts == {"local", "remote"}
 
         wait(received, "real usage requests from both fixture hosts", timeout=60)
+    elif op == "usage_page_cycle":
+        (values,) = args
+
+        def selected():
+            text = ui.texts()
+            visible = [value for value in values if value in text]
+            return visible[0] if len(visible) == 1 else None
+
+        first = wait(selected, "one account's usage on a page")
+        visited = {first}
+        previous = first
+        for _ in values:
+            ui.click("Next usage account", "button")
+            current = wait(lambda: value if (value := selected()) != previous else None,
+                           "the next distinctly measured usage page")
+            if len(visited) < len(values):
+                assert current not in visited, "Account pagination wrapped before visiting every page"
+            visited.add(current)
+            previous = current
+        assert previous == first and visited == set(values)
     elif op == "type_terminal":
         ui.type(args[0])
     elif op == "image_paste_result":
@@ -447,6 +508,15 @@ done
             return len(agents) == 1 and agents[0].get(args[0]) == args[1]
 
         wait(matches, f"single agent {args[0]}={args[1]}")
+    elif op == "registered_pane_fields":
+        def matches():
+            agents = profile.call("coordinate", "list")["Coordination"]["agents"]
+            if len(agents) != 1:
+                return False
+            pane = next((p for p in profile.layout()["panes"] if p["id"] == agents[0]["pane"]), None)
+            return pane and all(pane.get(field) == expected for field, expected in args[0].items())
+
+        wait(matches, "registered agent's role and provider on its actual pane")
     elif op == "remember_pane":
         [pane] = profile.layout()["panes"]
         memory["pane"] = pane["id"]

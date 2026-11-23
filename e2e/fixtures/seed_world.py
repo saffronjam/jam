@@ -53,6 +53,7 @@ def seed(root, recipe, repo):
         interrupt(root)
     if recipe in (
         "remote-connected",
+        "remote-creation-transport",
         "remote-offline",
         "remote-persistence-disabled",
         "remote-auth-rejected",
@@ -66,6 +67,7 @@ def seed(root, recipe, repo):
         "remote-takeover-failure",
         "usage-remote-account",
         "usage-remote-other-account",
+        "usage-remote-other-organization",
     ):
         ssh = [
             "/usr/bin/ssh",
@@ -80,6 +82,12 @@ def seed(root, recipe, repo):
             capture_output=True,
             timeout=15,
         )
+        if recipe == "remote-creation-transport":
+            subprocess.run(
+                [*ssh, "git -C /home/fixture/project -c user.name=Fixture "
+                       "-c user.email=fixture@example.invalid commit --allow-empty -m baseline"],
+                check=True, capture_output=True, timeout=15,
+            )
         remote = call("remote", "add", "Fixture", "jam-fixture")
         ids["remote"] = remote["id"]
         if recipe.startswith("usage-remote-"):
@@ -89,6 +97,8 @@ def seed(root, recipe, repo):
                 encoded = base64.urlsafe_b64encode(json.dumps(claims).encode()).decode().rstrip("=")
                 token = "fixture." + encoded + ".fixture"
                 credentials["tokens"].update(access_token=token, id_token=token, account_id="second-account")
+            if recipe == "usage-remote-other-organization":
+                credentials["tokens"]["account_id"] = "fixture-second-organization"
             credentials["tokens"]["access_token"] += "-remote"
             subprocess.run([*ssh, 'umask 077; mkdir -p "$HOME/.codex"; cat > "$HOME/.codex/auth.json"'],
                            input=json.dumps(credentials), check=True, capture_output=True,

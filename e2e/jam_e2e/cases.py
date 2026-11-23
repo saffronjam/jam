@@ -1664,6 +1664,40 @@ case(
     behavior_ids=("identity",),
 )
 
+case(
+    "IDENTITY-004",
+    "A client relaunch retains reported identity while a server restart clears it",
+    ("remember_layout",),
+    ("remember_pids",),
+    ("program_identity", "codex"),
+    ("pane_field", "agent_provider", "codex"),
+    ("pane_field", "agent_source", "reported"),
+    ("relaunch",),
+    ("same_pids",),
+    ("pane_field", "agent_provider", "codex"),
+    ("pane_field", "agent_source", "reported"),
+    ("restart_server",),
+    ("same_layout",),
+    ("pane_field", "agent_provider", None),
+    ("pane_field", "agent_source", None),
+    ("run", "printf restarted-plain-shell"),
+    ("output", "restarted-plain-shell"),
+    behavior_ids=("identity",),
+)
+
+case(
+    "IDENTITY-005",
+    "A registered coordinator shows its provider and role in the terminal header",
+    ("click", "Coordinator", "row"),
+    ("visible", "fixture-agent-resumed"),
+    ("visible", "Codex · Coordinator"),
+    ("agent_field", "provider", "codex"),
+    ("registered_pane_fields", {"agent_provider": "codex", "agent_source": "registered",
+                               "agent_role": "coordinator"}),
+    behavior_ids=("identity",),
+    fixture="single-coordinator",
+)
+
 for index, (kind, menu, remote) in enumerate(
     (("png", False, False), ("tiff", True, False), ("png", False, True)), 1
 ):
@@ -1820,12 +1854,42 @@ case(
     ("click", "Server Details…", "menu"),
     ("visible", "Server — Local"),
     ("visible", "without stopping running sessions"),
+    ("enabled", "Retry", "button"),
+    ("click", "Retry", "button"),
+    ("enabled", "Retry", "button"),
+    ("visible", "without stopping running sessions"),
     ("resume_daemon",),
     ("absent", "Server — Local"),
     ("same_layout",),
     ("same_pids",),
     ("run", "printf daemon-recovered-without-restart"),
     ("output", "daemon-recovered-without-restart"),
+    behavior_ids=("diagnostics",),
+)
+
+case(
+    "DIAG-002",
+    "A broken SSH path exposes inspection and Retry without enabling destructive actions",
+    ("remote_shell",),
+    ("peer_transport", True),
+    ("visible", "Server unavailable", 60),
+    ("context", "Fixture", "machine"),
+    ("disabled", "Update Server…", "menu"),
+    ("disabled", "Restart Server…", "menu"),
+    ("absent", "Take Over Server…"),
+    ("click", "Server Details…", "menu"),
+    ("visible", "Server — Fixture"),
+    ("visible", "without stopping running sessions"),
+    ("enabled", "Retry", "button"),
+    ("click", "Retry", "button"),
+    ("enabled", "Retry", "button"),
+    ("remote_workspace_preserved",),
+    ("remote_server_stable", 2),
+    ("peer_transport", False),
+    ("absent", "Server — Fixture"),
+    ("remote_shell",),
+    ("remote_workspace_preserved",),
+    fixture="remote-creation-transport",
     behavior_ids=("diagnostics",),
 )
 
@@ -1879,6 +1943,17 @@ for index, mode in enumerate(("complete", "timeout"), 1):
         behavior_ids=("rendering",),
     )
 
+case(
+    "RENDER-003",
+    "A focused terminal renders steady, blinking and concealed cursor states",
+    ("remember_pids",),
+    ("cursor_frames",),
+    ("run", "printf input-after-cursor-changes"),
+    ("output", "input-after-cursor-changes"),
+    ("same_pids",),
+    behavior_ids=("rendering",),
+)
+
 for index, interrupted in enumerate((False, True), 4):
     case(
         f"CREATE-{index:03}",
@@ -1918,6 +1993,38 @@ case(
     ("file_text", "tracked.txt", "first\nsecond\n"),
     behavior_ids=("focus-close",),
 )
+
+for index, world in enumerate(("dirty-checkout", "single-coordinator"), 2):
+    child = world == "dirty-checkout"
+    case(
+        f"CLOSE-{index:03}",
+        "A live worktree requires confirmation before closing an empty project"
+        if child else "A live coordinator requires confirmation before closing its otherwise empty project",
+        ("write_config", "close_empty_tabs = false\nclose_empty_workspaces = false\n"),
+        ("relaunch",),
+        ("click", "Fixture", "row"),
+        ("type_terminal", "exit"),
+        ("key", "ENTER"),
+        ("visible", "No terminals"),
+        ("remember_pids",),
+        ("live_panes", 1),
+        ("context", "Fixture", "row"),
+        ("click", "Close Workspace", "menu"),
+        ("visible", "Close project and its open worktrees?"),
+        ("click", "Cancel", "button"),
+        ("same_pids",),
+        ("context", "Fixture", "row"),
+        ("click", "Close Workspace", "menu"),
+        ("visible", "Close project and its open worktrees?"),
+        ("click", "Close", "button"),
+        ("settle_count", "workspaces", 0),
+        ("settle_count", "panes", 0),
+        ("file_text", "tracked.txt", "first\nsecond\n"),
+        *((("file_text", "../Fixture checkout/dirty.txt", "Keep this uncommitted work\n"),
+           ("git_branch", "feature/existing")) if child else ()),
+        fixture=world,
+        behavior_ids=("focus-close",),
+    )
 
 case(
     "IMAGE-007",
@@ -2053,8 +2160,66 @@ case(
     ("click", "Codex, second@example.invalid", "button"),
     ("visible", "0 active sessions"),
     ("key", "ESCAPE"),
+    ("context", "Fixture", "machine"),
+    ("click", "Disconnect", "menu"),
+    ("click", "Codex, second@example.invalid", "button"),
+    ("visible", "Machine unavailable. Showing last known usage."),
+    ("visible", "25%"),
+    ("key", "ESCAPE"),
+    ("context", "Fixture", "machine"),
+    ("click", "Reconnect", "menu"),
+    ("remote_shell",),
+    ("click", "Codex, second@example.invalid", "button"),
+    ("absent", "Machine unavailable. Showing last known usage."),
+    ("key", "ESCAPE"),
     ("remote_workspace_preserved",),
     fixture="usage-remote-other-account",
+    behavior_ids=("accounts",),
+)
+
+case(
+    "ACCOUNT-004",
+    "One email shared by different organizations does not combine provider accounts",
+    ("remote_shell",),
+    ("usage_requests_from_both_hosts",),
+    ("visible", "67%"),
+    ("usage_page_cycle", ("67%", "25%", "38%")),
+    ("remote_workspace_preserved",),
+    fixture="usage-remote-other-organization",
+    behavior_ids=("accounts",),
+)
+
+case(
+    "ACCOUNT-005",
+    "Disabling a provider hides its usage and leaves the other provider available",
+    ("visible", "Claude"),
+    ("visible", "Codex"),
+    ("settings", "Agents"),
+    ("click", "Claude", "toggle"),
+    ("save",),
+    ("config", "enabled_agents", ["codex"]),
+    ("absent", "Claude"),
+    ("click", "Codex, fixture@example.invalid", "button"),
+    ("visible", "Codex usage"),
+    ("key", "ESCAPE"),
+    ("run", "printf terminal-available-with-integration-disabled"),
+    ("output", "terminal-available-with-integration-disabled"),
+    fixture="usage-configured-login",
+    behavior_ids=("accounts",),
+)
+
+case(
+    "ACCOUNT-006",
+    "The account page sums active provider processes across local and remote terminals",
+    ("run", "bash -c 'exec -a codex /bin/sleep 180' &"),
+    ("remote_shell", "bash -c 'exec -a codex /bin/sleep 180' &"),
+    ("usage_requests_from_both_hosts",),
+    ("click", "Codex, fixture@example.invalid", "button"),
+    ("visible", "2 active sessions"),
+    ("key", "ESCAPE"),
+    ("absent", "Next usage account"),
+    ("remote_workspace_preserved",),
+    fixture="usage-remote-account",
     behavior_ids=("accounts",),
 )
 
@@ -2111,6 +2276,68 @@ case(
     ("run", "printf original-selection-kept > selection-result.txt"),
     ("file_text", "selection-result.txt", "original-selection-kept"),
     ("settle_count", "workspaces", 2),
+    behavior_ids=("creation",),
+)
+
+case(
+    "CREATE-009",
+    "A remote checkout completed through a transport outage is found by explicit Retry",
+    ("remote_shell",),
+    ("hold_worktree_checkout", "remote"),
+    ("command", "New Worktree"),
+    ("fill", "Branch name", "transport-creation"),
+    ("fill", "Base revision", "HEAD"),
+    ("click", "Create", "button"),
+    ("peer_checkout", "transport-creation"),
+    ("visible", "Opening workspace"),
+    ("peer_transport", True),
+    ("visible", "Retry", 45),
+    ("release_peer_checkout",),
+    ("created_workspace", "/home/fixture/wt/project/transport-creation", True),
+    ("peer_transport", False),
+    ("click", "Retry", "button"),
+    ("absent", "Opening workspace"),
+    ("type_terminal", "pwd > /home/fixture/project/transport-result.txt"),
+    ("key", "ENTER"),
+    ("remote_file_text", "transport-result.txt", "/home/fixture/wt/project/transport-creation\n"),
+    ("peer_checkout", "transport-creation"),
+    fixture="remote-creation-transport",
+    behavior_ids=("creation", "creation-recovery"),
+)
+
+case(
+    "CREATE-010",
+    "Local New Workspace opens one ready terminal at the user's home",
+    ("command", "New Workspace"),
+    ("created_workspace", ".", False),
+    ("run", "[ \"$PWD\" = \"$HOME\" ] && printf home-shell-ready > new-workspace.txt"),
+    ("home_file_text", "new-workspace.txt", "home-shell-ready"),
+    ("settle_count", "workspaces", 2),
+    behavior_ids=("creation",),
+)
+
+case(
+    "CREATE-011",
+    "A pending checkout prevents reordering until the new workspace is ready",
+    ("open_directory", "Second workspace"),
+    ("created_workspace", "Second workspace", False),
+    ("click", "Project ü with spaces", "row"),
+    ("hold_worktree_checkout",),
+    ("command", "New Worktree"),
+    ("fill", "Branch name", "reorder-creation"),
+    ("fill", "Base revision", "HEAD"),
+    ("click", "Create", "button"),
+    ("checkout_pending",),
+    ("visible", "Opening workspace"),
+    ("drag", "Second workspace", "Project ü with spaces", 0.5, 0.12, "row"),
+    ("workspace_prefix", "Project ü with spaces", "Second workspace"),
+    ("release_worktree_checkout",),
+    ("created_workspace", "wt/Project ü with spaces/reorder-creation", False),
+    ("drag", "Second workspace", "Project ü with spaces", 0.5, 0.12, "row"),
+    ("workspace_prefix", "Second workspace", "Project ü with spaces"),
+    ("settle_count", "workspaces", 3),
+    ("run", "printf reordered-selection-ready > selected-workspace.txt"),
+    ("home_file_text", "Second workspace/selected-workspace.txt", "reordered-selection-ready"),
     behavior_ids=("creation",),
 )
 

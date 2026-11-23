@@ -53,7 +53,7 @@ def test_layout_punctuation_releases_option_and_shift_before_ordinary_input():
 def test_linux_drag_starts_with_a_pointer_move_without_keyboard_ticks():
     ui = Desktop("linux", "unused", Mock(), Mock())
     ui.session = Mock()
-    ui.element = lambda name: WebElement(ui.session, name)
+    ui.element = lambda name, role=None: WebElement(ui.session, name)
     ui.session.execute.return_value = {"value": {"x": 0, "y": 0, "width": 80, "height": 30}}
     ui.drag("source", "destination")
     actions = ui.session.execute.call_args.args[1]["actions"]

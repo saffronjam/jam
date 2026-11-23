@@ -86,11 +86,13 @@ def handler(root, scenario, events):
             # Record only the origin marker reserved for the synthetic remote
             # login. Never retain authorization headers or credential bytes.
             auth = self.headers.get("Authorization", "")
+            remote_login = auth.endswith(".fixture-remote")
+            separate_usage = state.get("distinct_organization_usage", False)
             with events.open("a") as output:
                 output.write(
                     json.dumps(
                         {"path": path, "authenticated": bool(auth),
-                         "fixture_host": "remote" if auth.endswith(".fixture-remote") else "local"}
+                         "fixture_host": "remote" if remote_login else "local"}
                     )
                     + "\n"
                 )
@@ -101,14 +103,15 @@ def handler(root, scenario, events):
                 return
             if path == "/claude/usage":
                 value = {
-                    "five_hour": {"utilization": 25, "resets_at": "2030-01-01T00:00:00Z"},
+                    "five_hour": {"utilization": 38 if separate_usage else 25,
+                                  "resets_at": "2030-01-01T00:00:00Z"},
                     "seven_day": {"utilization": 50, "resets_at": "2030-01-05T00:00:00Z"},
                 }
             elif path == "/codex/usage":
                 value = {
                     "rate_limit": {
                         "primary_window": {
-                            "used_percent": 25,
+                            "used_percent": 67 if separate_usage and remote_login else 25,
                             "reset_at": 1893456000,
                             "limit_window_seconds": 18000,
                         },

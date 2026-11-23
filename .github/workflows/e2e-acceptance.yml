@@ -10,7 +10,7 @@ on:
         required: false
         default: ''
       fixture_run:
-        description: Optional completed fixture producer for a test-only diagnostic; records its source
+        description: Optional completed fixture producer from the exact same revision
         type: string
         required: false
         default: ''
@@ -66,7 +66,6 @@ jobs:
     env:
       E2E_SHARD_INDEX: ${{ matrix.shard }}
       E2E_SOURCE_REVISION: ${{ inputs.ref || github.sha }}
-      E2E_IMPORTED_FIXTURES: ${{ inputs.fixture_run }}
       E2E_FIXTURE_PRODUCER: ${{ inputs.fixture_run || github.run_id }}
       CARGO_BUILD_JOBS: 2
       APPIUM_HOME: ${{ github.workspace }}/.cache/appium-home
@@ -113,6 +112,7 @@ jobs:
         run: |
           mkdir -p .cache/e2e-bundle
           tar -xzf build/fixture-release-bundle.tar.gz -C .cache/e2e-bundle
+          test "$(cat .cache/e2e-bundle/source-revision)" = "$(git rev-parse HEAD)"
           if [[ -f build/fixture-source.json ]]; then
             mkdir -p e2e/artifacts
             cp build/fixture-source.json e2e/artifacts/fixture-source.json
@@ -211,10 +211,6 @@ jobs:
         shell: bash
         run: |
           E2E_SOURCE_REVISION=$(git rev-parse HEAD)
-          test -s .cache/e2e-bundle/source-revision
-          if [[ -z "$E2E_IMPORTED_FIXTURES" ]]; then
-            test "$(cat .cache/e2e-bundle/source-revision)" = "$E2E_SOURCE_REVISION"
-          fi
           if [[ "$RUNNER_OS" == macOS ]]; then
             app="$PWD/.cache/e2e-bundle/installation/Jam.app"
             platform=macos

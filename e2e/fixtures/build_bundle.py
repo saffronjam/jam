@@ -50,6 +50,7 @@ HTTPS = (
 )
 REMOTE = (
     "remote-connected",
+    "remote-creation-transport",
     "remote-offline",
     "remote-persistence-disabled",
     "remote-auth-rejected",
@@ -57,6 +58,7 @@ REMOTE = (
     "remote-host-untrusted",
     "usage-remote-account",
     "usage-remote-other-account",
+    "usage-remote-other-organization",
 )
 
 
@@ -80,8 +82,7 @@ def recipes(ssh_image=None, engine=None, vm=None, previous=False, newer=False,
         if recipe == "update-foreign-server":
             spec["services"][0]["argv"] = ["{python}", "{bundle}/foreign_server.py",
                                            "{root}", "{daemon}"]
-        if recipe in HTTPS or recipe in {"update-required", "usage-remote-account",
-                                         "usage-remote-other-account"}:
+        if recipe in HTTPS or recipe == "update-required" or recipe.startswith("usage-remote-"):
             spec["services"].insert(
                 0,
                 {
@@ -101,6 +102,12 @@ def recipes(ssh_image=None, engine=None, vm=None, previous=False, newer=False,
                 },
             )
         if recipe in remote_worlds:
+            if recipe == "remote-creation-transport":
+                spec["services"].insert(0, {
+                    "argv": ["{python}", "{bundle}/ssh_transport.py", "{root}"],
+                    "ready": "{root}/ssh-transport.ready",
+                    "expected_exit": 0,
+                })
             archive = (
                 "{bundle}/remote/previous.tar.gz"
                 if recipe == "remote-update-available"

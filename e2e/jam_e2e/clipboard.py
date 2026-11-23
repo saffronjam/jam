@@ -84,21 +84,18 @@ def verify_image(profile, kind, remote=False):
 
 _linux_owner = None
 _linux_log = None
+_linux_directory = None
 
 
 def linux_clipboard(action, profile, data=None):
     # Wayland delivers data from its live owner. Keep the helper alive after
     # each case so restored clipboard contents are still available to the next.
-    global _linux_owner, _linux_log
+    global _linux_owner, _linux_log, _linux_directory
     if _linux_owner is None:
         helper = Path(__file__).parents[1] / "native/linux/clipboard.py"
-        # This helper owns the clipboard. The app under test provides the
-        # accessibility tree and input targets, so the helper needs no bridge.
-        # Only this small GTK owner window uses Cairo. The Jam executable has
-        # its own renderer and receives the normal application environment.
-        env = dict(profile.env, GDK_BACKEND="wayland", GSK_RENDERER="cairo",
-                   GTK_A11Y="none", NO_AT_BRIDGE="1")
-        _linux_log = profile.root / "native-clipboard.log"
+        env = dict(profile.env, GDK_BACKEND="wayland")
+        _linux_directory = tempfile.TemporaryDirectory(prefix="je-clipboard-")
+        _linux_log = Path(_linux_directory.name) / "native-clipboard.log"
         with _linux_log.open("w") as diagnostics:
             _linux_owner = subprocess.Popen(
                 ["/usr/bin/python3", str(helper)], env=env, text=True,
@@ -142,3 +139,4 @@ def stop_linux_clipboard():
         _linux_owner.wait(timeout=5)
     finally:
         _linux_owner.stdout.close()
+        _linux_directory.cleanup()

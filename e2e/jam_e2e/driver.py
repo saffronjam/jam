@@ -955,8 +955,8 @@ class Desktop:
     def middle(self, name):
         self._click_element(self.element(name), button=1)
 
-    def drag(self, source, target, target_x=0.5, target_y=0.5):
-        start_element, end_element = self.element(source), self.element(target)
+    def drag(self, source, target, target_x=0.5, target_y=0.5, role=None):
+        start_element, end_element = self.element(source, role), self.element(target, role)
         if self.platform == "macos":
             # Mac2 4.6.1's W3C pointer-move synthesizer loops indefinitely
             # when the preceding item is a pause. Use its native XCTest

@@ -1,4 +1,4 @@
-"""Produce timed synchronized redraws through a real terminal."""
+"""Produce synchronized redraws and cursor states through a real terminal."""
 
 import json
 import sys
@@ -24,15 +24,27 @@ def main(path, mode):
         sys.stdout.write(value)
         sys.stdout.flush()
 
+    def requested(phase):
+        deadline = time.monotonic() + 45
+        while not path.with_suffix("." + phase).exists():
+            if time.monotonic() >= deadline:
+                raise TimeoutError("No render observer for " + phase)
+            time.sleep(0.025)
+
     send("\x1b[?1049h\x1b[?25l")
     try:
         frame((24, 169, 78))
         receipt({"phase": "ready"})
-        deadline = time.monotonic() + 45
-        while not path.with_suffix(".go").exists():
-            if time.monotonic() >= deadline:
-                raise TimeoutError("No render observer")
-            time.sleep(0.025)
+        if mode == "cursor":
+            for phase, control in (("steady", "\x1b[8;10H\x1b[2 q\x1b[?25h"),
+                                   ("blink", "\x1b[1 q"), ("concealed", "\x1b[?25l")):
+                requested(phase)
+                send(control)
+                receipt({"phase": phase})
+            if sys.stdin.readline().strip() != "exit":
+                raise ValueError("Expected exit from the native terminal")
+            return
+        requested("go")
         intervals = []
         for _ in range(5 if mode == "complete" else 1):
             start = time.monotonic_ns()
@@ -53,7 +65,7 @@ def main(path, mode):
         if sys.stdin.readline().strip() != "exit":
             raise ValueError("Expected exit from the native terminal")
     finally:
-        send("\x1b[?2026l\x1b[?25h\x1b[?1049l")
+        send("\x1b[?2026l\x1b[0 q\x1b[?25h\x1b[?1049l")
         path.with_suffix(".exited").touch()
 
 

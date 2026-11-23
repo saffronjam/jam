@@ -4,8 +4,12 @@ import io
 import json
 import shutil
 import subprocess
+import shlex
+import sys
+import time
+from pathlib import Path
 
-from PIL import Image, ImageOps, ImageStat
+from PIL import Image, ImageChops, ImageOps, ImageStat
 
 from .driver import wait
 
@@ -77,11 +81,6 @@ def terminal_text(ui, expected, appearance=None):
 
 def synchronized_frames(jam, mode):
     """Sample real terminal images while an independent PTY program holds output."""
-    import shlex
-    import sys
-    import time
-    from pathlib import Path
-
     ui, root = jam.ui, jam.profile.repo
     path = root / "render-probe.json"
     probe = Path(__file__).with_name("render_probe.py")
@@ -137,3 +136,66 @@ def synchronized_frames(jam, mode):
     ui.type("exit")
     ui.key("ENTER")
     wait(path.with_suffix(".exited").exists, "render program leaves the terminal")
+
+
+def cursor_frames(jam):
+    """Compare terminal surfaces while the foreground program changes only its cursor."""
+    ui, root = jam.ui, jam.profile.repo
+    path = root / "render-probe.json"
+    probe = Path(__file__).with_name("render_probe.py")
+    jam.terminal()
+    ui.type(shlex.join([sys.executable, str(probe), str(path), "cursor"]))
+    ui.key("ENTER")
+
+    def observe():
+        png, _ = terminal_pixels(ui)
+        return Image.open(io.BytesIO(png)).convert("RGB")
+
+    def stable(image):
+        until = time.monotonic() + 1.2
+        while True:
+            assert ImageChops.difference(image, observe()).getbbox() is None, (
+                "A hidden or steady cursor was redrawn visibly")
+            if time.monotonic() >= until:
+                return
+
+    def advance(phase):
+        path.with_suffix("." + phase).touch()
+        wait(lambda: json.loads(path.read_text())["phase"] == phase,
+             f"the foreground terminal program emits the {phase} cursor state")
+
+    def blank_frame():
+        image = observe()
+        # Observe the probe's alternate screen before taking the reference.
+        if any(count >= 150 and all(abs(a - b) <= 5 for a, b in zip(rgb, (24, 169, 78)))
+               for count, rgb in image.getcolors(image.width * image.height)):
+            return image
+        return None
+
+    wait(path.exists, "cursor probe starts")
+    hidden = wait(blank_frame, "native alternate screen with concealed cursor")
+    hidden.save(root / "visual-cursor-hidden.png")
+    stable(hidden)
+    advance("steady")
+
+    def painted_cursor():
+        image = observe()
+        return image if ImageChops.difference(hidden, image).getbbox() else None
+
+    steady = wait(painted_cursor, "visible steady cursor pixels")
+    x1, y1, x2, y2 = ImageChops.difference(hidden, steady).getbbox()
+    assert 0 < x2 - x1 <= 40 and 0 < y2 - y1 <= 65, "Changed pixels extend outside one cursor cell"
+    steady.save(root / "visual-cursor-steady.png")
+    stable(steady)
+    advance("blink")
+    wait(lambda: ImageChops.difference(hidden, observe()).getbbox() is None,
+         "blinking cursor leaves the hidden reference pixels", timeout=5)
+    blink_on = wait(painted_cursor, "blinking cursor reappears", timeout=5)
+    blink_on.save(root / "visual-cursor-blink.png")
+    advance("concealed")
+    wait(lambda: ImageChops.difference(hidden, observe()).getbbox() is None,
+         "explicitly hidden cursor returns to the same pixels", timeout=5)
+    stable(hidden)
+    ui.type("exit")
+    ui.key("ENTER")
+    wait(path.with_suffix(".exited").exists, "cursor probe leaves the terminal")

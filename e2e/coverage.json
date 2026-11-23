@@ -43,14 +43,19 @@
         "CREATE-005",
         "CREATE-006",
         "CREATE-007",
-        "CREATE-008"
+        "CREATE-008",
+        "CREATE-009",
+        "CREATE-010",
+        "CREATE-011"
       ],
       "assertions": [
         "Failed worktree creation preserves existing state and supports explicit Retry or Dismiss",
         "Successful Retry creates one usable workspace",
         "A real blocked Git checkout is pending until released, then exposes a usable first terminal",
         "Opening the same local or remote directory twice leaves one live workspace at that path",
-        "Completing a worktree does not take back selection after the user moves away"
+        "Completing a worktree does not take back selection after the user moves away",
+        "Local New Workspace starts a usable terminal in the private home",
+        "Workspace order stays fixed during a pending checkout and can change after completion"
       ],
       "supporting_tests": [
         "apps/macos/Tests/JamTests/WorkspaceCreationTests.swift",
@@ -63,11 +68,13 @@
       "reviewed": false,
       "cases": [
         "CREATE-003",
-        "CREATE-005"
+        "CREATE-005",
+        "CREATE-009"
       ],
       "assertions": [
         "Capability-limited remote fallback creates a live terminal using the peer home",
-        "Explicit Retry after a real timed-out operation results in one workspace"
+        "Explicit Retry after a real timed-out operation results in one workspace",
+        "Cutting the client SSH path leaves the peer's checkout running, and Retry recovers its one persisted workspace"
       ],
       "supporting_tests": [
         "crates/jam/tests/persistence.rs::retrying_workspace_creation_returns_the_same_workspace_and_pane"
@@ -102,10 +109,12 @@
       "title": "Timeout diagnostics and server operations",
       "reviewed": false,
       "cases": [
-        "DIAG-001"
+        "DIAG-001",
+        "DIAG-002"
       ],
       "assertions": [
-        "A stopped owned daemon exposes details and resumes without replacing the daemon or shell"
+        "A stopped owned daemon exposes Retry and resumes without replacing the daemon or shell",
+        "SSH transport failure exposes inspection and Retry while disabling destructive actions and preserving the remote server"
       ],
       "supporting_tests": [
         "crates/jam/tests/persistence.rs::a_blocked_coordination_write_does_not_block_health_or_terminal_input",
@@ -141,14 +150,22 @@
       "cases": [
         "ACCOUNT-001",
         "ACCOUNT-002",
-        "ACCOUNT-003"
+        "ACCOUNT-003",
+        "ACCOUNT-004",
+        "ACCOUNT-005",
+        "ACCOUNT-006"
       ],
       "assertions": [
         "A configured account is visible without any active agent session",
-        "Shared logins collapse to one page, separate logins can be selected independently"
+        "Shared logins collapse to one page, separate logins can be selected independently",
+        "A remote-only account shows last known usage while disconnected and clears its stale warning on reconnect",
+        "Organizations that share a login email remain distinct from each other and other providers",
+        "Disabling a provider in Settings hides its cards while preserving other provider usage and terminal input",
+        "The merged account adds active provider processes across both machines"
       ],
       "supporting_tests": [
-        "apps/macos/Tests/JamTests/AgentUsageTests.swift"
+        "apps/macos/Tests/JamTests/AgentUsageTests.swift",
+        "crates/jam-core/src/usage/mod.rs::only_explicit_authorization_can_queue_a_keychain_prompt"
       ]
     },
     {
@@ -159,6 +176,8 @@
         "IDENTITY-001",
         "IDENTITY-002",
         "IDENTITY-003",
+        "IDENTITY-004",
+        "IDENTITY-005",
         "IMAGE-004",
         "FOCUS-001"
       ],
@@ -166,7 +185,9 @@
         "Canonical provider and reported source appear via the public CLI and visible pane label",
         "Acknowledgement/clear retain provider; shell return ends it",
         "Titles alone do not register agents",
-        "Foreground acknowledgement preserves reported provider identity"
+        "Foreground acknowledgement preserves reported provider identity",
+        "Client relaunch preserves live identity and a daemon restart clears it from the new shell",
+        "Registered coordinator provider and role appear on its pane and in the visible terminal header"
       ],
       "supporting_tests": [
         "crates/jam-core/src/status.rs::identity_is_separate_from_activity_and_nested_tool_reports",
@@ -180,13 +201,16 @@
       "reviewed": false,
       "cases": [
         "CLOSE-001",
+        "CLOSE-002",
+        "CLOSE-003",
         "FOCUS-001",
         "RENAME-001"
       ],
       "assertions": [
         "Closing an exited workspace requires no confirmation and preserves its files",
         "Completion stays unread on an inactive tab and selecting it acknowledges only its activity",
-        "Terminal focus returns after inline editing without an extra focus click"
+        "Terminal focus returns after inline editing without an extra focus click",
+        "A live worktree or coordinator requires confirmation before closing its otherwise empty project"
       ],
       "supporting_tests": [
         "apps/macos/Tests/JamUITests/TerminalSwitchTests.swift::checkAutomaticFocusAcknowledgement",
@@ -200,12 +224,14 @@
       "cases": [
         "RENDER-001",
         "RENDER-002",
+        "RENDER-003",
         "RENAME-001"
       ],
       "assertions": [
         "Native pixel samples during a fragmented redraw show the last completed frame",
         "An unterminated redraw eventually publishes its frame and terminal input continues",
-        "The renamed editor shows its new text without the old label in native pixels"
+        "The renamed editor shows its new text without the old label in native pixels",
+        "Hidden, steady and blinking cursor states are distinguishable in actual native terminal pixels"
       ],
       "supporting_tests": [
         "crates/jam-core/src/client.rs::fragmented_synchronized_redraws_only_publish_complete_frames",
