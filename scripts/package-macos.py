@@ -11,8 +11,42 @@ import shutil
 import subprocess
 import tempfile
 import tomllib
+from macos_toolchain import verify_app
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
+
+
+def bundle_in_use(bundle):
+    """Keep code and resources addressable until every user has exited."""
+    try:
+        result = subprocess.run(['lsof', '-nP', '-t', '+D', str(bundle)], capture_output=True, timeout=15)
+    except (OSError, subprocess.TimeoutExpired):
+        return True  # An uncertain probe must never delete a live bundle.
+    return bool(result.stdout.strip() or result.stderr.strip()) or result.returncode not in (0, 1)
+
+
+def retired_directory(destination):
+    return destination.parent / f'.{destination.name}.retired'
+
+
+def prune_retired_bundles(destination):
+    directory = retired_directory(destination)
+    if not directory.exists():
+        return
+    for entry in directory.iterdir():
+        if entry.name.startswith('bundle-') and entry.is_dir() and not entry.is_symlink():
+            if not bundle_in_use(entry):
+                shutil.rmtree(entry)
+
+
+def retain_running_bundle(staged, destination):
+    if not bundle_in_use(staged):
+        return None
+    directory = retired_directory(destination)
+    directory.mkdir(mode=0o700, exist_ok=True)
+    retained = pathlib.Path(tempfile.mkdtemp(prefix='bundle-', dir=directory)) / destination.name
+    os.replace(staged, retained)
+    return retained
 
 
 def publish_bundle(staged, destination):
@@ -28,6 +62,7 @@ def publish_bundle(staged, destination):
     if swap(os.fsencode(staged), os.fsencode(destination), 0x00000002):
         error = ctypes.get_errno()
         raise OSError(error, os.strerror(error), str(destination))
+    return retain_running_bundle(staged, destination)
 
 
 def assemble(staged, release):
@@ -49,6 +84,9 @@ def assemble(staged, release):
         target = contents / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(ROOT / source, target)
+    # Check the executable, not only the active SDK: stale binaries may have
+    # been linked against the old appearance even after selecting new tools.
+    verify_app(contents / 'MacOS/Jam')
     remote = ROOT / 'build/remote'
     if remote.exists():
         destination = contents / 'Resources/remote'
@@ -96,12 +134,13 @@ def main():
     # Serializes independent builds, including the existence/swap decision.
     with (bundle.parent / '.jam-package.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
+        prune_retired_bundles(bundle)
         with tempfile.TemporaryDirectory(prefix='.jam-package-', dir=bundle.parent) as directory:
             staged = pathlib.Path(directory) / 'Jam.app'
             assemble(staged, args.release)
             publish_bundle(staged, bundle)
-            # After a swap the staging path holds the old bundle. Unlinking it
-            # leaves existing mapped executables alive; their bytes never change.
+            # Live bundles have moved out of staging. Their executable paths
+            # and resources survive until a later build sees no remaining users.
         subprocess.run(['codesign', '--verify', '--deep', '--strict', str(bundle)], check=True)
     print(f'Built and verified {bundle}')
 

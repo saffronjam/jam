@@ -44,7 +44,9 @@ Saved layouts and agent conversations can be restored after a server restart. Or
 
 ## Build
 
-Install Python 3.11 or later, Xcode Command Line Tools, Rust through rustup, and [just](https://github.com/casey/just). The repository pins Rust and downloads a checksum-verified Zig toolchain into `.cache`.
+Install Python 3.11 or later, Xcode 26.5 (or Command Line Tools with macOS SDK 26.5), Rust through rustup, and [just](https://github.com/casey/just). The repository pins Rust and downloads a checksum-verified Zig toolchain into `.cache`.
+
+Local and CI builds share the SDK pin in [`scripts/macos-toolchain.json`](scripts/macos-toolchain.json). Both check and release workflows select that Xcode explicitly. Builds verify the SDK before compiling and check the app executable before packaging, so an older SDK cannot silently restore the legacy sidebar and colors. The deployment target remains macOS 14; the build SDK does not raise the minimum supported OS.
 
 ```sh
 just dev           # Build and launch the macOS app

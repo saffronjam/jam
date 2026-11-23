@@ -20,6 +20,11 @@ import uuid
 os.environ.setdefault('XDG_RUNTIME_DIR', '/run/user/' + str(os.getuid()))
 source = pathlib.Path(sys.argv[1])
 options = set(sys.argv[2:])
+takeover_values = [v.removeprefix('--takeover-state=') for v in options if v.startswith('--takeover-state=')]
+options = {v for v in options if not v.startswith('--takeover-state=')}
+if len(takeover_values) > 1:
+    sys.exit('Multiple takeover approvals')
+takeover = json.loads(base64.b64decode(takeover_values[0], validate=True))['takeover'] if takeover_values else None
 approved_values = [value.removeprefix('--approved-state=') for value in options if value.startswith('--approved-state=')]
 options = {value for value in options if not value.startswith('--approved-state=')}
 if len(approved_values) > 1:
@@ -52,6 +57,8 @@ expected = [value.removeprefix('--expected-build=') for value in options if valu
 options = {value for value in options if not value.startswith('--expected-build=')}
 if len(expected) > 1:
     sys.exit('Multiple expected server builds')
+if takeover is not None:
+    options.add('--allow-unversioned')
 if options - {'--restart-active', '--defer-if-busy', '--allow-unversioned', '--server-stopped'}:
     sys.exit('Unknown server install option')
 force = '--restart-active' in options
@@ -94,7 +101,7 @@ def private_directory(path, create=True):
 def owned_file(path, private=False):
     info = path.lstat()
     if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or (private and info.st_mode & 0o077):
-        sys.exit('Unsafe transaction file; server left unchanged')
+        sys.exit('Unsafe transaction file. Server left unchanged')
 
 
 def sync_directory(path):
@@ -127,7 +134,7 @@ def socket_is_absent():
             connection.connect(str(runtime_socket))
         except (FileNotFoundError, ConnectionRefusedError):
             return
-    sys.exit('Server is running; obtain fresh interruption confirmation before recovery')
+    sys.exit('Server is running. Obtain fresh interruption confirmation before recovery')
 
 
 def validate_build(name):
@@ -183,6 +190,42 @@ private_directory(transactions)
 
 with (base / '.install.lock').open('w') as lock:
     fcntl.flock(lock, fcntl.LOCK_EX)
+    recovery_restart = False
+    if takeover is not None and 'recovery_remote' in takeover:
+        import runpy
+        inspected = runpy.run_path(str(source / 'server-inspect.py'))['inspect']()
+        identifier = takeover['recovery_remote']
+        uuid.UUID(identifier)
+        if inspected['identity'] != takeover['live'] or inspected['recovery'] != {'id': identifier, 'phase': takeover['phase']}:
+            sys.exit('Recovery target changed. Inspect the server again')
+        target = transactions / (identifier + '.json')
+        owned_file(target, private=True)
+        saved = json.loads(target.read_text())
+        # A newer release cannot be replaced even during recovery.
+        def checked_version(value):
+            if value is None:
+                return (0, 0, 0)
+            if not re.fullmatch(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', value):
+                sys.exit('Invalid release version. Server left unchanged')
+            return tuple(map(int, value.split('.')))
+        versions = [inspected.get('installed_version'), inspected.get('runtime_version'), (inspected.get('info') or {}).get('release_version')]
+        if any(checked_version(v) > checked_version(manifest.get('release_version')) for v in versions):
+            sys.exit('Newer Jam server is installed. Update Jam before recovery')
+        if saved['phase'] in VERIFIED_PHASES:
+            if (state / '.upgrade-boot.json').exists():
+                subprocess.run([str(base / 'current/jam'), 'daemon', 'commit-upgrade', identifier], check=True, timeout=15)
+            commit_values = [identifier]
+        else:
+            if inspected['running']:
+                main_pid = subprocess.check_output(['systemctl','--user','show','jamd.service','-p','MainPID','--value'], text=True, timeout=5).strip()
+                if main_pid != str(inspected['identity']['pid']):
+                    sys.exit('Service ownership changed. Server left unchanged')
+                subprocess.run(['systemctl','--user','stop','jamd.service'], check=True, timeout=15)
+            socket_is_absent()
+            stopped_mode = True
+            recovery_values = [identifier]
+            recovery_restart = saved.get('was_running', False)
+        takeover = None
     if recovery_values or commit_values:
         if recovery_values and not stopped_mode:
             sys.exit('Transaction recovery requires --server-stopped and fresh consent')
@@ -203,7 +246,7 @@ with (base / '.install.lock').open('w') as lock:
         current = base / 'current'
         active = current.resolve() if current.exists() else None
         if active not in (new, old):
-            sys.exit('Server activation changed after this transaction; refusing rollback')
+            sys.exit('Server activation changed after this transaction. Refusing rollback')
         checkpoint = pathlib.Path(receipt['checkpoint'])
         if not checkpoint.is_absolute():
             sys.exit('Invalid checkpoint path')
@@ -212,12 +255,12 @@ with (base / '.install.lock').open('w') as lock:
         if boot.exists():
             owned_file(boot, private=True)
             if json.loads(boot.read_text()).get('token') != receipt['id']:
-                sys.exit('Boot gate belongs to another transaction; refusing recovery')
+                sys.exit('Boot gate belongs to another transaction. Refusing recovery')
         if commit_values:
             if receipt['phase'] not in VERIFIED_PHASES or active != new:
                 sys.exit('Transaction is not verified or activation changed')
             if boot.exists():
-                sys.exit('Transaction boot gate remains held; verify and commit the new server first')
+                sys.exit('Transaction boot gate remains held. Verify and commit the new server first')
             inspect = [str(new / 'jamd'), '--build-info'] if stopped_mode else [str(new / 'jam'), '--json', 'daemon', 'info']
             info = json.loads(subprocess.check_output(inspect, text=True, timeout=10))
             expected_build = json.loads((new / 'manifest.json').read_text()).get('server_build')
@@ -227,13 +270,13 @@ with (base / '.install.lock').open('w') as lock:
             receipt['phase'] = 'committed'
         elif receipt['phase'] in VERIFIED_PHASES:
             if active != new:
-                sys.exit('Verified server activation changed; refusing recovery')
+                sys.exit('Verified server activation changed. Refusing recovery')
             (state / '.upgrade-boot.json').unlink(missing_ok=True)
             sync_directory(state)
             receipt['phase'] = 'committed'
         elif receipt['phase'] != 'rolled_back':
             if active == new and not (checkpoint / 'complete.json').exists() and old is not None:
-                sys.exit('Activated transaction has no complete checkpoint; refusing unsafe rollback')
+                sys.exit('Activated transaction has no complete checkpoint. Refusing unsafe rollback')
             restore_saved_checkpoint(checkpoint)
             if old is not None:
                 link = base / ('recover-' + uuid.uuid4().hex)
@@ -244,6 +287,8 @@ with (base / '.install.lock').open('w') as lock:
             sync_directory(base)
             receipt['phase'] = 'rolled_back'
         atomic_json(receipt_path, receipt)
+        if recovery_restart:
+            subprocess.run(['systemctl', '--user', 'restart', 'jamd.service'], check=True, timeout=15)
         print('Recovered Jam server transaction ' + receipt['id'] + ': ' + receipt['phase'])
         sys.exit(0)
     for receipt_path in transactions.glob('*.json'):
@@ -251,28 +296,38 @@ with (base / '.install.lock').open('w') as lock:
         pending = json.loads(receipt_path.read_text())
         if pending.get('phase') not in TERMINAL_PHASES:
             sys.exit('Unfinished Jam server upgrade transaction ' + pending.get('id', receipt_path.stem)
-                     + '; recover it with fresh consent before installing another build')
+                     + '. Recover it with fresh consent before installing another build')
     if unit.exists() and unit.read_text() != content:
-        sys.exit('Existing jamd service differs; refusing to overwrite it')
+        sys.exit('Existing jamd service differs. Refusing to overwrite it')
+    if takeover is not None:
+        import runpy
+        inspection = runpy.run_path(str(source / 'server-inspect.py'))['inspect']()
+        if inspection['identity'] != takeover:
+            sys.exit('The server changed. Inspect it again before taking over')
+        managed_pid = subprocess.check_output(['systemctl', '--user', 'show', 'jamd.service', '-p', 'MainPID', '--value'], text=True, timeout=5).strip()
+        if managed_pid != str(takeover['pid']):
+            sys.exit('The service does not own this server. Server left unchanged')
     # Recheck under the cross-client install lock, before copying or stopping.
     def release(value):
         match = re.fullmatch(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', value or '')
         if not match:
-            sys.exit('Missing or unsupported release version; server left unchanged')
+            sys.exit('Missing or unsupported release version. Server left unchanged')
         return tuple(map(int, match.groups()))
     candidate = release(manifest.get('release_version'))
     previous_manifest = base / 'current/manifest.json'
     if previous_manifest.exists():
         installed = json.loads(previous_manifest.read_text()).get('release_version')
         if installed is None and '--allow-unversioned' not in options:
-            sys.exit('Unversioned server requires explicit migration; server left unchanged')
+            sys.exit('Unversioned server requires explicit migration. Server left unchanged')
         if installed is not None and release(installed) > candidate:
-            sys.exit('Newer Jam server is installed; upgrade the client instead')
+            sys.exit('Newer Jam server is installed. Upgrade the client instead')
     metadata = pathlib.Path(os.environ['XDG_RUNTIME_DIR']) / ('jam-' + str(os.getuid())) / 'release.json'
     if metadata.exists():
         running = json.loads(metadata.read_text()).get('release_version')
-        if release(running) > candidate:
-            sys.exit('Newer Jam server is running; upgrade the client instead')
+        if running is None and takeover is not None:
+            pass
+        elif release(running) > candidate:
+            sys.exit('Newer Jam server is running. Upgrade the client instead')
     if stopped_mode:
         runtime_socket = pathlib.Path(os.environ['XDG_RUNTIME_DIR']) / ('jam-' + str(os.getuid())) / 'jamd.sock'
         with socket.socket(socket.AF_UNIX) as connection:
@@ -282,7 +337,7 @@ with (base / '.install.lock').open('w') as lock:
             except (FileNotFoundError, ConnectionRefusedError):
                 pass
             else:
-                sys.exit('Server is running; explicit interruption confirmation is required')
+                sys.exit('Server is running. Explicit interruption confirmation is required')
     build = base / manifest['build']
     if not build.exists():
         temporary = base / (manifest['build'] + '.partial-' + uuid.uuid4().hex)
@@ -310,7 +365,7 @@ with (base / '.install.lock').open('w') as lock:
     transaction_id = transaction_values[0] if transaction_values else (fields['token'] if approval is not None else str(uuid.uuid4()))
     receipt_path = transactions / (transaction_id + '.json')
     if receipt_path.exists():
-        sys.exit('Transaction identifier was already used; recover rather than replaying it')
+        sys.exit('Transaction identifier was already used. Recover rather than replaying it')
     if checkpoint_values:
         checkpoint = pathlib.Path(checkpoint_values[0])
         if not checkpoint.is_absolute():
@@ -391,7 +446,13 @@ with (base / '.install.lock').open('w') as lock:
             # A failed stop can mean that the server stopped but its response
             # was lost. Recovery must attempt to start the previous executable.
             phase('stop_requested')
-            if admission_acquired:
+            if takeover is not None:
+                if runpy.run_path(str(source / 'server-inspect.py'))['inspect']()['identity'] != takeover:
+                    raise RuntimeError('The server changed before shutdown. Inspect it again')
+                stopped_old = True
+                subprocess.run(['systemctl', '--user', 'stop', 'jamd.service'], check=True, timeout=15)
+                socket_is_absent()
+            elif admission_acquired:
                 # A rejected/expired token must not trigger a forceful restart
                 # of a server which may now have unapproved sessions.
                 subprocess.run([str(old / 'jam'), 'daemon', 'stop-upgrade', fields['token']], check=True)
@@ -461,17 +522,17 @@ with (base / '.install.lock').open('w') as lock:
         if boot.exists():
             owned_file(boot, private=True)
             if json.loads(boot.read_text()).get('token') != receipt['id']:
-                sys.exit('Boot gate belongs to another transaction; refusing recovery')
+                sys.exit('Boot gate belongs to another transaction. Refusing recovery')
         if receipt['phase'] in VERIFIED_PHASES:
-            raise RuntimeError('Verified server retained; finish transaction recovery with fresh consent') from error
+            raise RuntimeError('Verified server retained. Finish transaction recovery with fresh consent') from error
         try:
             restore_previous()
             phase('rolled_back')
         except BaseException as rollback_error:
             phase('rollback_failed')
             raise RuntimeError(
-                f'Server installation failed: {error}; rollback also failed: {rollback_error}. '
-                'The previous build is retained; inspect the user service before retrying.'
+                f'Server installation failed: {error}\nRollback also failed: {rollback_error}\n'
+                'The previous build is retained. Inspect the user service before retrying.'
             ) from error
         raise
     finally:
@@ -483,7 +544,7 @@ with (base / '.install.lock').open('w') as lock:
             ['loginctl', 'show-user', str(os.getuid()), '-p', 'Linger', '--value'],
             text=True, timeout=10).strip()
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
-        print('Server installed. Persistence could not be checked; inspect loginctl show-user.')
+        print('Server installed. Persistence could not be checked. Inspect loginctl show-user.')
     else:
         if linger != 'yes':
             print('Server installed. Persistence needs: loginctl enable-linger ' + getpass.getuser())

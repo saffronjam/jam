@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Collect original dependency notices; fail closed on missing provenance."""
+"""Collect original dependency notices. Fail closed on missing provenance."""
 import hashlib
 import json
 import os

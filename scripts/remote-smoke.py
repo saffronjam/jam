@@ -36,7 +36,7 @@ try:
     # Each CLI process closes its own SSH connection on exit.
     time.sleep(1)
     assert pid() == before, 'Shell changed across disconnected clients'
-    print('Remote workspace and reattachment passed; shell PID ' + before)
+    print('Remote workspace and reattachment passed. Shell PID ' + before)
 finally:
     if workspace is not None:
         call('workspace', 'close', '--workspace', workspace)

@@ -119,6 +119,9 @@ final class Store: ObservableObject {
   @Published var coordinatorRecovery: CoordinatorRecovery? { didSet { updateInputGate() } }
   @Published var showRemote = false { didSet { updateInputGate() } }
   @Published var serverAction: ServerAction? { didSet { updateInputGate() } }
+  @Published var serverActionErrors: [String: String] = [:]
+  @Published var serverPhases: [String: String] = [:]
+  var serverTokens: [String: String] = [:]
   @Published var serverStatuses: [String: ServerStatus] = [:]
   @Published var agentUsage: [String: [AgentUsageReport]] = [:]
   @Published var usageErrors: [String: String] = [:]
@@ -172,6 +175,15 @@ final class Store: ObservableObject {
     }
   }
   var currentEndpoint: String { selectedMachine }
+  var isLoadingSelectedRemote: Bool {
+    let endpoint = currentEndpoint
+    guard !endpoint.isEmpty else { return false }
+    return remoteConnectionState(endpoint).isLoadingInitialContent(
+      loaded: loadedRemotes.contains(endpoint),
+      blocked: serverStatuses[endpoint]?.blocked == true
+        || serverStatuses[endpoint]?.state == "inspection_failed"
+        || serverActionErrors[endpoint] != nil)
+  }
   @Published var workspaces: [Workspace] = []
   @Published var workspaceCreations: [String: WorkspaceCreation] = [:]
   var workspaceCreationOrigins: [String: String] = [:]
@@ -354,6 +366,9 @@ final class Store: ObservableObject {
         fromTerminal: isatty(STDIN_FILENO) == 1 || isatty(STDOUT_FILENO) == 1
           || isatty(STDERR_FILENO) == 1)
     } catch { self.error = "\(error)" }
+    appUpgrade.onServerActionRequired = { [weak self] endpoint in
+      self?.showServerAction(endpoint, kind: .takeover)
+    }
     reloadRemotes()
     reloadConfig()
     installShortcuts()
@@ -380,7 +395,7 @@ final class Store: ObservableObject {
         {
           self.starting = false
           self.connectionError = error
-          self.error = error
+          self.checkServer("")
           self.connected = false
         } else {
           self.refreshCapabilities(force: true)
@@ -548,7 +563,7 @@ final class Store: ObservableObject {
         if let e = r["error"] as? String {
           self.connected = false
           self.connectionError = e
-          if self.dismissedConnectionWarning != e { self.error = e }
+          self.checkServer("")
           return
         }
         self.connected = true
@@ -1002,177 +1017,193 @@ struct ContentView: View {
         MachineList().environmentObject(store)
       }.navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 320)
     } detail: {
-      VStack(spacing: 0) {
-        if store.displayedWorkspaces.isEmpty && store.currentEndpoint.isEmpty {
-          HStack {
-            Spacer()
-            Button(action: store.openSettings) {
-              Image(systemName: "gearshape").frame(width: 28, height: 28).contentShape(Rectangle())
-            }.buttonStyle(.plain).help("Settings")
-          }.frame(height: 34).padding(.trailing, 6)
-          VStack(spacing: 12) {
-            if store.starting {
-              ProgressView("Opening terminal…")
-            } else if store.error.isEmpty {
-              Button("Open Terminal") { store.openInitialWorkspace() }
-            } else {
-              Text("Unable to open terminal").foregroundStyle(.secondary)
-            }
-          }.frame(maxWidth: .infinity, maxHeight: .infinity)
+      ZStack {
+        if store.isLoadingSelectedRemote {
+          ProgressView()
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .accessibilityLabel("Loading workspace")
+            .transition(.opacity)
         } else {
-          if store.surface == .terminals {
-            HStack(spacing: 2) {
-              if let current = store.current {
-                ScrollViewReader { proxy in
-                  ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 3) {
-                      ForEach(store.current?.tabs ?? []) { t in
-                        DraggableTab(
-                          id: t.id, title: t.name,
-                          selected: store.currentTab?.id == t.id,
-                          activityStatus: store.activityStatus(for: t),
-                          editing: store.editingTab == t.id,
-                          edit: { store.editingTab = t.id },
-                          rename: { value in
-                            store.editingTab = nil
-                            if let name = value?.trimmingCharacters(in: .whitespacesAndNewlines),
-                              !name.isEmpty
-                            {
-                              store.rename(t.id, to: name)
-                            }
-                            store.focusTerminal()
-                          },
-                          click: { if let w = store.current { store.select(w.id, tab: t.id) } },
-                          close: { store.closeTab(t) },
-                          begin: { store.beginTabDrag(t.id) }, end: { store.cancelTabDrag() },
-                          siblings: store.current?.tabs.map(\.id) ?? [],
-                          reorder: { store.previewTabMove(to: $0) },
-                          drop: {
-                            guard let id = store.draggingTab,
-                              let w = store.workspaces.first(where: {
-                                $0.tabs.contains { $0.id == id }
-                              }
-                              )
-                            else { return false }
-                            return store.finishTabDrag(workspace: w.id)
-                          }
-                        )
-                        .frame(
-                          width: TabDragView.preferredWidth(
-                            for: t.name, showsStatus: store.activityStatus(for: t) != nil),
-                          height: 28
-                        )
-                        .background(
-                          store.currentTab?.id == t.id ? Color.primary.opacity(0.07) : .clear,
-                          in: RoundedRectangle(cornerRadius: 5)
-                        )
-                        .opacity(store.draggingTab == t.id ? 0 : 1)
-                        .transition(.opacity.combined(with: .scale(scale: 0.96)))
-                        .id(t.id).accessibilityLabel(t.name).accessibilityValue(
-                          store.currentTab?.id == t.id ? "Selected" : ""
-                        )
-                        .buttonStyle(.plain).contextMenu {
-                          Button("Rename") { store.editingTab = t.id }
-                          Divider()
-                          Button("Close Tab") { store.closeTab(t) }
-                            .disabled(store.closingTabs.contains(t.id))
-                        }
-                      }
-                      Spacer()
-                      if current.tabs.contains(where: { !$0.root.ids.isEmpty }) {
-                        Button(action: store.newTab) {
-                          Image(systemName: "plus").frame(width: 28, height: 28).contentShape(
-                            Rectangle())
-                        }.buttonStyle(.plain).help("New Tab")
-                          .disabled(store.isCreatingWorkspace(current.id))
-                          .transition(.opacity)
-                      }
-                    }
-                    .animation(
-                      reduceMotion ? nil : .timingCurve(0.22, 1, 0.36, 1, duration: 0.22),
-                      value: current.tabs.map(\.id)
-                    )
-                    .id(current.id)
-                  }.scrollIndicators(.never).frame(height: 34).padding(.horizontal, 6)
-                    .onChange(of: store.tab) { _, value in
-                      withAnimation(
-                        reduceMotion ? nil : .timingCurve(0.22, 1, 0.36, 1, duration: 0.22)
-                      ) {
-                        proxy.scrollTo(value, anchor: .trailing)
-                      }
-                    }
-                }
-              }
-              if store.current == nil { Spacer() }
-              Button {
-                store.openSettings()
-              } label: {
-                Image(systemName: "gearshape").frame(width: 28, height: 28).contentShape(
-                  Rectangle())
-              }.buttonStyle(.plain).help("Settings").padding(.trailing, 6)
-            }
-          }
-          if store.surface == .coordinator, let coordinator = store.current?.coordinator {
-            PaneCard(id: coordinator.pane).padding(5)
-          } else if store.isCreatingWorkspace(store.selected) {
-            ProgressView("Creating workspace…")
-              .frame(maxWidth: .infinity, maxHeight: .infinity)
-          } else if let t = store.currentTab {
-            GeometryReader { geometry in
-              let viewport = CGSize(
-                width: max(0, geometry.size.width - 10), height: max(0, geometry.size.height - 10))
-              let canvas = SplitLayout.canvas(viewport: viewport)
-              Group {
-                if t.root.ids.isEmpty {
-                  VStack(spacing: 12) {
-                    Text("No terminals").foregroundStyle(.secondary)
-                    Button("New Terminal") { store.request(["NewPane": ["tab": t.id]]) }
-                  }.frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(EmptyPaneDropSurface(tab: t.id))
-                } else if let root = t.root.removing(store.liftedPane) {
-                  // Structural animations belong to edits within a tab, never navigation.
-                  PaneTree(node: root, tab: t.id).id(t.id)
+          VStack(spacing: 0) {
+            if store.displayedWorkspaces.isEmpty && store.currentEndpoint.isEmpty {
+              HStack {
+                Spacer()
+                Button(action: store.openSettings) {
+                  Image(systemName: "gearshape").frame(width: 28, height: 28).contentShape(
+                    Rectangle())
+                }.buttonStyle(.plain).help("Settings")
+              }.frame(height: 34).padding(.trailing, 6)
+              VStack(spacing: 12) {
+                if store.starting {
+                  ProgressView("Opening terminal…")
+                } else if store.error.isEmpty {
+                  Button("Open Terminal") { store.openInitialWorkspace() }
                 } else {
-                  RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(0.025))
-                    .overlay(Text("Drop pane here").foregroundStyle(.secondary))
-                    .background(EmptyPaneDropSurface(tab: t.id))
+                  Text("Unable to open terminal").foregroundStyle(.secondary)
                 }
-              }.frame(width: canvas.width, height: canvas.height).padding(5).clipped()
-            }
-          } else {
-            VStack(spacing: 12) {
-              Text(store.current == nil ? "No workspaces" : "No terminals")
-                .font(.title2).fontWeight(.semibold)
-              if store.current == nil && !store.currentEndpoint.isEmpty {
-                Text(store.remoteMessages[store.currentEndpoint] ?? "Connecting…")
-                  .foregroundStyle(.secondary).multilineTextAlignment(.center)
+              }.frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+              if store.surface == .terminals {
+                HStack(spacing: 2) {
+                  if let current = store.current {
+                    ScrollViewReader { proxy in
+                      ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 3) {
+                          ForEach(store.current?.tabs ?? []) { t in
+                            DraggableTab(
+                              id: t.id, title: t.name,
+                              selected: store.currentTab?.id == t.id,
+                              activityStatus: store.activityStatus(for: t),
+                              editing: store.editingTab == t.id,
+                              edit: { store.editingTab = t.id },
+                              rename: { value in
+                                store.editingTab = nil
+                                if let name = value?.trimmingCharacters(
+                                  in: .whitespacesAndNewlines),
+                                  !name.isEmpty
+                                {
+                                  store.rename(t.id, to: name)
+                                }
+                                store.focusTerminal()
+                              },
+                              click: { if let w = store.current { store.select(w.id, tab: t.id) } },
+                              close: { store.closeTab(t) },
+                              begin: { store.beginTabDrag(t.id) }, end: { store.cancelTabDrag() },
+                              siblings: store.current?.tabs.map(\.id) ?? [],
+                              reorder: { store.previewTabMove(to: $0) },
+                              drop: {
+                                guard let id = store.draggingTab,
+                                  let w = store.workspaces.first(where: {
+                                    $0.tabs.contains { $0.id == id }
+                                  }
+                                  )
+                                else { return false }
+                                return store.finishTabDrag(workspace: w.id)
+                              }
+                            )
+                            .frame(
+                              width: TabDragView.preferredWidth(
+                                for: t.name, showsStatus: store.activityStatus(for: t) != nil),
+                              height: 28
+                            )
+                            .background(
+                              store.currentTab?.id == t.id ? Color.primary.opacity(0.07) : .clear,
+                              in: RoundedRectangle(cornerRadius: 5)
+                            )
+                            .opacity(store.draggingTab == t.id ? 0 : 1)
+                            .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                            .id(t.id).accessibilityLabel(t.name).accessibilityValue(
+                              store.currentTab?.id == t.id ? "Selected" : ""
+                            )
+                            .buttonStyle(.plain).contextMenu {
+                              Button("Rename") { store.editingTab = t.id }
+                              Divider()
+                              Button("Close Tab") { store.closeTab(t) }
+                                .disabled(store.closingTabs.contains(t.id))
+                            }
+                          }
+                          Spacer()
+                          if current.tabs.contains(where: { !$0.root.ids.isEmpty }) {
+                            Button(action: store.newTab) {
+                              Image(systemName: "plus").frame(width: 28, height: 28).contentShape(
+                                Rectangle())
+                            }.buttonStyle(.plain).help("New Tab")
+                              .disabled(store.isCreatingWorkspace(current.id))
+                              .transition(.opacity)
+                          }
+                        }
+                        .animation(
+                          reduceMotion ? nil : .timingCurve(0.22, 1, 0.36, 1, duration: 0.22),
+                          value: current.tabs.map(\.id)
+                        )
+                        .id(current.id)
+                      }.scrollIndicators(.never).frame(height: 34).padding(.horizontal, 6)
+                        .onChange(of: store.tab) { _, value in
+                          withAnimation(
+                            reduceMotion ? nil : .timingCurve(0.22, 1, 0.36, 1, duration: 0.22)
+                          ) {
+                            proxy.scrollTo(value, anchor: .trailing)
+                          }
+                        }
+                    }
+                  }
+                  if store.current == nil { Spacer() }
+                  Button {
+                    store.openSettings()
+                  } label: {
+                    Image(systemName: "gearshape").frame(width: 28, height: 28).contentShape(
+                      Rectangle())
+                  }.buttonStyle(.plain).help("Settings").padding(.trailing, 6)
+                }
               }
-              if store.current == nil {
-                Button("New Workspace") { store.newWorkspace() }
-                  .disabled(
-                    !store.currentEndpoint.isEmpty
-                      && store.remoteMessages[store.currentEndpoint] != "Connected")
+              if store.surface == .coordinator, let coordinator = store.current?.coordinator {
+                PaneCard(id: coordinator.pane).padding(5)
+              } else if store.isCreatingWorkspace(store.selected) {
+                ProgressView("Creating workspace…")
+                  .frame(maxWidth: .infinity, maxHeight: .infinity)
+              } else if let t = store.currentTab {
+                GeometryReader { geometry in
+                  let viewport = CGSize(
+                    width: max(0, geometry.size.width - 10),
+                    height: max(0, geometry.size.height - 10))
+                  let canvas = SplitLayout.canvas(viewport: viewport)
+                  Group {
+                    if t.root.ids.isEmpty {
+                      VStack(spacing: 12) {
+                        Text("No terminals").foregroundStyle(.secondary)
+                        Button("New Terminal") { store.request(["NewPane": ["tab": t.id]]) }
+                      }.frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(EmptyPaneDropSurface(tab: t.id))
+                    } else if let root = t.root.removing(store.liftedPane) {
+                      // Structural animations belong to edits within a tab, never navigation.
+                      PaneTree(node: root, tab: t.id).id(t.id)
+                    } else {
+                      RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(0.025))
+                        .overlay(Text("Drop pane here").foregroundStyle(.secondary))
+                        .background(EmptyPaneDropSurface(tab: t.id))
+                    }
+                  }.frame(width: canvas.width, height: canvas.height).padding(5).clipped()
+                }
               } else {
-                Button("New Tab") { store.execute("new_tab") }
+                VStack(spacing: 12) {
+                  Text(store.current == nil ? "No workspaces" : "No terminals")
+                    .font(.title2).fontWeight(.semibold)
+                  if store.current == nil && !store.currentEndpoint.isEmpty {
+                    Text(store.remoteMessages[store.currentEndpoint] ?? "Connecting…")
+                      .foregroundStyle(.secondary).multilineTextAlignment(.center)
+                  }
+                  if store.current == nil {
+                    Button("New Workspace") { store.newWorkspace() }
+                      .disabled(
+                        !store.currentEndpoint.isEmpty
+                          && store.remoteMessages[store.currentEndpoint] != "Connected")
+                  } else {
+                    Button("New Tab") { store.execute("new_tab") }
+                  }
+                }.frame(maxWidth: .infinity, maxHeight: .infinity)
+                  .background(Color(nsColor: .windowBackgroundColor))
               }
-            }.frame(maxWidth: .infinity, maxHeight: .infinity)
-              .background(Color(nsColor: .windowBackgroundColor))
-          }
+            }
+            if store.busy && !store.movingLayout {
+              ProgressView("Working…").controlSize(.small).padding(6)
+            }
+          }.transition(.opacity)
         }
-        if store.busy && !store.movingLayout {
-          ProgressView("Working…").controlSize(.small).padding(6)
+      }
+      .animation(
+        reduceMotion ? nil : .easeInOut(duration: 0.2), value: store.isLoadingSelectedRemote
+      )
+      .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+      .background(Color(nsColor: .windowBackgroundColor))
+      .overlay(alignment: .bottomTrailing) {
+        AppStatusOverlay(store: store, controller: store.appUpgrade)
+      }
+      .overlay(alignment: .topTrailing) {
+        if store.showFind {
+          WorkspaceFindBar(finder: store.finder).padding(.top, 38).padding(.trailing, 12)
+            .transition(.move(edge: .top).combined(with: .opacity))
         }
-      }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(Color(nsColor: .windowBackgroundColor))
-        .overlay(alignment: .bottomTrailing) {
-          AppStatusOverlay(store: store, controller: store.appUpgrade)
-        }
-        .overlay(alignment: .topTrailing) {
-          if store.showFind {
-            WorkspaceFindBar(finder: store.finder).padding(.top, 38).padding(.trailing, 12)
-              .transition(.move(edge: .top).combined(with: .opacity))
-          }
-        }
+      }
     }.tint(Color(nsColor: .controlAccentColor))
   }
 }
@@ -1279,12 +1310,9 @@ struct PaneCard: View {
         if pane?.status == "recovery_failed" {
           Button("Resume") { store.restartPane(id) }
         }
-        Text(
-          pane?.status == "unknown"
-            ? "" : pane?.status == "recovery_failed" ? "Recovery paused" : (pane?.status ?? "")
-        ).foregroundStyle(
-          pane?.status == "blocked" || pane?.status == "error" ? Color.orange : Color.secondary
-        )
+        if pane?.status == "recovery_failed" {
+          Text("Recovery paused").foregroundStyle(.secondary)
+        }
         if pane?.agentRole != "coordinator" {
           Button {
             store.focus = id

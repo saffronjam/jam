@@ -1,4 +1,4 @@
-# Protocol v5
+# Protocol v8
 
 The source of truth is `crates/jam-core/src/protocol.rs`. This is an internal, pinned-build protocol, not yet a stable public API.
 
@@ -39,3 +39,9 @@ Workspace model 1 adds persistent `parent` IDs to opened checkout sessions and a
 `app_settings_v1` adds `Configure { settings }`, which applies the app's enabled providers, worker limit, empty-tab/workspace behavior and checkout-deletion permission to the host. `Settings` returns detected provider executables. The host persists the last applied policy separately from the user's config file so reconnects/restarts retain it. With multiple GUI clients, the last applied settings win. No credentials or local paths are sent. `Node::Empty` represents a retained empty tab; `NewPane { tab }` starts its shell, and `CloseTab { tab }` explicitly closes it regardless of automatic-close preferences. Empty parent workspaces with open worktrees are retained.
 
 `worktree_templates` adds `worktrees_directory` to the host settings policy. Its optional field defaults to `~/wt/{{repo}}/{{worktree}}` when reading older saved policies. Clients omit it when talking to hosts without this capability. WorktreeCreate resolves `{{repo}}`, `{{worktree}}`/`{{wt}}`, and the host's home directory without shell evaluation; explicit paths take precedence. Unknown or incomplete placeholders are rejected before creating directories or branches.
+
+## Pane agent identity
+
+`agent_provider` is the canonical provider for a pane, resolved by the daemon from a registered agent or the current program's explicit OSC 7501 app identifier. `agent_source` is `registered` or `reported`. Only registered agents receive `agent_role` and coordination/recovery controls. Provider names and known aliases normalize centrally. A title or an activity state never identifies an agent.
+
+Reported identity belongs to the current PTY and foreground program. Acknowledging or clearing activity does not end that identity. Returning to the shell, closing the process, or restarting the PTY does. Reported identity is discarded when saved layouts load. Clients use these fields for provider icons and pane, tab, and workspace activity, rather than interpreting reports themselves.

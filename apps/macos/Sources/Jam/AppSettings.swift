@@ -298,7 +298,7 @@ struct AppSettingsView: View {
         }
       }
       settingsNote(
-        "Applies to all connected machines. Disabled integrations hide usage and coordination; terminal commands still work."
+        "Applies to all connected machines. Disabled integrations hide usage and coordination. Terminal commands still work."
       )
     case "Coordination":
       settingsGroup("Team") {

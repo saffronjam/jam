@@ -108,8 +108,7 @@ const CHECKPOINT_FILES: &[&str] = &[
 fn checkpoint(path: &Path) -> Result<()> {
     checkpoint_at(path, &crate::state_dir())
 }
-#[cfg(any(target_os = "macos", test))]
-fn checkpoint_at(path: &Path, state: &Path) -> Result<()> {
+pub(crate) fn checkpoint_at(path: &Path, state: &Path) -> Result<()> {
     let backup = path
         .parent()
         .context("Missing transaction directory")?
@@ -130,8 +129,7 @@ fn checkpoint_at(path: &Path, state: &Path) -> Result<()> {
     write_json(&backup.join("files.json"), &files)?;
     write_json(&backup.join("complete.json"), &true)
 }
-#[cfg(any(target_os = "macos", test))]
-fn restore_checkpoint_at(path: &Path, state: &Path) -> Result<()> {
+pub(crate) fn restore_checkpoint_at(path: &Path, state: &Path) -> Result<()> {
     let backup = path
         .parent()
         .context("Missing transaction directory")?
@@ -152,11 +150,10 @@ fn restore_checkpoint_at(path: &Path, state: &Path) -> Result<()> {
     fs::File::open(state)?.sync_all()?;
     Ok(())
 }
-#[cfg(any(target_os = "macos", test))]
 fn validated_checkpoint_files(backup: &Path) -> Result<std::collections::BTreeMap<String, String>> {
     let files: std::collections::BTreeMap<String, String> = serde_json::from_slice(
         &fs::read(backup.join("files.json"))
-            .context("Checkpoint file index is missing; application and state were retained")?,
+            .context("Checkpoint file index is missing. Application and state were retained")?,
     )?;
     for (name, digest) in &files {
         if !CHECKPOINT_FILES.contains(&name.as_str()) {
@@ -165,26 +162,25 @@ fn validated_checkpoint_files(backup: &Path) -> Result<std::collections::BTreeMa
         if !backup.join(name).symlink_metadata()?.is_file()
             || file_digest(&backup.join(name))? != *digest
         {
-            bail!("Checkpoint file is invalid; application and state were retained");
+            bail!("Checkpoint file is invalid. Application and state were retained");
         }
     }
     for name in CHECKPOINT_FILES {
         match backup.join(name).symlink_metadata() {
             Ok(metadata) if !metadata.is_file() || !files.contains_key(*name) => {
-                bail!("Checkpoint file is invalid; application and state were retained")
+                bail!("Checkpoint file is invalid. Application and state were retained")
             }
             Ok(_) => {}
             Err(error)
                 if error.kind() == std::io::ErrorKind::NotFound && !files.contains_key(*name) => {}
             Err(error) => {
                 return Err(error)
-                    .context("Checkpoint file is missing; application and state were retained");
+                    .context("Checkpoint file is missing. Application and state were retained");
             }
         }
     }
     Ok(files)
 }
-#[cfg(any(target_os = "macos", test))]
 fn file_digest(path: &Path) -> Result<String> {
     let mut file = fs::File::open(path)?;
     let mut hasher = Sha256::new();
@@ -386,7 +382,7 @@ pub fn stage(release: &Release) -> Result<Staged> {
     let sig = String::from_utf8(get(&format!("{base}/manifest.sig"), 1024)?)?;
     let verified = authenticate(&bytes, &sig, KEY)?;
     if serde_json::to_vec(&verified)? != serde_json::to_vec(release)? {
-        bail!("Release metadata changed; check for updates again");
+        bail!("Release metadata changed. Check for updates again");
     }
     fs::write(directory.join("manifest.json"), bytes)?;
     fs::write(directory.join("manifest.sig"), sig)?;
@@ -427,7 +423,7 @@ fn managed(exe: &Path) -> Result<PathBuf> {
         .ancestors()
         .any(|p| p.join("Cargo.toml").exists() || p.join(".git").exists())
     {
-        bail!("Development checkouts are never self-updated; install the release app first");
+        bail!("Development checkouts are never self-updated. Install the release app first");
     }
     if cfg!(target_os = "macos") {
         let app = exe
@@ -470,7 +466,7 @@ pub fn install_cli() -> Result<PathBuf> {
             return Ok(target);
         }
         bail!(
-            "{} already exists; refusing to overwrite another command",
+            "{} already exists. Refusing to overwrite another command",
             target.display()
         );
     }
@@ -493,7 +489,7 @@ fn probe(path: &Path, request: crate::Request) -> Result<crate::Message> {
     socket.set_write_timeout(Some(Duration::from_secs(10)))?;
     if !matches!(crate::read_frame::<crate::Message>(&mut socket)?,crate::Message::Hello(ref version) if version.starts_with("jam/"))
     {
-        bail!("Unrecognized server; left unchanged");
+        bail!("Unrecognized server. Left unchanged");
     }
     crate::write_frame(&mut socket, &request)?;
     let response = crate::read_frame(&mut socket)?;
@@ -518,7 +514,7 @@ fn control(path: &Path, request: crate::Request) -> Result<()> {
     socket.set_write_timeout(Some(Duration::from_secs(10)))?;
     if !matches!(crate::read_frame::<crate::Message>(&mut socket)?,crate::Message::Hello(ref version) if version.starts_with("jam/"))
     {
-        bail!("Unknown daemon; left unchanged");
+        bail!("Unknown daemon. Left unchanged");
     }
     crate::write_frame(&mut socket, &request)?;
     match crate::read_frame::<crate::Message>(&mut socket)? {
@@ -561,7 +557,7 @@ fn state_target(endpoint: &str, name: &str, path: &Path) -> Result<Target> {
         bail!("Unexpected server state");
     };
     let sessions=state.panes.iter().filter(|pane|!pane.exited).map(|pane| {
-        Ok((pane.id.clone(),pane.session_generation.clone().context("This server cannot identify terminal sessions; explicit server migration is required")?))
+        Ok((pane.id.clone(),pane.session_generation.clone().context("This server cannot identify terminal sessions. Explicit server migration is required")?))
     }).collect::<Result<std::collections::BTreeMap<_,_>>>()?;
     Ok(Target {
         endpoint: endpoint.into(),
@@ -593,7 +589,7 @@ fn revalidate_target(approved: &mut Target, current: &Target) -> Result<()> {
             .iter()
             .any(|(pane, generation)| approved.sessions.get(pane) != Some(generation))
     {
-        bail!("Sessions changed after confirmation; confirm the upgrade again");
+        bail!("Sessions changed after confirmation. Confirm the upgrade again");
     }
     approved.panes.retain(|pane| current.panes.contains(pane));
     approved
@@ -700,7 +696,7 @@ fn check_space(staged: &Staged, installation: &Path) -> Result<()> {
         || fs2::available_space(&state)? < checkpoint_bytes.saturating_add(reserve)
     {
         bail!(
-            "Not enough free disk space to stage the installation and preserve its state; no sessions were stopped"
+            "Not enough free disk space to stage the installation and preserve its state. No sessions were stopped"
         );
     }
     Ok(())
@@ -719,11 +715,11 @@ pub fn plan(staged: &Staged) -> Result<Plan> {
             installation.join("jamd")
         };
         if crate::protocol::local_daemon_executable(&crate::socket())? != expected {
-            bail!("The local daemon belongs to another installation; it was left unchanged");
+            return Err(crate::server_control::OwnershipConflict.into());
         }
         if local.build != crate::SERVER_BUILD {
             bail!(
-                "Another Jam build owns the local daemon; restart it explicitly from this installation before upgrading"
+                "Another Jam build owns the local daemon. Restart it explicitly from this installation before upgrading"
             );
         }
         targets.push(local);
@@ -995,7 +991,7 @@ pub fn apply(path: &Path) -> Result<()> {
     let mut journal = read_journal(path)?;
     if journal.phase != "staged" {
         bail!(
-            "This upgrade attempt has already started or finished; use explicit recovery if needed"
+            "This upgrade attempt has already started or finished. Use explicit recovery if needed"
         );
     }
     // Discovery in another process can race launch. Recheck under the same
@@ -1034,7 +1030,7 @@ pub fn apply(path: &Path) -> Result<()> {
                 "Upgrade failed: {error:#}. Recovery needs attention: {rollback:#}"
             ));
             write_json(path, &retained)?;
-            return Err(rollback).context("Upgrade failed and rollback also failed; inspect the retained transaction directory");
+            return Err(rollback).context("Upgrade failed and rollback also failed. Inspect the retained transaction directory");
         }
         let latest = read_journal(path)?;
         let phase = if [
@@ -1079,11 +1075,11 @@ fn owned_call(socket: &Path, executable: &Path, request: crate::Request) -> Resu
     // Identity belongs to this connection, not a prior path probe which another
     // installation could replace before the mutating request is delivered.
     if crate::protocol::local_daemon_executable_on(&stream)? != executable {
-        bail!("Another installation owns the local daemon; it was left unchanged");
+        bail!("Another installation owns the local daemon. It was left unchanged");
     }
     if !matches!(crate::read_frame::<crate::Message>(&mut stream)?,crate::Message::Hello(ref version) if version.starts_with("jam/"))
     {
-        bail!("Unknown daemon; it was left unchanged");
+        bail!("Unknown daemon. It was left unchanged");
     }
     crate::write_frame(&mut stream, &request)?;
     match crate::read_frame::<crate::Message>(&mut stream)? {
@@ -1109,15 +1105,15 @@ fn stop_owned_rollback_daemon(
         ..
     } = owned_call(socket, &executable, crate::Request::HostInfo)?
     else {
-        bail!("Cannot establish daemon ownership; it was left unchanged");
+        bail!("Cannot establish daemon ownership. It was left unchanged");
     };
     if release_version.as_deref() != Some(version) {
-        bail!("Another daemon version owns the socket; it was left unchanged");
+        bail!("Another daemon version owns the socket. It was left unchanged");
     }
     let info = Command::new(&executable).arg("--build-info").output()?;
     let info_value: serde_json::Value = serde_json::from_slice(&info.stdout)?;
     if !info.status.success() || info_value["build"].as_str() != Some(build.as_str()) {
-        bail!("The daemon build changed; existing sessions were left unchanged");
+        bail!("The daemon build changed. Existing sessions were left unchanged");
     }
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
     let boot = fs::OpenOptions::new()
@@ -1129,11 +1125,11 @@ fn stop_owned_rollback_daemon(
         || metadata.uid() != unsafe { libc::geteuid() }
         || metadata.mode() & 0o077 != 0
     {
-        bail!("Cannot verify upgrade startup ownership; existing sessions were left unchanged");
+        bail!("Cannot verify upgrade startup ownership. Existing sessions were left unchanged");
     }
     let marker: serde_json::Value = serde_json::from_reader(boot.take(65536))?;
     if marker["token"].as_str() != Some(token) {
-        bail!("Another transaction owns startup; it was left unchanged");
+        bail!("Another transaction owns startup. It was left unchanged");
     }
     if !matches!(
         owned_call(
@@ -1171,7 +1167,7 @@ fn rollback_files_at(
                 .context("Missing previous app version")?,
         )? >= semver::Version::parse(&journal.staged.release.version)?
         {
-            bail!("Cannot verify previous application; installed app and state were retained");
+            bail!("Cannot verify previous application. Installed app and state were retained");
         }
         if !path
             .parent()
@@ -1179,11 +1175,11 @@ fn rollback_files_at(
             .join("checkpoint/complete.json")
             .is_file()
         {
-            bail!("State checkpoint is incomplete; installed app and state were retained");
+            bail!("State checkpoint is incomplete. Installed app and state were retained");
         }
         validated_checkpoint_files(&path.parent().unwrap().join("checkpoint"))?;
         if !app_pids(&destination)?.is_empty() {
-            bail!("Jam reopened during the upgrade; its app and sessions were left unchanged");
+            bail!("Jam reopened during the upgrade. Its app and sessions were left unchanged");
         }
         stop_owned_rollback_daemon(
             socket,
@@ -1197,7 +1193,7 @@ fn rollback_files_at(
         // restoration. Recovery can finish either side of an interrupted swap.
         save_journal(path, journal, "recovering_previous")?;
         if !app_pids(&destination)?.is_empty() || crash_recovery::daemon_present(socket)? {
-            bail!("Jam restarted during rollback; existing app and sessions were left unchanged");
+            bail!("Jam restarted during rollback. Existing app and sessions were left unchanged");
         }
         exchange(&destination, &previous)?;
         after_exchange()?;
@@ -1205,7 +1201,7 @@ fn rollback_files_at(
         save_journal(path, journal, "previous_restored")?;
     } else if journal.phase == "recovering_previous" {
         if crash_recovery::daemon_present(socket)? {
-            bail!("A daemon started during rollback; existing sessions were left unchanged");
+            bail!("A daemon started during rollback. Existing sessions were left unchanged");
         }
         if !path
             .parent()
@@ -1213,7 +1209,7 @@ fn rollback_files_at(
             .join("checkpoint/complete.json")
             .is_file()
         {
-            bail!("State checkpoint is incomplete; retained application and state");
+            bail!("State checkpoint is incomplete. Retained application and state");
         }
         restore_checkpoint_at(path, state)?;
         save_journal(path, journal, "previous_restored")?;
@@ -1272,18 +1268,18 @@ fn apply_inner(path: &Path, journal: &mut Journal) -> Result<()> {
         )?;
         let requested = semver::Version::parse(&journal.staged.release.version)?;
         if installed > requested {
-            bail!("A newer Jam is already installed; refusing to replace it");
+            bail!("A newer Jam is already installed. Refusing to replace it");
         }
         let candidate = candidate_path(path, journal)?;
         if installed < requested {
             if installed != semver::Version::parse(crate::RELEASE_VERSION)? {
-                bail!("Installed version changed; confirm the upgrade again");
+                bail!("Installed version changed. Confirm the upgrade again");
             }
             // New sessions after consent require a fresh confirmation.
             revalidate_plan_targets(&mut journal.plan)?;
             let pids = app_pids(&destination)?;
             if pids.iter().any(|p| !journal.plan.app_pids.contains(p)) {
-                bail!("Another Jam app started after confirmation; confirm the upgrade again");
+                bail!("Another Jam app started after confirmation. Confirm the upgrade again");
             }
             if candidate.exists() {
                 fs::remove_dir_all(&candidate)?;
@@ -1302,7 +1298,7 @@ fn apply_inner(path: &Path, journal: &mut Journal) -> Result<()> {
                     .context("Missing local upgrade consent")?;
                 let expected = journal.plan.installation.join("Contents/MacOS/jamd");
                 if crate::protocol::local_daemon_executable(&crate::socket())? != expected {
-                    bail!("Local daemon installation changed after consent; left unchanged");
+                    bail!("Local daemon installation changed after consent. Left unchanged");
                 }
                 control(&crate::socket(), admission(target, &journal.token))?;
             }
@@ -1317,7 +1313,7 @@ fn apply_inner(path: &Path, journal: &mut Journal) -> Result<()> {
             let deadline = std::time::Instant::now() + Duration::from_secs(10);
             while !app_pids(&destination)?.is_empty() {
                 if std::time::Instant::now() > deadline {
-                    bail!("Jam did not quit; no files were replaced");
+                    bail!("Jam did not quit. No files were replaced");
                 }
                 std::thread::sleep(Duration::from_millis(50));
             }
@@ -1458,12 +1454,12 @@ fn restore_inner(path: &Path, local_only: bool, preserve_intent: bool) -> Result
                     )?
                 };
                 if crate::protocol::local_daemon_executable(&crate::socket())? != expected {
-                    bail!("Another installation owns the daemon socket; it was left unchanged");
+                    bail!("Another installation owns the daemon socket. It was left unchanged");
                 }
                 if build != crate::SERVER_BUILD
                     || release_version.as_deref() != Some(crate::RELEASE_VERSION)
                 {
-                    bail!("Another daemon owns the socket; it was left unchanged");
+                    bail!("Another daemon owns the socket. It was left unchanged");
                 }
                 break;
             }
@@ -1484,7 +1480,7 @@ fn restore_inner(path: &Path, local_only: bool, preserve_intent: bool) -> Result
     let held = if journal.plan.local_running && boot.exists() {
         let marker: serde_json::Value = serde_json::from_slice(&fs::read(&boot)?)?;
         if marker["token"] != journal.token {
-            bail!("Upgrade boot ownership changed; existing work was left unchanged");
+            bail!("Upgrade boot ownership changed. Existing work was left unchanged");
         }
         true
     } else {
@@ -1493,7 +1489,7 @@ fn restore_inner(path: &Path, local_only: bool, preserve_intent: bool) -> Result
     save_journal(path, &mut journal, "local_verified")?;
     if journal.plan.local_running && (!already_verified || held) {
         if !held && crate::RELEASE_VERSION == journal.staged.release.version {
-            bail!("Upgrade boot hold is missing; recover the installation before resuming work");
+            bail!("Upgrade boot hold is missing. Recover the installation before resuming work");
         }
         if held {
             let expected = if cfg!(target_os = "macos") {
@@ -1580,7 +1576,7 @@ fn restore_remotes(journal: &Journal) -> Vec<String> {
             let remote_version = current
                 .version
                 .as_deref()
-                .context("Remote release is unknown; explicit migration required")?;
+                .context("Remote release is unknown. Explicit migration required")?;
             if semver::Version::parse(remote_version)?
                 >= semver::Version::parse(&journal.staged.release.version)?
             {
@@ -1600,7 +1596,7 @@ fn restore_remotes(journal: &Journal) -> Vec<String> {
                 .find(|a| a.platform == "linux" && a.arch == arch)
                 .context("Missing remote release artifact")?;
             if !archive.is_file() {
-                bail!("Remote artifact was not staged; run the upgrade again");
+                bail!("Remote artifact was not staged. Run the upgrade again");
             }
             verify_file(&archive, asset)?;
             crate::remote::install_release(
@@ -1673,7 +1669,7 @@ pub fn cli(check_only: bool, yes: bool, json: bool) -> Result<()> {
         use std::io::IsTerminal;
         if !std::io::stdin().is_terminal() {
             bail!(
-                "Upgrade requires interruption confirmation; use --yes to explicitly approve restarting running sessions"
+                "Upgrade requires interruption confirmation. Use --yes to explicitly approve restarting running sessions"
             );
         }
         eprint!("Running shell jobs may end. Upgrade and restart now? [y/N] ");
@@ -1946,7 +1942,7 @@ pub fn recover_cli(yes: bool, json: bool) -> Result<()> {
         use std::io::IsTerminal;
         if !std::io::stdin().is_terminal() {
             bail!(
-                "Recovery needs fresh confirmation; use --yes to explicitly approve local recovery"
+                "Recovery needs fresh confirmation. Use --yes to explicitly approve local recovery"
             );
         }
         eprint!("Recover local installations without replaying remote upgrades? [y/N] ");

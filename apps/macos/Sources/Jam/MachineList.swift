@@ -4,6 +4,9 @@ struct MachineList: View {
   @EnvironmentObject var store: Store
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @State private var hoveredMachine: String?
+  private var motion: Animation? {
+    reduceMotion ? nil : .timingCurve(0.22, 0.8, 0.25, 1, duration: 0.24)
+  }
 
   var body: some View {
     VStack(spacing: 4) {
@@ -50,25 +53,40 @@ struct MachineList: View {
               Button("Remove Remote") { store.removeRemote(remote.id) }.disabled(
                 store.serverBusy.contains(remote.id))
             }
+            .transition(.opacity.combined(with: .move(edge: .bottom)))
           }
         }.padding(.horizontal, 6)
       }.scrollIndicators(.hidden)
         .frame(height: min(160, CGFloat(store.remotes.count + 1) * 30))
     }.padding(.bottom, 8)
+      .animation(motion, value: store.remotes.map(\.id))
   }
 
   @ViewBuilder private func serverMenu(_ endpoint: String) -> some View {
     let state = store.machineActions(endpoint)
-    if state.incompatibleServer {
-      Text("Server update required")
-    } else if !state.connected {
-      Text(state.connecting ? "Connecting…" : "Offline")
-    } else if state.checking {
-      Text("Checking server…")
-    } else if let status = state.status, status.availableBuild != nil {
-      Text(state.needsUpdate ? "Update available" : "Server is up to date")
+    if state.status?.blocked != true {
+      if !state.connected {
+        Text(state.connecting ? "Connecting…" : "Offline")
+      } else if state.checking {
+        Text("Checking server…")
+      } else if let status = state.status, status.availableBuild != nil {
+        Text(state.needsUpdate ? "Update available" : "Server is up to date")
+      }
     }
-    Button("Check for Updates") { store.checkServer(endpoint) }.disabled(!state.canCheck)
+    if state.status?.state == "client_update_required" {
+      Button("Update Jam…") { store.appUpgrade.check() }.disabled(state.busy)
+    }
+    if state.status?.blocked == true && state.status?.state != "client_update_required" {
+      Button("Take Over Server…") { store.showServerAction(endpoint, kind: .takeover) }
+        .disabled(!state.canTakeover)
+    }
+    if state.status?.blocked != true {
+      Button("Check for Updates") { store.checkServer(endpoint) }.disabled(!state.canCheck)
+    }
+    if state.status?.state == "inspection_failed" {
+      Button("Server Details…") { store.showServerAction(endpoint, kind: .inspect) }
+        .disabled(state.busy)
+    }
     Button("Update Server…") { store.showServerAction(endpoint, kind: .update) }.disabled(
       !state.canUpdate)
     if store.scheduledServerUpdates.contains(endpoint) {
@@ -80,9 +98,12 @@ struct MachineList: View {
   }
 
   private func row(id: String, name: String, connected: Bool) -> some View {
-    HStack(spacing: 8) {
+    let actions = store.machineActions(id)
+    let presentation = store.machinePresentation(id)
+    let warning = presentation.warning
+    return HStack(spacing: 8) {
       Circle().fill(
-        store.machineActions(id).needsUpdate
+        actions.needsUpdate || warning
           ? Color.yellow : connected ? Color.green : Color.secondary.opacity(0.5)
       ).frame(
         width: 6, height: 6)
@@ -90,20 +111,21 @@ struct MachineList: View {
       Text(name).lineLimit(1)
       Spacer(minLength: 0)
       HStack(spacing: 4) {
-        if !id.isEmpty, let label = store.remoteConnectionState(id).label {
-          Text(label).font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(1)
+        if let label = presentation.label {
+          Button(label) { store.reconnectMachine(id) }.buttonStyle(.plain)
+            .font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
         }
         if store.serverBusy.contains(id)
-          || (!id.isEmpty && store.remoteConnectionState(id).isAttempting)
-          || store.scheduledServerUpdates.contains(id)
-          || store.serverStatuses[id]?.updateAvailable == true
+          || presentation.isAttempting
+          || (!warning && (store.scheduledServerUpdates.contains(id) || actions.needsUpdate))
         {
           ZStack {
             if store.serverBusy.contains(id) {
               ProgressView().controlSize(.mini)
-            } else if !id.isEmpty && store.remoteConnectionState(id).isAttempting {
+            } else if presentation.isAttempting {
               ProgressView().controlSize(.mini).help(
-                store.remoteConnectionState(id).label ?? "Connecting")
+                presentation.label ?? "Connecting")
             } else if store.scheduledServerUpdates.contains(id) {
               Image(systemName: "clock").foregroundStyle(.secondary).help(
                 "Update scheduled for when all sessions end")
@@ -113,11 +135,21 @@ struct MachineList: View {
             }
           }.frame(width: 24, height: 24)
         }
-        if !id.isEmpty && connected && store.remotePersistence[id] == false {
+        if warning && !store.serverBusy.contains(id) {
+          Button {
+            store.reconnectMachine(id)
+          } label: {
+            Image(systemName: "exclamationmark.triangle")
+              .foregroundStyle(.yellow)
+              .frame(width: 24, height: 24).contentShape(Rectangle())
+          }.buttonStyle(.plain)
+            .accessibilityLabel(store.serverStatuses[id]?.label ?? "Server needs attention")
+        }
+        if !warning && !id.isEmpty && connected && store.remotePersistence[id] == false {
           MachinePersistenceWarning(endpoint: id, name: name)
             .frame(width: 24, height: 24)
         }
-      }
+      }.fixedSize(horizontal: true, vertical: false)
     }.font(.caption).padding(.horizontal, 8).frame(height: 28)
       .background(
         RoundedRectangle(cornerRadius: 6)

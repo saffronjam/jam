@@ -9,7 +9,7 @@ pub fn stopping() {
     STOPPING.store(true, std::sync::atomic::Ordering::Release);
 }
 
-const CONTINUE: &str = "Continue the interrupted work from this conversation. Check current files, task state, and results before proceeding; do not repeat actions whose outcome is uncertain.";
+const CONTINUE: &str = "Continue the interrupted work from this conversation. Check current files, task state, and results before proceeding. Do not repeat actions whose outcome is uncertain.";
 fn now() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)

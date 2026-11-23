@@ -2,12 +2,18 @@ import Foundation
 
 /// Native failures have an error-only envelope. A successful status response
 /// also carries an error diagnostic; its phase must reach the progress reader.
+struct ServerActionRequired: Error { let endpoint: String }
 enum AppUpgradeResponse {
   static func validate(_ data: Data, action: String) throws -> Data {
     if let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
       let error = object["error"] as? String,
       !(action == "status" && object["phase"] is String)
     {
+      if let required = object["server_action_required"] as? [String: Any],
+        let endpoint = required["endpoint"] as? String
+      {
+        throw ServerActionRequired(endpoint: endpoint)
+      }
       throw NSError(domain: "Jam Upgrade", code: 1, userInfo: [NSLocalizedDescriptionKey: error])
     }
     return data

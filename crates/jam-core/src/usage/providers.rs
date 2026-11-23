@@ -172,7 +172,7 @@ fn get(
     let mut response = request.call().map_err(|error| -> String {
         match error {
             ureq::Error::StatusCode(401 | 403) => "Sign in again to read usage".into(),
-            ureq::Error::StatusCode(429) => "Usage service rate limited; retrying later".into(),
+            ureq::Error::StatusCode(429) => "Usage service rate limited. Retrying later".into(),
             _ => "Usage service is temporarily unavailable".into(),
         }
     })?;

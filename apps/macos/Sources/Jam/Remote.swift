@@ -127,6 +127,7 @@ extension Store {
     for remote in remotes
     where !pausedRemotes.contains(remote.id) && !remoteLoading.contains(remote.id)
       && !serverBusy.contains(remote.id)
+      && serverStatuses[remote.id]?.blocked != true
       && (remoteNext[remote.id] ?? .distantPast) < Date()
     {
       remoteLoading.insert(remote.id)
@@ -162,6 +163,7 @@ extension Store {
                 endpoint: remote.id, minimum: minimum, manual: false)
             }
             self.remoteMessages[remote.id] = error
+            self.checkServer(remote.id)
             let delay = min(30, (self.remoteDelay[remote.id] ?? 0.5) * 2)
             self.remoteDelay[remote.id] = delay
             self.remoteNext[remote.id] = Date().addingTimeInterval(

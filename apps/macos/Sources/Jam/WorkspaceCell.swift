@@ -60,6 +60,9 @@ final class WorkspaceCell: NSView {
     if let detailField {
       detailField.font = .systemFont(ofSize: 10)
       detailField.textColor = .tertiaryLabelColor
+      detailField.maximumNumberOfLines = 1
+      detailField.usesSingleLineMode = true
+      detailField.lineBreakMode = .byTruncatingTail
       titleRow.addSubview(detailField)
     }
     if let branchField {
@@ -143,11 +146,14 @@ final class WorkspaceCell: NSView {
     nameWidth = max(0, right)
     nameField.frame = NSRect(x: 0, y: 0, width: nameWidth, height: 16)
     if let detailField {
-      let detailWidth = ceil(detailField.intrinsicContentSize.width)
-      nameWidth = max(0, width - detailWidth - 8)
+      // Keep text clear of the outline's rounded trailing edge. Include a
+      // little glyph overhang instead of clipping the final letter.
+      let detailRight = max(0, width - 8)
+      let detailWidth = min(detailRight, ceil(detailField.intrinsicContentSize.width) + 4)
+      nameWidth = max(0, detailRight - detailWidth - 8)
       nameField.frame.size.width = nameWidth
       detailField.frame = NSRect(
-        x: max(0, width - detailWidth), y: 1, width: min(width, detailWidth), height: 14)
+        x: max(0, detailRight - detailWidth), y: 0, width: detailWidth, height: 16)
     }
   }
 }

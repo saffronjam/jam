@@ -5,7 +5,7 @@ use std::{
     os::unix::net::UnixStream,
     path::PathBuf,
 };
-pub const VERSION: &str = "jam/7:ghostty/483ea3d:text";
+pub const VERSION: &str = "jam/8:ghostty/483ea3d:text";
 pub const SERVER_BUILD: &str = env!("JAM_BUILD_ID");
 pub const MAX_FRAME: usize = 64 * 1024 * 1024;
 #[derive(Clone, Default, Serialize, Deserialize, Debug)]
@@ -18,6 +18,12 @@ pub struct StatusRecord {
     pub kind: String,
     pub progress: Option<u8>,
 }
+#[derive(Clone, Copy, Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum AgentSource {
+    Registered,
+    Reported,
+}
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Pane {
     /// Identity of this live PTY, changed on every successful restart.
@@ -27,6 +33,8 @@ pub struct Pane {
     pub launch_error: Option<String>,
     #[serde(default)]
     pub agent_provider: Option<String>,
+    #[serde(default)]
+    pub agent_source: Option<AgentSource>,
     #[serde(default)]
     pub agent_role: Option<String>,
     pub id: String,
@@ -484,7 +492,7 @@ pub fn connect_to(path: &std::path::Path) -> Result<UnixStream> {
     s.set_read_timeout(Some(std::time::Duration::from_secs(10)))?;
     match read_frame::<Message>(&mut s)? {
         Message::Hello(v) if v == VERSION => Ok(s),
-        _ => bail!("incompatible jam daemon; update the server from Machines"),
+        _ => bail!("incompatible jam daemon. Update the server from Machines"),
     }
 }
 pub fn client_id() -> &'static str {
@@ -528,7 +536,63 @@ pub fn stop_local_at(path: &std::path::Path) -> Result<Message> {
     stop_with_fallback(path, true)
 }
 fn stop_with_fallback(path: &std::path::Path, local: bool) -> Result<Message> {
+    stop_verified(path, local, None)
+}
+pub(crate) fn process_start(pid: i32) -> Result<String> {
+    #[cfg(target_os = "macos")]
+    {
+        let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
+        let size = std::mem::size_of_val(&info) as i32;
+        let read = unsafe {
+            libc::proc_pidinfo(
+                pid,
+                libc::PROC_PIDTBSDINFO,
+                0,
+                (&mut info as *mut libc::proc_bsdinfo).cast(),
+                size,
+            )
+        };
+        anyhow::ensure!(read == size, "Could not verify server process identity");
+        Ok(format!(
+            "{}.{}",
+            info.pbi_start_tvsec, info.pbi_start_tvusec
+        ))
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let stat = std::fs::read_to_string(format!("/proc/{pid}/stat"))?;
+        Ok(stat
+            .rsplit_once(')')
+            .context("Invalid process identity")?
+            .1
+            .split_whitespace()
+            .nth(19)
+            .context("Missing process start time")?
+            .to_owned())
+    }
+}
+pub(crate) fn stop_local_expected(
+    path: &std::path::Path,
+    pid: i32,
+    executable: &std::path::Path,
+    start: &str,
+) -> Result<Message> {
+    stop_verified(path, true, Some((pid, executable, start)))
+}
+fn stop_verified(
+    path: &std::path::Path,
+    local: bool,
+    expected: Option<(i32, &std::path::Path, &str)>,
+) -> Result<Message> {
     let mut stream = UnixStream::connect(path)?;
+    if let Some((pid, executable, start)) = expected {
+        anyhow::ensure!(
+            peer_identity(&stream)?.0 == pid
+                && local_daemon_executable_on(&stream)? == executable
+                && process_start(pid)? == start,
+            "Server identity changed before shutdown"
+        );
+    }
     stream.set_read_timeout(Some(std::time::Duration::from_secs(if local {
         3
     } else {
@@ -543,6 +607,7 @@ fn stop_with_fallback(path: &std::path::Path, local: bool) -> Result<Message> {
                     || v == "jam/4:ghostty/483ea3d:text"
                     || v == "jam/5:ghostty/483ea3d:text"
                     || v == "jam/6:ghostty/483ea3d:text"
+                    || v == "jam/7:ghostty/483ea3d:text"
                     || v == VERSION => {}
             _ => bail!("unrecognized daemon protocol"),
         }
@@ -576,7 +641,7 @@ fn stop_with_fallback(path: &std::path::Path, local: bool) -> Result<Message> {
 }
 
 #[cfg(target_os = "macos")]
-fn peer_identity(stream: &UnixStream) -> Result<(libc::pid_t, libc::uid_t)> {
+pub(crate) fn peer_identity(stream: &UnixStream) -> Result<(libc::pid_t, libc::uid_t)> {
     use std::os::fd::AsRawFd;
     let (mut uid, mut gid, mut pid) = (0, 0, 0);
     let mut length = std::mem::size_of_val(&pid) as libc::socklen_t;
@@ -596,7 +661,7 @@ fn peer_identity(stream: &UnixStream) -> Result<(libc::pid_t, libc::uid_t)> {
     Ok((pid, uid))
 }
 #[cfg(target_os = "linux")]
-fn peer_identity(stream: &UnixStream) -> Result<(libc::pid_t, libc::uid_t)> {
+pub(crate) fn peer_identity(stream: &UnixStream) -> Result<(libc::pid_t, libc::uid_t)> {
     use std::os::fd::AsRawFd;
     let mut cred: libc::ucred = unsafe { std::mem::zeroed() };
     let mut length = std::mem::size_of_val(&cred) as libc::socklen_t;
@@ -677,7 +742,7 @@ fn terminate_local_peer(path: &std::path::Path, stream: &UnixStream) -> Result<(
         Err(e) => return Err(e.into()),
     }
     eprintln!(
-        "Local Jam server is unresponsive; stopping its verified process. Saved layout is preserved."
+        "Local Jam server is unresponsive. Stopping its verified process. Saved layout is preserved."
     );
     for signal in [libc::SIGTERM, libc::SIGKILL] {
         if unsafe { libc::kill(pid, signal) } != 0 {
@@ -737,7 +802,7 @@ mod upgrade_tests {
     fn incompatible_protocols_never_receive_ordinary_requests_or_unknown_shutdowns() {
         for version in [
             "jam/6:ghostty/483ea3d:text",
-            "jam/8:ghostty/483ea3d:text",
+            "jam/99:ghostty/483ea3d:text",
             "jam/6:ghostty/unknown:text",
             "unrelated-service",
         ] {

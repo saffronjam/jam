@@ -195,7 +195,7 @@ private struct UsageCard: View {
               Text(account).font(.caption).textSelection(.enabled)
             }
             if report.accountKey == nil {
-              Text("Account identity unavailable; shown separately for this machine.").font(
+              Text("Account identity unavailable. Shown separately for this machine.").font(
                 .caption
               ).foregroundStyle(.secondary)
             }

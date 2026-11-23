@@ -292,7 +292,7 @@ fn claim_upgrade_stop(server: &mut Server, token: &str) -> Result<()> {
     if server.upgrade_boot.as_deref() == Some(token) {
         let path = state_dir().join(UPGRADE_BOOT_FILE);
         if upgrade_boot_token(&path)?.as_deref() != Some(token) {
-            bail!("Upgrade boot ownership changed; server was left running");
+            bail!("Upgrade boot ownership changed. Server was left running");
         }
         server.upgrade_lease = None;
         server.draining = true;
@@ -303,7 +303,7 @@ fn claim_upgrade_stop(server: &mut Server, token: &str) -> Result<()> {
         .as_ref()
         .is_some_and(|lease| lease.token == token)
     {
-        bail!("Upgrade confirmation expired or changed; confirm the upgrade again");
+        bail!("Upgrade confirmation expired or changed. Confirm the upgrade again");
     }
     // Stop consumes ownership under the same lock used to stop all panes. No
     // expiring lease can reopen admission between this check and shutdown.
@@ -352,6 +352,8 @@ fn spawn(mut pane: Pane) -> Result<Handle> {
         bail!("Terminal directory is not a folder: {}", pane.cwd)
     }
     pane.session_generation = Some(id());
+    pane.agent_provider = None;
+    pane.agent_source = None;
     let info = Arc::new(Mutex::new(pane.clone()));
     let meta = info.clone();
     let root_pid = Arc::new(std::sync::atomic::AtomicU32::new(0));
@@ -443,7 +445,7 @@ fn spawn(mut pane: Pane) -> Result<Handle> {
                 if matches!(p.kind(), Ok(SemanticPromptKind::PromptStart))
                     && matches!(p.prompt_kind(), Ok(PromptKind::Primary))
                 {
-                    prompt.lock().unwrap().end();
+                    prompt.lock().unwrap().prompt();
                 }
             })?;
             let mut clients: Vec<Sender<Message>> = Vec::new();
@@ -466,13 +468,29 @@ fn spawn(mut pane: Pane) -> Result<Handle> {
             drop(actor);
             ready.send(Ok(())).ok();
             loop {
+                {
+                    let mut activity = status.lock().unwrap();
+                    if activity.foreground(
+                        pair.master.process_group_leader(),
+                        child.child.process_id().map(|p| p as i32),
+                    ) {
+                        let mut m = meta.lock().unwrap();
+                        m.agent_provider = None;
+                        m.agent_source = None;
+                        m.status = activity.state();
+                        m.reports = activity.records();
+                    }
+                }
                 // PTY EOF and root exit are independent: reap the root even
                 // when EOF arrived first, and clean up jobs keeping the PTY open.
                 if !root_reaped && child.poll_exit()? {
                     root_reaped = true;
                     if !exited {
                         exited = true;
-                        meta.lock().unwrap().exited = true;
+                        let mut m = meta.lock().unwrap();
+                        m.exited = true;
+                        m.agent_provider = None;
+                        m.agent_source = None;
                         clients.retain(|c| c.try_send(Message::Exited).is_ok());
                     }
                 }
@@ -497,6 +515,9 @@ fn spawn(mut pane: Pane) -> Result<Handle> {
                             let status = status.lock().unwrap();
                             m.status = status.state();
                             m.reports = status.records();
+                            let identity = crate::agents::Agent::resolve(None, status.provider());
+                            m.agent_provider = identity.map(|(p, _)| p.name().to_owned());
+                            m.agent_source = identity.map(|(_, source)| source);
                         }
                         seq += 1;
                         let msg = Message::Output { seq, bytes: b };
@@ -516,6 +537,8 @@ fn spawn(mut pane: Pane) -> Result<Handle> {
                             status.end();
                             let mut m = meta.lock().unwrap();
                             m.exited = true;
+                            m.agent_provider = None;
+                            m.agent_source = None;
                             m.status = status.state();
                             m.reports = status.records();
                         }
@@ -792,6 +815,7 @@ fn new_pane(s: &mut Server, path: String, workspace: String) -> Result<String> {
         session_generation: None,
         launch_error: None,
         agent_provider: None,
+        agent_source: None,
         agent_role: None,
         id: id.clone(),
         title: "Terminal".into(),
@@ -983,7 +1007,16 @@ fn refresh_pane_metadata(s: &mut Server) {
             .as_deref()
             .and_then(|items| items.iter().find(|a| a["pane"] == pane.id))
         {
-            pane.agent_provider = agent["provider"].as_str().map(str::to_owned);
+            let reported = if pane.agent_source == Some(crate::AgentSource::Reported) {
+                pane.agent_provider
+                    .as_deref()
+                    .and_then(crate::agents::Agent::from_program)
+            } else {
+                None
+            };
+            let identity = crate::agents::Agent::resolve(agent["provider"].as_str(), reported);
+            pane.agent_provider = identity.map(|(p, _)| p.name().to_owned());
+            pane.agent_source = identity.map(|(_, source)| source);
             pane.agent_role = agent["role"].as_str().map(str::to_owned);
             pane.launch_error = agent["launch_error"]
                 .as_str()
@@ -1060,7 +1093,7 @@ fn request(s: &mut Server, r: Request) -> Result<Message> {
         } => {
             uuid::Uuid::parse_str(&token).context("Invalid upgrade ownership token")?;
             if approved_incarnation != incarnation() || build != env!("JAM_BUILD_ID") {
-                bail!("Server changed after confirmation; confirm the upgrade again");
+                bail!("Server changed after confirmation. Confirm the upgrade again");
             }
             if s.upgrade_lease
                 .as_ref()
@@ -1071,7 +1104,7 @@ fn request(s: &mut Server, r: Request) -> Result<Message> {
             }
             if sessions.len() != panes.len() || panes.iter().any(|id| !sessions.contains_key(id)) {
                 bail!(
-                    "Upgrade approval is missing terminal session identities; confirm the upgrade again"
+                    "Upgrade approval is missing terminal session identities. Confirm the upgrade again"
                 );
             }
             if s.coordination_inflight != 0
@@ -1086,7 +1119,7 @@ fn request(s: &mut Server, r: Request) -> Result<Message> {
                     .any(|operation| matches!(operation, Message::Operation { done: false, .. }))
             {
                 bail!(
-                    "New terminals or operations started after confirmation; confirm the upgrade again"
+                    "New terminals or operations started after confirmation. Confirm the upgrade again"
                 );
             }
             s.draining = true;
@@ -1103,7 +1136,7 @@ fn request(s: &mut Server, r: Request) -> Result<Message> {
             let path = state_dir().join(UPGRADE_BOOT_FILE);
             if let Some(on_disk) = upgrade_boot_token(&path)? {
                 if on_disk != token {
-                    bail!("Upgrade boot hold changed; automatic recovery is required");
+                    bail!("Upgrade boot hold changed. Automatic recovery is required");
                 }
                 fs::remove_file(&path)?;
             }
@@ -1148,7 +1181,7 @@ fn request(s: &mut Server, r: Request) -> Result<Message> {
             request: inner,
         } => {
             if revision != s.state.revision {
-                bail!("Layout changed on another client; refresh and retry");
+                bail!("Layout changed on another client. Refresh and retry");
             }
             return request(s, *inner);
         }
@@ -1486,6 +1519,7 @@ fn request(s: &mut Server, r: Request) -> Result<Message> {
                         session_generation: None,
                         launch_error: None,
                         agent_provider: None,
+                        agent_source: None,
                         agent_role: None,
                         id: pane_id.clone(),
                         title: "Coordinator".into(),
@@ -1532,6 +1566,7 @@ fn request(s: &mut Server, r: Request) -> Result<Message> {
                 session_generation: None,
                 launch_error: None,
                 agent_provider: None,
+                agent_source: None,
                 agent_role: None,
                 id: pane_id.clone(),
                 title: role.into(),
@@ -1843,7 +1878,7 @@ fn validate_initial_tab(s: &Server, location: &WorkspaceLocation, tab: &InitialT
                 })
                 .count();
             if workers >= crate::config::host_settings().max_agents_per_coordinator {
-                bail!("Worker limit reached; pause an idle worker first");
+                bail!("Worker limit reached. Pause an idle worker first");
             }
         }
     }
@@ -2082,7 +2117,7 @@ pub fn serve() -> Result<()> {
     }
     let mut state: State = match fs::read(state_dir().join("layout.json")) {
         Ok(bytes) => serde_json::from_slice(&bytes)
-            .context("invalid saved layout; preserve it before repairing")?,
+            .context("invalid saved layout. Preserve it before repairing")?,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => State::default(),
         Err(e) => return Err(e.into()),
     };
@@ -2091,6 +2126,9 @@ pub fn serve() -> Result<()> {
         p.session_generation = None;
         p.status = "unknown".into();
         p.reports.clear();
+        p.agent_provider = None;
+        p.agent_source = None;
+        p.agent_role = None;
         if let Some(path) = cwd_path(&p.cwd) {
             p.cwd = path;
         }
@@ -2586,7 +2624,7 @@ pub fn serve() -> Result<()> {
                                         .any(|w| w.id != workspace && w.path == path)
                                     {
                                         bail!(
-                                            "Checkout is open in another workspace; close those sessions before deleting it"
+                                            "Checkout is open in another workspace. Close those sessions before deleting it"
                                         );
                                     }
                                     // Preflight before stopping sessions; Git repeats safety checks at removal.
@@ -2604,7 +2642,7 @@ pub fn serve() -> Result<()> {
                                         && !crate::worktree::is_clean(std::path::Path::new(&path))?
                                     {
                                         bail!(
-                                            "Checkout has local changes; force confirmation is required"
+                                            "Checkout has local changes. Force confirmation is required"
                                         )
                                     }
                                     let state = shared.lock().unwrap();

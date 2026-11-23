@@ -344,7 +344,7 @@ impl Mirror {
     pub fn find(&self, id: u64, query: String) {
         self.search.begin(id);
         if self.tx.try_send(Event::Find { id, query }).is_err() {
-            self.search.fail(id, "Terminal is busy; retrying…".into());
+            self.search.fail(id, "Terminal is busy. Retrying…".into());
         }
     }
     pub fn find_select(&self, id: u64, index: usize) {

@@ -1,0 +1,5 @@
+{
+  "xcode": "26.5",
+  "sdk": "26.5",
+  "deployment_target": "14.0"
+}

@@ -10,7 +10,7 @@ impl std::fmt::Display for UpgradeRequired {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "This machine runs Jam {}. Upgrade this client (Jam {}) before connecting; the server was left unchanged",
+            "This machine runs Jam {}. Upgrade this client (Jam {}) before connecting. The server was left unchanged",
             self.minimum, self.current
         )
     }
@@ -20,7 +20,7 @@ impl std::error::Error for UpgradeRequired {}
 /// Never infer ordering from protocol numbers or source fingerprints.
 pub fn require_client_at_least(server: Option<&str>, client: &str) -> Result<()> {
     let server =
-        server.context("Server has no release version; explicit server migration is required")?;
+        server.context("Server has no release version. Explicit server migration is required")?;
     let server = semver::Version::parse(server).context("Invalid server release version")?;
     let client = semver::Version::parse(client).context("Invalid client release version")?;
     if server > client {

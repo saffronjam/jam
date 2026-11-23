@@ -22,7 +22,7 @@ fn substitute(template: &str, repo: &str, worktree: &str) -> Result<String> {
             "repo" => repo,
             "worktree" | "wt" => worktree,
             _ => bail!(
-                "Unknown worktree variable {{{{{key}}}}}; use {{{{repo}}}} or {{{{worktree}}}}"
+                "Unknown worktree variable {{{{{key}}}}}. Use {{{{repo}}}} or {{{{worktree}}}}"
             ),
         });
         rest = &rest[end + 2..];

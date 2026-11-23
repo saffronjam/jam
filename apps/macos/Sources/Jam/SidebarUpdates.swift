@@ -37,6 +37,13 @@ enum RemoteConnectionState: Equatable {
     return hasResult ? .retryWaiting : .waiting
   }
   var isAttempting: Bool { self == .connecting || self == .reconnecting }
+  func isLoadingInitialContent(loaded: Bool, blocked: Bool) -> Bool {
+    guard !loaded, !blocked else { return false }
+    switch self {
+    case .waiting, .connecting, .reconnecting, .connected: return true
+    case .retryWaiting, .disconnected: return false
+    }
+  }
   var label: String? {
     switch self {
     case .connected: return nil

@@ -14,6 +14,12 @@ fn json_result(f: impl FnOnce() -> anyhow::Result<serde_json::Value>) -> *mut c_
         Ok(Ok(v)) => v,
         Ok(Err(e)) => {
             let mut result = serde_json::json!({"error":format!("{e:#}")});
+            if e.downcast_ref::<jam_core::server_control::OwnershipConflict>()
+                .is_some()
+            {
+                result["server_action_required"] =
+                    serde_json::json!({"endpoint":"", "kind":"takeover"});
+            }
             if let Some(required) = e.downcast_ref::<jam_core::release_version::UpgradeRequired>() {
                 result["upgrade_required"] =
                     serde_json::json!({"current": required.current, "minimum": required.minimum});
@@ -217,6 +223,15 @@ pub unsafe extern "C" fn jam_remote(p: *const c_char) -> *mut c_char {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jam_start(path: *const c_char) -> *mut c_char {
     json_result(|| {
+        if std::os::unix::net::UnixStream::connect(socket()).is_ok() {
+            let status = server_control::manage(
+                &serde_json::json!({"action":"status", "daemon":unsafe { string(path) }}),
+            )?;
+            anyhow::ensure!(
+                status["state"] != "client_update_required",
+                "Update Jam before connecting to this newer server"
+            );
+        }
         if let Err(e) = connect() {
             if std::os::unix::net::UnixStream::connect(socket()).is_ok() {
                 return Err(e);
@@ -251,7 +266,7 @@ pub unsafe extern "C" fn jam_start(path: *const c_char) -> *mut c_char {
                 }
                 thread::sleep(std::time::Duration::from_millis(50));
             }
-            anyhow::bail!("daemon did not start; inspect jamd.log")
+            anyhow::bail!("daemon did not start. Inspect jamd.log")
         };
         Renderer::prepare()?;
         Ok(serde_json::json!({"ok":true}))

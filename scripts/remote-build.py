@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run inside the Linux build container; produce a verified, self-contained archive."""
+"""Run inside the Linux build container. Produce a verified, self-contained archive."""
 import hashlib, json, pathlib, platform, shutil, subprocess, tarfile
 root = pathlib.Path(__file__).resolve().parent.parent
 import os
@@ -25,6 +25,7 @@ out.mkdir(parents=True, exist_ok=True)
 for name in ['jam', 'jamd']: shutil.copy2(pathlib.Path(os.environ.get('CARGO_TARGET_DIR', root / 'target')) / os.environ.get('CARGO_BUILD_TARGET', '') / 'release' / name, out / name)
 shutil.copy2(root / 'skills/jam/SKILL.md', out / 'SKILL.md')
 shutil.copy2(root / 'scripts/remote-install.py', out / 'install.py')
+shutil.copy2(root / 'scripts/server-inspect.py', out / 'server-inspect.py')
 subprocess.run(['python3', 'scripts/release/notices.py'], cwd=root, check=True)
 shutil.copy2(root / 'build/DEPENDENCIES.txt', out / 'DEPENDENCIES.txt')
 shutil.copy2(root / 'LICENSE', out / 'LICENSE')

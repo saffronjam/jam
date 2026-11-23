@@ -6,6 +6,11 @@ use std::collections::{BTreeMap, VecDeque};
 pub struct Status {
     records: BTreeMap<String, StatusRecord>,
     order: VecDeque<String>,
+    provider: Option<(String, crate::agents::Agent)>,
+    foreground: Option<i32>,
+    shell: Option<i32>,
+    provider_group: Option<i32>,
+    returned_to_shell: bool,
 }
 impl Status {
     pub fn report(&mut self, r: ProgramStatus<'_>) {
@@ -15,6 +20,32 @@ impl Status {
             self.records
                 .retain(|k, _| !id.is_empty() && k != &id && !k.starts_with(&format!("{id}/")));
             return;
+        }
+        // Final output can arrive after tcgetpgrp has already returned to the
+        // shell. It must not resurrect the program whose lifetime just ended.
+        let terminal_state = format!("{state:?}").to_lowercase();
+        let stale_completion =
+            self.returned_to_shell && ["done", "error"].contains(&terminal_state.as_str());
+        if !stale_completion
+            && let Some(provider) =
+                crate::agents::Agent::from_program(&String::from_utf8_lossy(r.app()))
+        {
+            let may_replace = self.provider.as_ref().is_none_or(|(owner, _)| {
+                owner == &id || owner.starts_with(&format!("{id}/")) || id.is_empty()
+            });
+            if may_replace {
+                if self
+                    .provider
+                    .as_ref()
+                    .is_none_or(|(_, old)| *old != provider)
+                {
+                    self.records.clear();
+                    self.order.clear();
+                }
+                self.returned_to_shell = false;
+                self.provider = Some((id.clone(), provider));
+                self.provider_group = self.foreground;
+            }
         }
         self.order
             .retain(|k| self.records.contains_key(k) && k != &id);
@@ -41,7 +72,36 @@ impl Status {
             },
         );
     }
+    pub fn provider(&self) -> Option<crate::agents::Agent> {
+        self.provider.as_ref().map(|(_, p)| *p)
+    }
+    /// Foreground return is a fallback when a shell has no semantic prompt integration.
+    pub fn foreground(&mut self, group: Option<i32>, shell: Option<i32>) -> bool {
+        self.foreground = group;
+        self.shell = shell;
+        if group.is_some() && group != shell {
+            self.returned_to_shell = false;
+        }
+        if group.is_some()
+            && group == shell
+            && self.provider_group.is_some()
+            && self.provider_group != shell
+        {
+            self.end();
+            self.returned_to_shell = true;
+            return true;
+        }
+        false
+    }
+    pub fn prompt(&mut self) {
+        // An application's own input prompt is not a return to the shell.
+        if self.foreground.is_none() || self.foreground == self.shell {
+            self.end();
+        }
+    }
     pub fn end(&mut self) {
+        self.provider = None;
+        self.provider_group = None;
         self.records
             .retain(|_, r| ["done", "error"].contains(&r.state.as_str()));
     }
@@ -96,6 +156,54 @@ impl Status {
 mod tests {
     use super::*;
     use std::sync::{Arc, Mutex};
+    #[test]
+    fn identity_is_separate_from_activity_and_nested_tool_reports() {
+        let status = Arc::new(Mutex::new(Status::default()));
+        let mut terminal = crate::vt::terminal(20, 4).unwrap();
+        let observed = status.clone();
+        terminal
+            .on_program_status(move |_, r| observed.lock().unwrap().report(r))
+            .unwrap();
+        status.lock().unwrap().foreground(Some(20), Some(10));
+        terminal.vt_write(b"\x1b]7501;state=done:app=codex\x07");
+        assert_eq!(
+            status.lock().unwrap().provider(),
+            Some(crate::agents::Agent::Codex)
+        );
+        status.lock().unwrap().acknowledge();
+        assert_eq!(status.lock().unwrap().state(), "unknown");
+        assert!(status.lock().unwrap().provider().is_some());
+        terminal.vt_write(b"\x1b]7501;state=clear\x07");
+        assert!(status.lock().unwrap().provider().is_some());
+        terminal.vt_write(b"\x1b]7501;state=working:id=tool:app=claude-code\x07");
+        assert_eq!(
+            status.lock().unwrap().provider(),
+            Some(crate::agents::Agent::Codex)
+        );
+        status.lock().unwrap().prompt();
+        assert!(status.lock().unwrap().provider().is_some());
+        assert!(status.lock().unwrap().foreground(Some(10), Some(10)));
+        assert!(status.lock().unwrap().provider().is_none());
+        terminal.vt_write(b"\x1b]7501;state=done:app=codex\x07");
+        assert!(
+            status.lock().unwrap().provider().is_none(),
+            "Late completion must not revive an exited agent"
+        );
+        terminal.vt_write(b"\x1b]7501;state=idle:app=claude-code\x07");
+        assert_eq!(
+            status.lock().unwrap().provider(),
+            Some(crate::agents::Agent::Claude)
+        );
+        assert_eq!(status.lock().unwrap().state(), "idle");
+        let resolved =
+            crate::agents::Agent::resolve(Some("codex"), status.lock().unwrap().provider())
+                .unwrap();
+        assert_eq!(
+            resolved,
+            (crate::agents::Agent::Codex, crate::AgentSource::Registered)
+        );
+        assert!(crate::agents::Agent::from_program("build-codex-report").is_none());
+    }
     #[test]
     fn hierarchical_clear_and_prompt_lifetime() {
         let status = Arc::new(Mutex::new(Status::default()));

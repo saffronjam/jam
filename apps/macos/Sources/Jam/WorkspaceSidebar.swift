@@ -50,6 +50,7 @@ struct WorkspaceSidebar: NSViewRepresentable {
     var loading = false
     var connectionAttempt = false
     var offline = false
+    var machineLabel: String?
     var topInset: CGFloat = 0
     var workspace: Workspace?
     var path: String
@@ -118,7 +119,8 @@ struct WorkspaceSidebar: NSViewRepresentable {
       let branch: String = item.isCoordinator ? "" : (workspace?.sidebarBranch ?? "")
       let creating: Bool = workspace.map { store.isCreatingWorkspace($0.id) } ?? false
       let fields: [String] = [
-        item.path, String(item.loading), String(item.connectionAttempt), String(item.offline),
+        item.path, item.machineLabel ?? "", String(item.loading), String(item.connectionAttempt),
+        String(item.offline),
         "\(item.topInset)", workspace?.name ?? "", branch, String(!item.children.isEmpty),
         String(summary?.added ?? 0), String(summary?.removed ?? 0),
         summary?.review?.displaySignature ?? "", status(for: item),
@@ -134,14 +136,19 @@ struct WorkspaceSidebar: NSViewRepresentable {
         let message: String = store.remoteMessages[remote.id] ?? ""
         let state: String =
           "\(store.remoteSidebarState(remote.id))|\(store.remoteConnectionState(remote.id))"
-        return [remote.id, remote.name, message, state].joined()
+        let presentation = store.machinePresentation(remote.id)
+        return [
+          remote.id, remote.name, message, state, presentation.label ?? "",
+          String(presentation.isAttempting), String(presentation.warning),
+        ].joined(separator: "|")
       }
       let workspaceSignatures: [String] = store.displayedWorkspaces.map(workspaceSignature)
       let paneSignatures: [String] = store.panes.values.map { pane -> String in
-        "\(pane.id):\(pane.status):\(pane.exited)"
+        "\(pane.id):\(pane.status):\(pane.exited):\(pane.agentProvider ?? ""):\(pane.agentRole ?? "")"
       }
       let next: String = [
         "\(store.groupsMachines)|", remoteSignatures.joined(),
+        String(describing: store.machinePresentation("")),
         workspaceSignatures.joined(separator: ";"), paneSignatures.sorted().joined(separator: ";"),
       ].joined()
       updating = true
@@ -215,13 +222,13 @@ struct WorkspaceSidebar: NSViewRepresentable {
               ? "Local" : store.remotes.first { $0.id == endpoint }?.name ?? endpoint
             let machine = items[key] ?? Item(key: key, workspace: nil, path: label)
             machine.machine = endpoint
+            let presentation = store.machinePresentation(endpoint)
+            machine.machineLabel = presentation.label
             let state =
               endpoint.isEmpty ? RemoteSidebarState.ready : store.remoteSidebarState(endpoint)
             machine.loading = state == .loading
-            machine.connectionAttempt =
-              !endpoint.isEmpty && store.remoteConnectionState(endpoint).isAttempting
-            machine.offline =
-              !endpoint.isEmpty && store.remoteConnectionState(endpoint) != .connected
+            machine.connectionAttempt = presentation.isAttempting
+            machine.offline = presentation.label == "Offline"
             machine.topInset = roots.isEmpty ? 0 : 12
             machine.path = label
             machine.children =
@@ -433,7 +440,7 @@ struct WorkspaceSidebar: NSViewRepresentable {
         loading: w.map { store.isCreatingWorkspace($0.id) } ?? false,
         leadingInset: parent != nil && parent?.machine == nil
           ? SidebarGeometry.worktreeIconInset : 0,
-        detail: item.connectionAttempt ? "Connecting…" : (item.offline ? "Offline" : nil),
+        detail: item.machineLabel,
         image: item.isCoordinator ? CoordinatorMark.image : nil)
       cell.toolTip =
         "\(name) — \(status(for: item) == "unknown" ? "No reported activity" : status(for: item))"

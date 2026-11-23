@@ -7,11 +7,13 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 SCRIPT = Path(__file__).resolve().parents[1] / 'package-macos.py'
 spec = importlib.util.spec_from_file_location('package_macos', SCRIPT)
 module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(module)
+with patch.object(sys, 'path', [str(SCRIPT.parent), *sys.path]):
+    spec.loader.exec_module(module)
 
 
 @unittest.skipUnless(sys.platform == 'darwin', 'macOS atomic bundle publication')
@@ -53,18 +55,27 @@ class BundlePublicationTests(unittest.TestCase):
                 shutil.copytree(self.bundle, staged)
                 (staged / 'Contents/Resources/marker.txt').write_text('new')
                 self.sign(staged)
-                module.publish_bundle(staged, self.bundle)
+                retained = module.publish_bundle(staged, self.bundle)
                 self.assertIsNone(process.poll(), 'Atomic packaging must not stop a running app')
-                self.assertEqual((staged / 'Contents/MacOS/Jam').stat().st_ino, old_stat.st_ino)
+                self.assertIsNotNone(retained)
+                self.assertEqual((retained / 'Contents/MacOS/Jam').stat().st_ino, old_stat.st_ino)
                 old_file.seek(0)
                 self.assertEqual(old_file.read(), old_bytes, 'Mapped executable bytes must never change')
                 self.assertEqual((self.bundle / 'Contents/Resources/marker.txt').read_text(), 'new')
                 self.verify(self.bundle)
-                self.verify(staged)
+                self.verify(retained)
+                module.prune_retired_bundles(self.bundle)
+                self.assertTrue(retained.exists(), 'Live bundles must survive cleanup')
         finally:
             process.terminate()
             process.wait(timeout=5)
             process.stdout.close()
+        module.prune_retired_bundles(self.bundle)
+        self.assertFalse(retained.exists(), 'Unused bundles must be reclaimed')
+
+    def test_uncertain_usage_keeps_old_bundle(self):
+        with patch.object(module.subprocess, 'run', side_effect=OSError('unavailable')):
+            self.assertTrue(module.bundle_in_use(self.bundle))
 
     def test_failed_swap_leaves_existing_bundle_valid(self):
         inode = (self.bundle / 'Contents/MacOS/Jam').stat().st_ino

@@ -981,6 +981,7 @@ struct WorktreeListFixture: View {
     let remote = "empty-test"
     store.workspaces.append(
       Workspace(id: remote + "|cached", name: "Cached", path: "/cached", tabs: []))
+    store.loadedRemotes.insert(remote)
     store.remoteMessages[remote] = "Connection timed out"
     store.remoteConnecting.insert(remote)
     RunLoop.current.run(until: Date().addingTimeInterval(0.3))
@@ -991,18 +992,19 @@ struct WorktreeListFixture: View {
     let cell = outline.view(atColumn: 0, row: row, makeIfNecessary: true) as! WorkspaceCell
     assert(
       cell.titleRow.subviews.compactMap { ($0 as? NSTextField)?.stringValue }.contains(
-        "Connecting…"))
+        "Reconnecting…"))
     let connecting = cell.titleRow.subviews.compactMap { $0 as? NSTextField }.first {
-      $0.stringValue == "Connecting…"
+      $0.stringValue == "Reconnecting…"
     }!
     assert(
-      abs(connecting.frame.maxX - cell.titleRow.bounds.maxX) < 1,
+      abs(connecting.frame.maxX - (cell.titleRow.bounds.maxX - 8)) < 1,
       "Connection label should be trailing-aligned")
     assert(machine.connectionAttempt && !machine.children.isEmpty)
     assert(outline.frameOfOutlineCell(atRow: row).isEmpty)
     let rowView = outline.rowView(atRow: row, makeIfNecessary: true)!
     assert(rowView.subviews.contains { $0 is NSProgressIndicator && !$0.isHidden })
     store.remoteConnecting.remove(remote)
+    store.pausedRemotes.insert(remote)
     RunLoop.current.run(until: Date().addingTimeInterval(0.1))
     let offlineCell = outline.view(atColumn: 0, row: row, makeIfNecessary: true) as! WorkspaceCell
     assert(
@@ -1259,6 +1261,20 @@ struct WorktreeListFixture: View {
 
   static func checkActivityIndicators() {
     let store = Store()
+    store.apply(
+      [
+        "workspaces": [],
+        "panes": [
+          [
+            "id": "manual-codex", "title": "Confirm yes | jam", "cwd": "/tmp",
+            "status": "done", "exited": false, "agent_provider": "codex",
+            "agent_source": "reported",
+          ]
+        ],
+      ], endpoint: "")
+    assert(store.panes["manual-codex"]?.isAIPane == true)
+    assert(store.panes["manual-codex"]?.agentRole == nil)
+    assert(store.panes["manual-codex"]?.activityStatus == .done)
     let shell = Pane(id: "shell", title: "Shell", cwd: "/tmp", status: "error", exited: false)
     var panes = (0..<11).map {
       Pane(
@@ -1555,6 +1571,34 @@ struct WorktreeListFixture: View {
         WorkspaceSidebar.Coordinator(store).update(NSOutlineView())
       }
     }
+    let closing = Store()
+    let empty = Workspace(id: "empty", name: "Empty", path: "/tmp", tabs: [])
+    closing.workspaces = [empty]
+    assert(!closing.workspaceCloseNeedsConfirmation(empty, group: true))
+    let child = Workspace(
+      id: "child", name: "Child", path: "/tmp/child",
+      tabs: [Tab(id: "child-tab", name: "Terminal", root: .leaf("child-pane"))], parent: empty.id)
+    closing.workspaces.append(child)
+    assert(
+      closing.workspaceCloseNeedsConfirmation(empty, group: true),
+      "Unknown pane metadata must remain conservative")
+    assert(!closing.workspaceCloseNeedsConfirmation(empty, group: false))
+    closing.panes["child-pane"] = Pane(
+      id: "child-pane", title: "Shell", cwd: "/tmp", status: "idle", exited: false)
+    assert(
+      closing.workspaceCloseNeedsConfirmation(empty, group: true),
+      "Running child terminals will also close")
+    closing.panes["child-pane"]?.exited = true
+    assert(
+      !closing.workspaceCloseNeedsConfirmation(empty, group: true),
+      "Stopped panes need no confirmation")
+    closing.workspaces[0].coordinator = WorkspaceCoordinator(
+      id: "agent", pane: "coordinator-pane", provider: "codex")
+    closing.panes["coordinator-pane"] = Pane(
+      id: "coordinator-pane", title: "Codex", cwd: "/tmp", status: "idle", exited: false)
+    assert(
+      closing.workspaceCloseNeedsConfirmation(empty, group: true),
+      "A running coordinator counts even without tabs")
     print(
       "Context routing passed: remote/local workspace and coordinator closes preserve other machine state and unique sidebar rows."
     )

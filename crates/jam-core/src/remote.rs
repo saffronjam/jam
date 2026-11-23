@@ -330,7 +330,12 @@ fn install_unlocked(
     let approved = if let Some(value) = approval {
         use base64::Engine;
         format!(
-            " --approved-state={}",
+            " --{}={}",
+            if value.get("takeover").is_some() {
+                "takeover-state"
+            } else {
+                "approved-state"
+            },
             base64::engine::general_purpose::STANDARD.encode(serde_json::to_vec(value)?)
         )
     } else {
@@ -349,6 +354,50 @@ fn install_unlocked(
     }
     Ok(true)
 }
+/// Inspect a managed server without depending on its wire protocol.
+pub fn inspect_server(id: &str) -> Result<serde_json::Value> {
+    use std::io::Write;
+    let remote = list()?
+        .into_iter()
+        .find(|r| r.id == id)
+        .context("Unknown remote")?;
+    let mut child = ssh(&remote.destination)?
+        .arg(&remote.destination)
+        .arg("python3 -")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()?;
+    child
+        .stdin
+        .take()
+        .context("Missing inspection input")?
+        .write_all(include_bytes!("../../../scripts/server-inspect.py"))?;
+    let output = child.wait_with_output()?;
+    anyhow::ensure!(
+        output.status.success(),
+        "Could not inspect server: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    Ok(serde_json::from_slice(&output.stdout)?)
+}
+
+pub fn take_over(
+    id: &str,
+    archive: &std::path::Path,
+    identity: &serde_json::Value,
+) -> Result<bool> {
+    let lock = lifecycle_lock(id);
+    let _guard = lock.lock().unwrap();
+    install_unlocked(
+        id,
+        archive,
+        true,
+        Some(crate::SERVER_BUILD),
+        Some(&serde_json::json!({"takeover": identity})),
+    )
+}
+
 pub fn server_arch(id: &str) -> Result<String> {
     let remote = list()?
         .into_iter()
@@ -687,17 +736,17 @@ pub fn ensure(id: &str, artifacts: &std::path::Path) -> Result<(PathBuf, bool)> 
         bail!("This remote requires Linux x86_64 or aarch64 with systemd");
     }
     let installed: serde_json::Value = serde_json::from_str(fields[4])
-        .context("Invalid remote release metadata; server left unchanged")?;
+        .context("Invalid remote release metadata. Server left unchanged")?;
     if !installed.is_null() {
         crate::release_version::require_client_at_least(
             installed["release_version"].as_str(),
             crate::RELEASE_VERSION,
         )?;
     } else if fields[2] != "missing" {
-        anyhow::bail!("Running server has no release metadata; explicit migration is required");
+        anyhow::bail!("Running server has no release metadata. Explicit migration is required");
     }
     let running: serde_json::Value = serde_json::from_str(fields[5])
-        .context("Invalid running server metadata; server left unchanged")?;
+        .context("Invalid running server metadata. Server left unchanged")?;
     if !running.is_null() {
         crate::release_version::require_client_at_least(
             running["release_version"].as_str(),
@@ -708,7 +757,7 @@ pub fn ensure(id: &str, artifacts: &std::path::Path) -> Result<(PathBuf, bool)> 
         let archive = artifacts.join(format!("{}.tar.gz", fields[1]));
         if !archive.is_file() {
             bail!(
-                "Missing {} server artifact; run just remote-build and rebuild the app",
+                "Missing {} server artifact. Run just remote-build and rebuild the app",
                 fields[1]
             );
         }
@@ -732,7 +781,7 @@ pub fn ensure(id: &str, artifacts: &std::path::Path) -> Result<(PathBuf, bool)> 
     if !matches!(read_frame::<Message>(&mut probe)?, Message::Hello(ref version) if version == VERSION)
     {
         bail!(
-            "Server protocol differs from this client; explicitly upgrade the older component. Server left unchanged"
+            "Server protocol differs from this client. Explicitly upgrade the older component. Server left unchanged"
         );
     }
     PERSISTENCE.lock().unwrap().insert(id.into(), persistent);

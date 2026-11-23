@@ -32,7 +32,7 @@ class InstallTests(unittest.TestCase):
             (self.source / name).write_bytes(data)
             files[name] = hashlib.sha256(data).hexdigest()
         (self.source / 'manifest.json').write_text(json.dumps({'release_version':'0.0.1', 'arch':platform.machine(), 'build':tag * 24, 'files':files}))
-    def install(self, refuse=False, lingering=True, options=(), fail_restart=False, fail_operation=None, fail_rollback=False, on_run=None, response=None):
+    def install(self, refuse=False, lingering=True, options=(), fail_restart=False, fail_operation=None, fail_rollback=False, on_run=None, response=None, main_pid=None):
         failed = False
         def run(args, **kwargs):
             nonlocal failed
@@ -46,7 +46,7 @@ class InstallTests(unittest.TestCase):
                 raise subprocess.CalledProcessError(1, args)
             if refuse and args[-1] == 'prepare-upgrade':
                 raise subprocess.CalledProcessError(1, args)
-        with patch.dict(os.environ, {'HOME':str(self.root), 'XDG_DATA_HOME':str(self.root / 'data'), 'XDG_RUNTIME_DIR':str(self.root / 'runtime')}), patch('sys.argv', [str(INSTALLER), str(self.source), *options]), patch('platform.system', return_value='Linux'), patch('subprocess.run', side_effect=run), patch('subprocess.check_output', return_value=json.dumps(response) if response is not None else ('yes\n' if lingering else 'no\n')):
+        with patch.dict(os.environ, {'HOME':str(self.root), 'XDG_DATA_HOME':str(self.root / 'data'), 'XDG_RUNTIME_DIR':str(self.root / 'runtime')}), patch('sys.argv', [str(INSTALLER), str(self.source), *options]), patch('platform.system', return_value='Linux'), patch('subprocess.run', side_effect=run), patch('subprocess.check_output', side_effect=lambda args, **kwargs: str(main_pid) if main_pid is not None and 'MainPID' in args else json.dumps(response) if response is not None else ('yes\n' if lingering else 'no\n')):
             runpy.run_path(str(INSTALLER), run_name='__main__')
     def test_stopped_server_upgrade_preserves_stopped_state(self):
         self.install()
@@ -186,6 +186,29 @@ class InstallTests(unittest.TestCase):
             self.install(options=['--restart-active'])
         self.install(options=['--restart-active', '--allow-unversioned'])
 
+    def test_legacy_takeover_stops_verified_service_without_old_cli(self):
+        self.install()
+        self.build('b')
+        identity = {'pid':42, 'start':'100', 'executable':'old', 'unit':'hash'}
+        (self.source/'server-inspect.py').write_text('def inspect():\n    return '+repr({'identity':identity})+'\n')
+        option = '--takeover-state=' + base64.b64encode(json.dumps({'takeover':identity}).encode()).decode()
+        self.calls.clear()
+        self.install(options=['--restart-active',option], main_pid=42)
+        self.assertIn(['systemctl','--user','stop','jamd.service'], self.calls)
+        self.assertFalse(any(call[-1]=='stop' for call in self.calls))
+        self.assertEqual((self.root/'data/jam/servers/current').resolve().name, 'b'*24)
+
+    def test_takeover_rejects_changed_server_before_stopping(self):
+        self.install()
+        self.build('b')
+        (self.source/'server-inspect.py').write_text("def inspect():\n    return {'identity':{'pid':43}}\n")
+        option = '--takeover-state=' + base64.b64encode(json.dumps({'takeover':{'pid':42}}).encode()).decode()
+        self.calls.clear()
+        with self.assertRaisesRegex(SystemExit, 'server changed'):
+            self.install(options=['--restart-active',option], main_pid=43)
+        self.assertFalse(self.calls)
+        self.assertEqual((self.root/'data/jam/servers/current').resolve().name, 'a'*24)
+
     def test_first_install_and_idempotence(self):
         self.install()
         self.install()
@@ -316,7 +339,7 @@ class InstallTests(unittest.TestCase):
     def test_rollback_failure_reports_both_errors_and_retains_previous_build(self):
         self.install()
         self.build('b')
-        with self.assertRaisesRegex(RuntimeError, 'rollback also failed'):
+        with self.assertRaisesRegex(RuntimeError, 'Rollback also failed'):
             self.install(fail_operation='daemon-reload', fail_rollback=True)
         self.assertTrue((self.root / ('data/jam/servers/' + 'a' * 24)).is_dir())
         self.assertEqual((self.root / 'data/jam/servers/current').resolve().name, 'a' * 24)

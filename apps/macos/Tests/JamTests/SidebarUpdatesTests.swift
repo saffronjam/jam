@@ -25,6 +25,14 @@ struct SidebarUpdatesTests {
     assert(!RemoteConnectionState.connected.isAttempting)
     assert(!RemoteConnectionState.retryWaiting.isAttempting)
     assert(RemoteConnectionState.reconnecting.isAttempting)
+    for state in [RemoteConnectionState.waiting, .connecting, .reconnecting, .connected] {
+      assert(state.isLoadingInitialContent(loaded: false, blocked: false))
+      assert(!state.isLoadingInitialContent(loaded: true, blocked: false))
+      assert(!state.isLoadingInitialContent(loaded: false, blocked: true))
+    }
+    for state in [RemoteConnectionState.retryWaiting, .disconnected] {
+      assert(!state.isLoadingInitialContent(loaded: false, blocked: false))
+    }
     assert(
       RemoteSidebarState.resolve(loaded: false, loading: false, paused: false, hasResult: false)
         == .loading)

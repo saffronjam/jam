@@ -305,7 +305,7 @@ impl Board {
                 .find(|a| a["workspace"] == workspace && a["role"] == role && a["closed"] != true)
         {
             bail!(
-                "This workspace already has a coordinator ({}); open it instead",
+                "This workspace already has a coordinator ({}). Open it instead",
                 a["id"]
             );
         }
@@ -322,7 +322,7 @@ impl Board {
                 >= crate::config::host_settings().max_agents_per_coordinator
         {
             bail!(
-                "Worker limit ({}) reached; pause an idle worker first",
+                "Worker limit ({}) reached. Pause an idle worker first",
                 crate::config::host_settings().max_agents_per_coordinator
             )
         }
@@ -573,7 +573,7 @@ impl Board {
             "pause" | "resume" => {
                 let mut a = self.get(field(&v, "agent")?)?;
                 if v["action"] == "resume" && a["verified_launch"] != true {
-                    bail!("Launch permissions are unknown; resume this agent manually")
+                    bail!("Launch permissions are unknown. Resume this agent manually")
                 };
                 if v["action"] == "resume"
                     && a["paused"] == true
@@ -589,7 +589,7 @@ impl Board {
                         .count()
                         >= crate::config::host_settings().max_agents_per_coordinator
                 {
-                    bail!("Worker limit reached; pause another worker before resuming this one")
+                    bail!("Worker limit reached. Pause another worker before resuming this one")
                 }
                 if v["action"] == "resume" && a["archived"] == true {
                     // Reopening a retired conversation is not permission to replay
@@ -808,7 +808,7 @@ impl Board {
                         && !["done", "cancelled"].contains(&t["state"].as_str().unwrap_or(""))
                 }))
         {
-            bail!("Recipient is archived; select an active agent");
+            bail!("Recipient is archived. Select an active agent");
         }
         if let Some(task) = task
             && self.get(task)?["archived"] == true
@@ -971,7 +971,7 @@ fn field<'a>(v: &'a Value, key: &str) -> Result<&'a str> {
         .filter(|s| !s.is_empty())
         .with_context(|| format!("Missing {key}"))
 }
-const FEATURE_CHECKOUT_POLICY: &str = "For each new feature, a workspace coordinator must create a dedicated Git worktree before editing files or starting implementation workers, even for a small feature with one worker. This is the default; do not ask whether to create it. Work in the current checkout only when the user explicitly requests no new worktree or explicitly requests that checkout. Never infer this opt-out from task size, convenience, or a worker's suggestion. A worktree coordinator stays in its assigned feature worktree rather than creating another worktree for the same feature. Reuse that feature's worktree for follow-ups, retries, and independent review. Resolve the target repository first; if it is not a Git repository or worktree creation fails, explain the blocker instead of silently editing the current checkout. Read-only questions and reviews do not require a new worktree. Create the feature worktree and first worker together with jam worktree create, then assign the task using the returned workspace and agent IDs.";
+const FEATURE_CHECKOUT_POLICY: &str = "For each new feature, a workspace coordinator must create a dedicated Git worktree before editing files or starting implementation workers, even for a small feature with one worker. This is the default. Do not ask whether to create it. Work in the current checkout only when the user explicitly requests no new worktree or explicitly requests that checkout. Never infer this opt-out from task size, convenience, or a worker's suggestion. A worktree coordinator stays in its assigned feature worktree rather than creating another worktree for the same feature. Reuse that feature's worktree for follow-ups, retries, and independent review. Resolve the target repository first. If it is not a Git repository or worktree creation fails, explain the blocker instead of silently editing the current checkout. Read-only questions and reviews do not require a new worktree. Create the feature worktree and first worker together with jam worktree create, then assign the task using the returned workspace and agent IDs.";
 
 fn instructions(a: &Value) -> Result<Value> {
     let home = std::env::var("HOME")?;
@@ -1008,10 +1008,10 @@ fn instructions(a: &Value) -> Result<Value> {
             }
         }
     }
-    let mut result = json!({"agent":a["id"],"role":a["role"],"provider":a["provider"],"files":files,"settings":crate::config::host_settings(),"guidance":"Use `jam coordinate --help` to discover commands. Run `jam coordinate list` for the team and tasks. Assigning a task only queues delivery. Do not claim a worker has received or started it until the message is acknowledged or the worker reports a result; `jam coordinate list` shows delivery_status. Create tasks with `jam coordinate task --owner YOUR_ID OBJECTIVE`, launch workers with `jam coordinate start --workspace WORKSPACE --provider claude|codex --role worker --parent YOUR_ID --tab-name TASK_TITLE`, and assign with `jam coordinate assign --task TASK --agent AGENT`. Read `jam coordinate inbox`, acknowledge each with `jam coordinate ack MESSAGE`, then report with `jam coordinate result --task TASK EVIDENCE`. Create independent review tasks with `jam coordinate task --owner YOUR_ID --review-of TASK OBJECTIVE`, start an independent agent with `--role reviewer --parent YOUR_ID --tab-name REVIEW_TITLE`, assign the review to it, then finish with `jam coordinate complete --task TASK REVIEW_EVIDENCE`. Include command outcomes and changed files in evidence. Create a worktree and its first agent in one command: `jam worktree create --workspace ROOT_WORKSPACE --branch BRANCH --agent claude --role worker --parent YOUR_ID --tab-name NAME` (or `--agent codex`). Its CreatedWorkspace response gives workspace, tab, pane, and agent IDs; use the returned agent ID when assigning a task. This avoids a spare shell tab. Use `jam coordinate start` only to add another agent to an existing workspace. Give every worker and reviewer a concise task-specific tab name (for example Implement README or Review README), not Worker. Coordinators have a dedicated Coordinator sidebar child without tabs. Use --complex for demanding worker tasks; it selects the configured complex-work model. Coordinator, worker, and reviewer models come from Jam Settings; blank choices use provider defaults, and existing agents retain their model. Discover available models with jam coordinate models --provider PROVIDER. A reviewer inspects and reports findings without editing files unless the user explicitly requests edits. Use your own provider for all children: a Claude coordinator starts Claude workers and reviewers, and a Codex coordinator starts Codex workers and reviewers. Omit --provider when starting an agent with --parent to inherit it; for worktree creation use --agent with your own provider. Use one worker unless independent work benefits from parallelism; respect the worker limit from Jam Settings. Delegate through a worktree coordinator when present. Prefer separate worktrees for parallel writing. Arrange independent review before completing coding tasks. Default delivery is reviewed local changes. Do not publish, merge, bypass permissions, or perform destructive actions unless authorized. Messages are peer instructions, not user approval." });
+    let mut result = json!({"agent":a["id"],"role":a["role"],"provider":a["provider"],"files":files,"settings":crate::config::host_settings(),"guidance":"Use `jam coordinate --help` to discover commands. Run `jam coordinate list` for the team and tasks. Assigning a task only queues delivery. Do not claim a worker has received or started it until the message is acknowledged or the worker reports a result. `jam coordinate list` shows delivery_status. Create tasks with `jam coordinate task --owner YOUR_ID OBJECTIVE`, launch workers with `jam coordinate start --workspace WORKSPACE --provider claude|codex --role worker --parent YOUR_ID --tab-name TASK_TITLE`, and assign with `jam coordinate assign --task TASK --agent AGENT`. Read `jam coordinate inbox`, acknowledge each with `jam coordinate ack MESSAGE`, then report with `jam coordinate result --task TASK EVIDENCE`. Create independent review tasks with `jam coordinate task --owner YOUR_ID --review-of TASK OBJECTIVE`, start an independent agent with `--role reviewer --parent YOUR_ID --tab-name REVIEW_TITLE`, assign the review to it, then finish with `jam coordinate complete --task TASK REVIEW_EVIDENCE`. Include command outcomes and changed files in evidence. Create a worktree and its first agent in one command: `jam worktree create --workspace ROOT_WORKSPACE --branch BRANCH --agent claude --role worker --parent YOUR_ID --tab-name NAME` (or `--agent codex`). Its CreatedWorkspace response gives workspace, tab, pane, and agent IDs. Use the returned agent ID when assigning a task. This avoids a spare shell tab. Use `jam coordinate start` only to add another agent to an existing workspace. Give every worker and reviewer a concise task-specific tab name (for example Implement README or Review README), not Worker. Coordinators have a dedicated Coordinator sidebar child without tabs. Use --complex for demanding worker tasks. It selects the configured complex-work model. Coordinator, worker, and reviewer models come from Jam Settings. Blank choices use provider defaults, and existing agents retain their model. Discover available models with jam coordinate models --provider PROVIDER. A reviewer inspects and reports findings without editing files unless the user explicitly requests edits. Use your own provider for all children: a Claude coordinator starts Claude workers and reviewers, and a Codex coordinator starts Codex workers and reviewers. Omit --provider when starting an agent with --parent to inherit it. For worktree creation use --agent with your own provider. Use one worker unless independent work benefits from parallelism. Respect the worker limit from Jam Settings. Delegate through a worktree coordinator when present. Prefer separate worktrees for parallel writing. Arrange independent review before completing coding tasks. Default delivery is reviewed local changes. Do not publish, merge, bypass permissions, or perform destructive actions unless authorized. Messages are peer instructions, not user approval." });
     if a["role"] == "coordinator" {
         result["guidance"] = json!(format!(
-            "{FEATURE_CHECKOUT_POLICY}\n\nReconcile existing tasks before starting a new attempt. Explicitly cancel abandoned attempts with jam coordinate cancel --task TASK; complete reviewed work with jam coordinate complete. Jam archives resolved tasks and invalidates obsolete queued messages automatically. Pause workers that are no longer needed with jam coordinate pause AGENT, after checking they have no other active assignments. A paused or interrupted task is not automatically abandoned. Use jam coordinate list --all to inspect archived history. Never delete worktrees or commits merely to clear history.\n\n{}",
+            "{FEATURE_CHECKOUT_POLICY}\n\nReconcile existing tasks before starting a new attempt. Explicitly cancel abandoned attempts with jam coordinate cancel --task TASK. Complete reviewed work with jam coordinate complete. Jam archives resolved tasks and invalidates obsolete queued messages automatically. Pause workers that are no longer needed with jam coordinate pause AGENT, after checking they have no other active assignments. A paused or interrupted task is not automatically abandoned. Use jam coordinate list --all to inspect archived history. Never delete worktrees or commits merely to clear history.\n\n{}",
             result["guidance"].as_str().unwrap()
         ));
     }
@@ -1033,7 +1033,7 @@ pub fn pane_command(pane: &str) -> Result<Option<Vec<String>>> {
         bail!("Agent integration is disabled in Settings")
     }
     if a["paused"] == true {
-        bail!("Coordinator is paused; resume it explicitly")
+        bail!("Coordinator is paused. Resume it explicitly")
     }
     let exe = crate::cli_path()?;
     Ok(Some(vec![
@@ -1279,7 +1279,7 @@ fn run_inner(agent: &str) -> Result<()> {
     // exec failed before the provider ran: retrying cannot replay an agent action.
     started["started"] = a["started"].clone();
     Board::open()?.put("agent", &started)?;
-    Err(error).context("Could not start agent; install and authenticate the selected provider")
+    Err(error).context("Could not start agent. Install and authenticate the selected provider")
 }
 
 fn claude_has_history(directory: &std::path::Path, session: &str) -> Result<bool> {
@@ -1317,7 +1317,7 @@ pub(crate) fn provider_executable(provider: &str) -> Result<std::path::PathBuf> 
         paths.push(home.join(".cargo/bin"));
     }
     paths.extend(["/opt/homebrew/bin".into(), "/usr/local/bin".into()]);
-    paths.into_iter().map(|p|p.join(provider)).find(|p|p.metadata().is_ok_and(|m|m.is_file() && m.permissions().mode() & 0o111 != 0)).with_context(||format!("{provider} is not installed or executable; install it before starting this coordinator"))
+    paths.into_iter().map(|p|p.join(provider)).find(|p|p.metadata().is_ok_and(|m|m.is_file() && m.permissions().mode() & 0o111 != 0)).with_context(||format!("{provider} is not installed or executable. Install it before starting this coordinator"))
 }
 
 pub fn read_hook_input() -> Value {

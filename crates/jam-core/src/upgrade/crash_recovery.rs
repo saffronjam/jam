@@ -192,7 +192,7 @@ fn permit(path: &Path) -> Result<Permit> {
     let permit: Permit = serde_json::from_slice(&bytes)?;
     let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
     if permit.created > now || now - permit.created > 30 {
-        bail!("Recovery confirmation expired; confirm recovery again");
+        bail!("Recovery confirmation expired. Confirm recovery again");
     }
     fs::remove_file(permit_path)?;
     Ok(permit)
@@ -209,7 +209,7 @@ pub(super) fn daemon_present(socket: &Path) -> Result<bool> {
             Ok(false)
         }
         Err(error) => {
-            Err(error).context("Could not establish local daemon ownership; left unchanged")
+            Err(error).context("Could not establish local daemon ownership. Left unchanged")
         }
     }
 }
@@ -248,7 +248,7 @@ fn prepare_boot(journal: &Journal, state: &Path) -> Result<()> {
     if boot.exists() {
         let value: serde_json::Value = serde_json::from_slice(&fs::read(&boot)?)?;
         if value["token"].as_str() != Some(journal.token.as_str()) {
-            bail!("Another transaction owns local startup; left unchanged");
+            bail!("Another transaction owns local startup. Left unchanged");
         }
     } else {
         write_json(&boot, &serde_json::json!({"token":journal.token}))?;
@@ -315,7 +315,7 @@ fn recover_local(
         return finish(
             path,
             journal,
-            "A newer Jam installation superseded this upgrade; it was left unchanged.",
+            "A newer Jam installation superseded this upgrade. It was left unchanged.",
         );
     }
     if daemon_present(socket)? {
@@ -326,17 +326,17 @@ fn recover_local(
             ..
         } = probe(socket, crate::Request::HostInfo)?
         else {
-            bail!("Could not verify the running daemon; left unchanged");
+            bail!("Could not verify the running daemon. Left unchanged");
         };
         if crate::protocol::local_daemon_executable(socket)? != expected
             || release_version.as_deref() != Some(installed.to_string().as_str())
         {
-            bail!("Another installation owns the local daemon; left unchanged");
+            bail!("Another installation owns the local daemon. Left unchanged");
         }
         let output = Command::new(&expected).arg("--build-info").output()?;
         let metadata: serde_json::Value = serde_json::from_slice(&output.stdout)?;
         if !output.status.success() || metadata["build"].as_str() != Some(build.as_str()) {
-            bail!("Running daemon build differs from the installed release; left unchanged");
+            bail!("Running daemon build differs from the installed release. Left unchanged");
         }
         let boot = state.join(".upgrade-boot.json");
         if boot.exists() {
@@ -345,11 +345,11 @@ fn recover_local(
                 || metadata.uid() != unsafe { libc::geteuid() }
                 || metadata.mode() & 0o077 != 0
             {
-                bail!("Cannot verify interrupted startup ownership; left unchanged");
+                bail!("Cannot verify interrupted startup ownership. Left unchanged");
             }
             let value: serde_json::Value = serde_json::from_slice(&fs::read(&boot)?)?;
             if value["token"].as_str() != Some(journal.token.as_str()) {
-                bail!("Another transaction owns local startup; left unchanged");
+                bail!("Another transaction owns local startup. Left unchanged");
             }
             save_journal(path, journal, "local_verified")?;
             local_restore(
@@ -387,7 +387,7 @@ fn recover_local(
     {
         let previous = candidate_path(path, journal)?;
         if installed_version(&previous)? >= installed {
-            bail!("The previous app cannot be verified; installed app and state were retained");
+            bail!("The previous app cannot be verified. Installed app and state were retained");
         }
         if !path
             .parent()
@@ -395,12 +395,12 @@ fn recover_local(
             .join("checkpoint/complete.json")
             .is_file()
         {
-            bail!("State checkpoint is incomplete; installed app and state were retained");
+            bail!("State checkpoint is incomplete. Installed app and state were retained");
         }
         validated_checkpoint_files(&path.parent().unwrap().join("checkpoint"))?;
         let pids = app_pids(&destination)?;
         if pids.iter().any(|pid| !permit.app_pids.contains(pid)) {
-            bail!("Another Jam app started after recovery confirmation; left unchanged");
+            bail!("Another Jam app started after recovery confirmation. Left unchanged");
         }
         for pid in pids {
             if process_path(pid).as_ref() == Some(&destination.join("Contents/MacOS/Jam")) {
@@ -412,12 +412,12 @@ fn recover_local(
         let deadline = std::time::Instant::now() + Duration::from_secs(10);
         while !app_pids(&destination)?.is_empty() {
             if std::time::Instant::now() >= deadline {
-                bail!("Jam did not quit; files were left unchanged");
+                bail!("Jam did not quit. Files were left unchanged");
             }
             std::thread::sleep(Duration::from_millis(50));
         }
         if daemon_present(socket)? {
-            bail!("A local daemon started during recovery; left unchanged");
+            bail!("A local daemon started during recovery. Left unchanged");
         }
         preserve_interrupted_state(path, state)?;
         save_journal(path, journal, "recovering_previous")?;
@@ -430,7 +430,7 @@ fn recover_local(
             .join("checkpoint/complete.json")
             .is_file()
         {
-            bail!("State checkpoint is incomplete; retained application and state");
+            bail!("State checkpoint is incomplete. Retained application and state");
         }
         restore_checkpoint_at(path, state)?;
     }
@@ -478,14 +478,14 @@ fn recover_local(
             || target.version.as_deref() != metadata["release_version"].as_str()
             || metadata["server_build"].as_str() != Some(target.build.as_str())
         {
-            bail!("Another server owns the local socket; left unchanged");
+            bail!("Another server owns the local socket. Left unchanged");
         }
         let boot = state.join(crate::server::UPGRADE_BOOT_FILE);
         let held = boot.exists();
         if held {
             let marker: serde_json::Value = serde_json::from_slice(&fs::read(&boot)?)?;
             if marker["token"].as_str() != Some(journal.token.as_str()) {
-                bail!("Another transaction owns local startup; left unchanged");
+                bail!("Another transaction owns local startup. Left unchanged");
             }
             save_journal(path, journal, "local_verified")?;
         } else if target.version.as_deref() != Some(journal.staged.release.version.as_str()) {
@@ -512,7 +512,7 @@ fn recover_local(
         return finish(
             path,
             journal,
-            "Upgrade stopped before installation; local state was left unchanged.",
+            "Upgrade stopped before installation. Local state was left unchanged.",
         );
     }
     let extracted = unpack(&journal.staged)?;

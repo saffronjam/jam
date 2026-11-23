@@ -185,7 +185,7 @@ impl Config {
                         .any(|p| !["ctrl", "cmd", "alt", "shift"].contains(p))
                     || parts.last().unwrap().chars().count() != 1
                 {
-                    bail!("Invalid shortcut {key}; use modifiers and one letter")
+                    bail!("Invalid shortcut {key}. Use modifiers and one letter")
                 };
                 if let Some(other) = seen.insert(key.clone(), action) {
                     bail!("{key} is already assigned to {other}")
@@ -254,7 +254,7 @@ pub fn snapshot() -> Result<serde_json::Value> {
     let c = load_at(&p)?;
     let after = revision_at(&p)?;
     if before != after {
-        bail!("Settings changed while opening; reopen Settings")
+        bail!("Settings changed while opening. Reopen Settings")
     }
     Ok(serde_json::json!({"config":c,"revision":after,"path":p}))
 }

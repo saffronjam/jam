@@ -1,0 +1,8 @@
+name: Set up the macOS toolchain
+description: Select and verify the same appearance SDK used by local builds
+runs:
+  using: composite
+  steps:
+    - name: Select pinned Xcode and SDK
+      shell: bash
+      run: python3 scripts/macos_toolchain.py --github-actions

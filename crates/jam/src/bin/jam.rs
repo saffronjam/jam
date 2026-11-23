@@ -363,7 +363,7 @@ fn main() -> Result<()> {
         )
     {
         anyhow::bail!(
-            "Run upgrade on the installation's host; --remote is not supported for this command"
+            "Run upgrade on the installation's host. This command does not support --remote"
         );
     }
     match &a.command {
@@ -488,7 +488,7 @@ fn main() -> Result<()> {
                     }
                     if action == agents::Action::Setup {
                         println!(
-                            "Start a new agent session. Approve Jam's hook in Codex with /hooks; Claude Code requires a trusted folder."
+                            "Start a new agent session. Approve Jam's hook in Codex with /hooks. Claude Code requires a trusted folder."
                         );
                     }
                 }
@@ -738,7 +738,7 @@ fn main() -> Result<()> {
             }
     ) {
         let Message::Capabilities(capabilities) = call_at(&endpoint, Request::Capabilities)? else {
-            anyhow::bail!("Daemon does not support workspace worktrees; update it first");
+            anyhow::bail!("Daemon does not support workspace worktrees. Update it first");
         };
         if !capabilities
             .iter()

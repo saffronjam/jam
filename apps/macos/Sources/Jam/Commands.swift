@@ -264,8 +264,33 @@ extension Store {
       workspace: w.id, name: w.name, path: w.context?.path ?? w.path,
       endpoint: WorkspaceSelection.endpoint(of: w.id))
   }
+  func workspaceCloseNeedsConfirmation(_ workspace: Workspace, group: Bool) -> Bool {
+    var affected: Set<String> = [workspace.id]
+    if group {
+      while true {
+        let children = workspaces.filter { $0.parent.map(affected.contains) == true }.map(\.id)
+        let previousCount = affected.count
+        affected.formUnion(children)
+        if affected.count == previousCount { break }
+      }
+    }
+    let entries = workspaces.filter { affected.contains($0.id) }
+    let root = entries.first { $0.id == workspace.id } ?? workspace
+    let targets = [root] + entries.filter { $0.id != root.id }
+    return targets.contains { target in
+      var ids = target.tabs.flatMap { $0.root.ids }
+      if let coordinator = target.coordinator { ids.append(coordinator.pane) }
+      // Missing metadata is not evidence that a terminal has stopped.
+      return ids.contains { panes[$0]?.exited != true }
+    }
+  }
+
   func closeWorkspace(_ w: Workspace, group: Bool) {
     guard !isCreatingWorkspace(w.id) else { return }
+    if !workspaceCloseNeedsConfirmation(w, group: group) {
+      request(["WorkspaceClose": ["workspace": w.id, "group": group]])
+      return
+    }
     guard let window = NSApp.keyWindow ?? NSApp.mainWindow,
       window.attachedSheet == nil
     else { return }

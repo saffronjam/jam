@@ -109,7 +109,7 @@ pub fn create(source: &Path, branch: &str, base: &str, path: Option<&str>) -> Re
         bail!("Checkout path must be absolute")
     }
     if target.exists() {
-        bail!("Checkout path already exists; use Open Worktree")
+        bail!("Checkout path already exists. Use Open Worktree")
     }
     std::fs::create_dir_all(target.parent().context("Checkout parent")?)?;
     let target_text = target.to_str().context("Checkout path must be UTF-8")?;

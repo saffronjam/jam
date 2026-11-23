@@ -46,6 +46,49 @@ struct ServerStatusTests {
         running: true, compatible: true, build: "same", availableBuild: "same",
         updateAvailable: false, terminals: 1, error: nil))
     assert(!current.needsUpdate && !current.canUpdate && current.canRestart && current.canCheck)
+    var unlinked = status()
+    unlinked.managementAvailable = false
+    assert(!unlinked.readyForScheduledUpdate)
+    let live = MachineActions(
+      connected: true, connecting: false, busy: false, checking: false, status: unlinked)
+    assert(live.canCheck && !live.canTakeover && !live.canRestart && !live.canUpdate)
+    var failed = status()
+    failed.state = "inspection_failed"
+    failed.managementAvailable = false
+    let retryable = MachineActions(
+      connected: false, connecting: false, busy: false, checking: false, status: failed)
+    assert(retryable.canCheck && !retryable.canTakeover && !retryable.canRestart)
+    assert(!failed.blocked && failed.label == "Server unavailable")
+    for value in [
+      "unsupported", "takeover_required", "recovery_required", "client_update_required",
+    ] {
+      let payload =
+        "{\"running\":true,\"compatible\":false,\"update_available\":true,\"state\":\"" + value
+        + "\",\"can_takeover\":true}"
+      let blocked = try JSONDecoder().decode(ServerStatus.self, from: Data(payload.utf8))
+      let actions = MachineActions(
+        connected: false, connecting: false, busy: false, checking: false, status: blocked)
+      assert(blocked.blocked && !actions.canReconnect && !actions.canUpdate && !actions.canRestart)
+      assert(blocked.label != nil)
+      for connection in [RemoteConnectionState.disconnected, .retryWaiting, .connecting] {
+        let presentation = MachinePresentation(
+          status: blocked, connection: connection, phase: nil, hasError: false)
+        assert(
+          presentation.label == blocked.label,
+          "Compatibility takes precedence over transport state on both surfaces")
+        assert(!presentation.isAttempting)
+        assert(presentation.warning)
+      }
+      let installing = MachinePresentation(
+        status: blocked, connection: .disconnected, phase: "installing", hasError: false)
+      assert(installing.label == "Installing…" && installing.isAttempting)
+
+      assert(
+        !actions.needsUpdate, "A blocking server action takes precedence over update availability")
+      if value == "unsupported" || value == "takeover_required" {
+        assert(blocked.label == "Takeover required")
+      }
+    }
     print("Server scheduling passed: only a verified idle server can update automatically.")
   }
 }

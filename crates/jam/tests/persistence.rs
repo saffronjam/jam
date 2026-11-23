@@ -96,7 +96,7 @@ impl Drop for Daemon {
 }
 
 #[test]
-fn confirmed_server_update_from_v6_preserves_layout_without_replaying_commands() {
+fn unverified_legacy_server_is_never_replaced_by_force() {
     let mut d = Daemon::start();
     let initial = d.create();
     let pane = initial.panes[0].id.clone();
@@ -151,22 +151,14 @@ fn confirmed_server_update_from_v6_preserves_layout_without_replaying_commands()
     );
     assert!(UnixStream::connect(&d.socket).is_ok());
     request["force"] = true.into();
-    assert_eq!(manage(&request).unwrap()["ok"], true);
-    legacy.join().unwrap();
-    let restored = d.state();
-    assert_eq!(restored.workspaces[0].id, saved.workspaces[0].id);
-    assert_eq!(restored.workspaces[0].name, saved.workspaces[0].name);
-    assert_eq!(
-        restored.workspaces[0].tabs[0].id,
-        saved.workspaces[0].tabs[0].id
-    );
-    assert_eq!(restored.panes[0].id, pane);
-    assert_eq!(restored.panes[0].cwd, "/");
     assert!(
-        restored.panes[0].exited,
-        "Update must not replay old commands"
+        manage(&request).is_err(),
+        "Force must not bypass ownership checks"
     );
-    assert!(matches!(d.request(Request::Stop), Message::Ok));
+    assert!(UnixStream::connect(&d.socket).is_ok());
+    assert!(matches!(stop_at(&d.socket).unwrap(), Message::Ok));
+    legacy.join().unwrap();
+    let _ = saved;
 }
 
 #[test]
@@ -196,7 +188,11 @@ fn server_management_detects_builds_defers_active_sessions_and_restarts_explicit
     );
     assert_eq!(status["terminals"], 1);
     request["action"] = "update".into();
-    assert_eq!(manage(&request)["deferred"], true);
+    assert!(
+        jam_core::server_control::manage_at(&request, &d.socket, &d.dir.path().join("state"))
+            .is_err(),
+        "A different installation needs explicit takeover"
+    );
     assert_eq!(d.pid(&pane), pid, "deferred update stopped a terminal");
     request["action"] = "restart".into();
     request["force"] = true.into();
@@ -1731,4 +1727,281 @@ fn boot_held_stop_requires_its_exact_owned_token() {
         sentinel.exists(),
         "stopping must retain the boot gate for recovery"
     );
+}
+
+#[test]
+fn live_server_inspection_survives_removed_executable_without_restarting_sessions() {
+    let mut d = Daemon::start();
+    assert!(matches!(d.request(Request::Stop), Message::Ok));
+    d.child.wait().unwrap();
+    let binary = d.dir.path().join("jamd");
+    std::fs::copy(env!("CARGO_BIN_EXE_jamd"), &binary).unwrap();
+    d.child = Command::new(&binary)
+        .env("JAM_SOCKET", &d.socket)
+        .env("JAM_STATE_DIR", d.dir.path().join("state"))
+        .env("SHELL", "/bin/sh")
+        .spawn()
+        .unwrap();
+    d.until(|| UnixStream::connect(&d.socket).is_ok());
+    let saved = d.create();
+    let pane = &saved.panes[0].id;
+    let shell_pid = d.pid(pane);
+    std::fs::remove_file(binary).unwrap();
+    let request = serde_json::json!({"action":"status","daemon":env!("CARGO_BIN_EXE_jamd")});
+    let manage = |request: &serde_json::Value| {
+        server_control::manage_at(request, &d.socket, &d.dir.path().join("state")).unwrap()
+    };
+    for _ in 0..3 {
+        let status = manage(&request);
+        assert_eq!(status["state"], "connected", "{status}");
+        assert_eq!(status["compatible"], true);
+        assert_eq!(status["management_available"], false);
+        assert_eq!(status["can_takeover"], false);
+        assert!(status["error"].is_null());
+        assert_eq!(d.pid(pane), shell_pid);
+    }
+    let update =
+        serde_json::json!({"action":"update","daemon":env!("CARGO_BIN_EXE_jamd"),"force":true});
+    assert!(server_control::manage_at(&update, &d.socket, &d.dir.path().join("state")).is_err());
+    assert_eq!(
+        d.pid(pane),
+        shell_pid,
+        "Unknown ownership must not permit destructive recovery"
+    );
+}
+
+#[test]
+fn retired_app_server_is_still_owned_by_its_installation() {
+    let mut d = Daemon::start();
+    assert!(matches!(d.request(Request::Stop), Message::Ok));
+    d.child.wait().unwrap();
+    let bundle = d.dir.path().join("Jam.app");
+    let binary = bundle.join("Contents/MacOS/jamd");
+    std::fs::create_dir_all(binary.parent().unwrap()).unwrap();
+    std::fs::copy(env!("CARGO_BIN_EXE_jamd"), &binary).unwrap();
+    d.child = Command::new(&binary)
+        .env("JAM_SOCKET", &d.socket)
+        .env("JAM_STATE_DIR", d.dir.path().join("state"))
+        .env("SHELL", "/bin/sh")
+        .spawn()
+        .unwrap();
+    d.until(|| UnixStream::connect(&d.socket).is_ok());
+    let retired = d.dir.path().join(".Jam.app.retired/bundle-test/Jam.app");
+    std::fs::create_dir_all(retired.parent().unwrap()).unwrap();
+    std::fs::rename(&bundle, &retired).unwrap();
+    std::fs::create_dir_all(binary.parent().unwrap()).unwrap();
+    std::fs::copy(env!("CARGO_BIN_EXE_jamd"), &binary).unwrap();
+    let request = serde_json::json!({"action":"status","daemon":binary});
+    let status =
+        server_control::manage_at(&request, &d.socket, &d.dir.path().join("state")).unwrap();
+    assert_eq!(status["state"], "connected", "{status}");
+    assert_eq!(status["management_available"], true);
+    assert_eq!(status["can_takeover"], false);
+    // Genuine inspection failures carry a retryable diagnostic, not a fake takeover requirement.
+    let invalid = serde_json::json!({"action":"status","daemon":d.dir.path().join("missing")});
+    let status =
+        server_control::manage_at(&invalid, &d.socket, &d.dir.path().join("state")).unwrap();
+    assert_eq!(status["state"], "inspection_failed", "{status}");
+    assert_eq!(status["failure"]["retryable"], true);
+}
+
+#[test]
+fn explicit_takeover_preserves_workspace_and_rejects_replayed_confirmation() {
+    let mut d = Daemon::start();
+    let saved = d.create();
+    assert!(matches!(d.request(Request::Stop), Message::Ok));
+    d.child.wait().unwrap();
+    let original = d.dir.path().join("original");
+    std::fs::create_dir(&original).unwrap();
+    let binary = original.join("jamd");
+    std::fs::copy(env!("CARGO_BIN_EXE_jamd"), &binary).unwrap();
+    d.child = Command::new(&binary)
+        .env("JAM_SOCKET", &d.socket)
+        .env("JAM_STATE_DIR", d.dir.path().join("state"))
+        .env("SHELL", "/bin/sh")
+        .spawn()
+        .unwrap();
+    d.until(|| UnixStream::connect(&d.socket).is_ok());
+    let mut request = serde_json::json!({"action":"status", "daemon":env!("CARGO_BIN_EXE_jamd")});
+    let manage = |request: &serde_json::Value| {
+        server_control::manage_at(request, &d.socket, &d.dir.path().join("state"))
+    };
+    let status = manage(&request).unwrap();
+    assert_eq!(status["state"], "takeover_required");
+    request["action"] = "prepare_takeover".into();
+    let prepared = manage(&request).unwrap();
+    assert!(
+        UnixStream::connect(&d.socket).is_ok(),
+        "Preparation must not stop the server"
+    );
+    request["action"] = "takeover".into();
+    request["token"] = prepared["token"].clone();
+    let started = manage(&request).unwrap();
+    assert!(manage(&request).is_err(), "Confirmation must be single use");
+    let operation = serde_json::json!({"action":"operation", "id":started["id"]});
+    d.until(|| manage(&operation).unwrap()["done"] == true);
+    assert!(
+        manage(&operation).unwrap()["failure"].is_null(),
+        "{}",
+        format!(
+            "{}\n{}",
+            manage(&operation).unwrap(),
+            std::fs::read_to_string(d.dir.path().join("state/jamd.log")).unwrap_or_default()
+        )
+    );
+    let restored = d.state();
+    assert_eq!(saved.workspaces[0].id, restored.workspaces[0].id);
+    assert_eq!(
+        saved.workspaces[0].tabs[0].id,
+        restored.workspaces[0].tabs[0].id
+    );
+    assert!(restored.panes.iter().all(|pane| pane.exited));
+    assert!(matches!(d.request(Request::Stop), Message::Ok));
+}
+
+#[test]
+fn failed_takeover_restores_previous_server_and_checkpoint() {
+    let d = Daemon::start();
+    let saved = d.create();
+    let directory = d.dir.path().join("replacement");
+    std::fs::create_dir(&directory).unwrap();
+    let bad = directory.join("jamd");
+    let metadata = Command::new(env!("CARGO_BIN_EXE_jamd"))
+        .arg("--build-info")
+        .output()
+        .unwrap();
+    let metadata = String::from_utf8(metadata.stdout).unwrap();
+    std::fs::write(
+        &bad,
+        format!(
+            "#!/bin/sh\nif [ \"$1\" = --build-info ]; then printf '%s\\n' '{}'; else exit 42; fi\n",
+            metadata.trim()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&bad, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let mut request = serde_json::json!({"action":"prepare_takeover","daemon":bad});
+    let manage = |request: &serde_json::Value| {
+        server_control::manage_at(request, &d.socket, &d.dir.path().join("state"))
+    };
+    let prepared = manage(&request).unwrap();
+    request["action"] = "takeover".into();
+    request["token"] = prepared["token"].clone();
+    let started = manage(&request).unwrap();
+    let operation = serde_json::json!({"action":"operation","id":started["id"]});
+    d.until(|| manage(&operation).unwrap()["done"] == true);
+    assert!(
+        manage(&operation).unwrap()["failure"]["details"]
+            .as_str()
+            .unwrap()
+            .contains("restored"),
+        "{}",
+        manage(&operation).unwrap()
+    );
+    assert_eq!(d.state().workspaces[0].id, saved.workspaces[0].id);
+    assert_eq!(
+        d.state().workspaces[0].tabs[0].id,
+        saved.workspaces[0].tabs[0].id
+    );
+    assert!(matches!(d.request(Request::Stop), Message::Ok));
+}
+
+#[test]
+fn newer_local_release_refuses_takeover_and_forced_update() {
+    let d = Daemon::start();
+    let path = d.socket.parent().unwrap().join("release.json");
+    let mut info: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    info["release_version"] = "999.0.0".into();
+    std::fs::write(&path, serde_json::to_vec(&info).unwrap()).unwrap();
+    let mut request = serde_json::json!({"action":"status","daemon":env!("CARGO_BIN_EXE_jamd")});
+    let manage = |request: &serde_json::Value| {
+        server_control::manage_at(request, &d.socket, &d.dir.path().join("state"))
+    };
+    assert_eq!(manage(&request).unwrap()["state"], "client_update_required");
+    request["action"] = "prepare_takeover".into();
+    assert!(manage(&request).is_err());
+    request["action"] = "update".into();
+    request["force"] = true.into();
+    assert!(manage(&request).is_err());
+    assert!(d.child.id() > 0 && UnixStream::connect(&d.socket).is_ok());
+}
+
+#[test]
+fn interrupted_takeover_before_shutdown_keeps_live_sessions() {
+    let d = Daemon::start();
+    let saved = d.create();
+    let pane = &saved.panes[0].id;
+    let pid = d.pid(pane);
+    let directory = d.dir.path().join("state/server-actions").join(id());
+    std::fs::create_dir_all(&directory).unwrap();
+    std::fs::write(directory.join("transaction.json"), serde_json::to_vec(&serde_json::json!({
+        "phase":"stopping", "previous":env!("CARGO_BIN_EXE_jamd"),"replacement":env!("CARGO_BIN_EXE_jamd")
+    })).unwrap()).unwrap();
+    let mut request = serde_json::json!({"action":"status","daemon":env!("CARGO_BIN_EXE_jamd")});
+    let manage = |request: &serde_json::Value| {
+        server_control::manage_at(request, &d.socket, &d.dir.path().join("state"))
+    };
+    assert_eq!(manage(&request).unwrap()["state"], "recovery_required");
+    request["action"] = "prepare_takeover".into();
+    let token = manage(&request).unwrap()["token"].clone();
+    request["action"] = "takeover".into();
+    request["token"] = token;
+    let operation = serde_json::json!({"action":"operation", "id":manage(&request).unwrap()["id"]});
+    d.until(|| manage(&operation).unwrap()["done"] == true);
+    assert!(
+        manage(&operation).unwrap()["failure"].is_null(),
+        "{}",
+        manage(&operation).unwrap()
+    );
+    assert_eq!(pid, d.pid(pane));
+    assert_eq!(
+        manage(&serde_json::json!({"action":"status","daemon":env!("CARGO_BIN_EXE_jamd")}))
+            .unwrap()["state"],
+        "connected"
+    );
+}
+
+#[test]
+fn manual_agent_identity_survives_acknowledgement_and_ends_at_shell_return() {
+    let d = Daemon::start();
+    let initial = d.create();
+    let pane = initial.panes[0].id.clone();
+    d.send(&pane, "/bin/sh -c 'printf \"\\033]7501;state=working:app=codex\\007\"; read first; printf \"\\033]7501;state=done:app=codex\\007\"; read second'\r");
+    d.until(|| d.state().panes[0].agent_provider.as_deref() == Some("codex"));
+    assert_eq!(d.state().panes[0].agent_source, Some(AgentSource::Reported));
+    assert!(d.state().panes[0].agent_role.is_none());
+    d.send(&pane, "\r");
+    d.until(|| d.state().panes[0].status == "done");
+    assert!(matches!(
+        d.request(Request::Acknowledge { pane: pane.clone() }),
+        Message::Ok
+    ));
+    let cleared = d.state();
+    assert_eq!(cleared.panes[0].status, "unknown");
+    assert_eq!(cleared.panes[0].agent_provider.as_deref(), Some("codex"));
+    d.send(&pane, "\r");
+    d.until(|| d.state().panes[0].agent_provider.is_none());
+    assert!(d.state().panes[0].agent_source.is_none());
+}
+
+#[test]
+fn reported_agent_identity_is_not_restored_into_a_new_shell() {
+    let mut d = Daemon::start();
+    let state = d.create();
+    let pane = state.panes[0].id.clone();
+    d.send(
+        &pane,
+        "/bin/sh -c 'printf \"\\033]7501;state=idle:app=claude-code\\007\"; read answer'\r",
+    );
+    d.until(|| d.state().panes[0].agent_provider.as_deref() == Some("claude"));
+    assert!(matches!(d.request(Request::Stop), Message::Ok));
+    d.child.wait().unwrap();
+    d.child = Daemon::launch(&d.socket, d.dir.path());
+    d.until(|| UnixStream::connect(&d.socket).is_ok());
+    let restored = d.state();
+    assert!(restored.panes[0].agent_provider.is_none());
+    assert!(restored.panes[0].agent_source.is_none());
+    assert!(restored.panes[0].agent_role.is_none());
+    assert!(restored.panes[0].reports.is_empty());
 }

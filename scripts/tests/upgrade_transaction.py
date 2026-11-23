@@ -95,7 +95,7 @@ def test(cli, signing_key):
         assert (state / 'layout.json').read_text() == 'original layout'
         assert (state / 'coordination.sqlite').read_text() == 'original board'
         assert json.loads(journal_path.read_text())['phase'] in ('failed', 'rolled_back')
-        print('Signed upgrade rollback passed: previous app, layout and board restored; private failure journal retained.')
+        print('Signed upgrade rollback passed: previous app, layout and board restored. Private failure journal retained.')
         # A separate process must not replace the baseline while an older
         # transaction still needs recovery, even if UI discovery raced launch.
         import uuid

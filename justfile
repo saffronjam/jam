@@ -18,6 +18,10 @@ bootstrap:
 [doc('Build macOS app')]
 [group('build')]
 build: bootstrap
+    python3 scripts/macos_toolchain.py -- just _build-macos
+
+[private]
+_build-macos:
     cargo build --workspace --locked
     # Make SwiftPM relink Rust changes through its dependency graph.
     touch apps/macos/Sources/CJam/shim.c

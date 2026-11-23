@@ -1,7 +1,9 @@
 #!/bin/bash
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-export MACOSX_DEPLOYMENT_TARGET=14.0
+if [[ "${1:-}" != --toolchain-selected ]]; then
+  exec python3 scripts/macos_toolchain.py -- bash scripts/release/build-macos.sh --toolchain-selected
+fi
 python3 scripts/bootstrap.py
 export PATH="$PWD/.cache/zig:$HOME/.cargo/bin:$PATH"
 cargo build --release --workspace --locked

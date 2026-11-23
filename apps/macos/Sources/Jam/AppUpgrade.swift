@@ -37,6 +37,7 @@ final class AppUpgradeController: ObservableObject {
   private var scanningRecoveries = false
   private var recoveriesKnown = false
   private var lastLaunch = Date.distantPast
+  var onServerActionRequired: ((String) -> Void)?
   private let engine: ([String: Any]) throws -> Data
   init() { engine = upgradeReply }
   init(engine: @escaping ([String: Any]) throws -> Data) { self.engine = engine }
@@ -213,7 +214,7 @@ final class AppUpgradeController: ObservableObject {
               if !self.managed && notify {
                 self.requirementError = true
                 self.error =
-                  "This machine requires Jam \(minimum). Install the release Jam.app before connecting; development builds cannot self-upgrade."
+                  "This machine requires Jam \(minimum). Install the release Jam.app before connecting. Development builds cannot self-upgrade."
               }
             } else {
               self.available = nil
@@ -285,7 +286,13 @@ final class AppUpgradeController: ObservableObject {
           self.phase = .ready
         case .failure(let failure):
           self.phase = .idle
-          self.error = "Could not prepare the Jam upgrade.\n" + failure.localizedDescription
+          if let required = failure as? ServerActionRequired {
+            self.showSheet = false
+            self.error = ""
+            self.onServerActionRequired?(required.endpoint)
+          } else {
+            self.error = "Could not prepare the Jam upgrade.\n" + failure.localizedDescription
+          }
         }
       }
     }
@@ -448,7 +455,7 @@ final class AppUpgradeController: ObservableObject {
               }
               self.error =
                 (phase == "complete_with_pending"
-                  ? "Jam was upgraded; some machines still need attention."
+                  ? "Jam was upgraded. Some machines still need attention."
                   : "The Jam upgrade did not complete.") + (details.map { "\n" + $0 } ?? "")
             }
             self.persist()
@@ -536,15 +543,25 @@ struct AppUpgradeOverlay: View {
       }
   }
 }
+private struct UpgradeProgress: View {
+  let message: String
+  var body: some View {
+    VStack(spacing: 10) {
+      ProgressView()
+      Text(message).font(.callout).foregroundStyle(.secondary)
+        .multilineTextAlignment(.center)
+    }.frame(maxWidth: .infinity).padding(.vertical, 8)
+  }
+}
 struct AppUpgradeSheet: View {
   @ObservedObject var controller: AppUpgradeController
   var body: some View {
     VStack(alignment: .leading, spacing: 16) {
       Text("Upgrade Jam").font(.headline)
       if controller.phase == .staging {
-        ProgressView("Downloading and verifying the update…")
+        UpgradeProgress(message: "Downloading and verifying the update…")
       } else if controller.phase == .launching || controller.phase == .applying {
-        ProgressView("Installing the update and restarting Jam…")
+        UpgradeProgress(message: "Installing the update and restarting Jam…")
       } else if let stage = controller.staged {
         Text("Jam \(stage.staged.release.version)").font(.title3.weight(.semibold))
         Text(
@@ -607,7 +624,7 @@ struct AppUpgradeRecoverySheet: View {
       if let error = interrupted.error, !error.isEmpty { ErrorNotice(message: error) }
       if !controller.error.isEmpty { ErrorNotice(message: controller.error) }
       if controller.phase == .launching || controller.phase == .applying {
-        ProgressView("Recovering the installation…")
+        UpgradeProgress(message: "Recovering the installation…")
       }
       Divider()
       HStack {

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Manage only the local Jam daemon; start detaches, stop/restart end its panes."""
+"""Manage only the local Jam daemon. Start detaches, stop/restart end its panes."""
 import argparse
 import errno
 import os
@@ -49,7 +49,7 @@ def stop():
     deadline = time.monotonic() + 10
     while listening():
         if time.monotonic() >= deadline:
-            raise RuntimeError('Daemon did not stop; refusing to start a second one')
+            raise RuntimeError('Daemon did not stop. Refusing to start a second one')
         time.sleep(0.05)
     return 0
 
@@ -82,7 +82,7 @@ def start():
                 return 0
             break
         if process.poll() is not None:
-            raise RuntimeError(f'Daemon exited ({process.returncode}); inspect {log_path}')
+            raise RuntimeError(f'Daemon exited ({process.returncode}). Inspect {log_path}')
         time.sleep(0.05)
     if process.poll() is None:
         process.terminate()
@@ -91,7 +91,7 @@ def start():
         except subprocess.TimeoutExpired:
             process.kill()
             process.wait()
-    raise RuntimeError(f'Daemon did not become ready; inspect {log_path}')
+    raise RuntimeError(f'Daemon did not become ready. Inspect {log_path}')
 
 
 def main():
