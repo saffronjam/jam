@@ -21,6 +21,17 @@ extension Store {
       busy: serverBusy.contains(endpoint), checking: checkingServers.contains(endpoint),
       status: serverStatuses[endpoint])
   }
+  func logServerStatus(_ event: String, endpoint: String, state: MachineActions) {
+    let observation =
+      "\(event) endpoint=\(endpoint.isEmpty ? "local" : endpoint) "
+      + "connected=\(state.connected) connecting=\(state.connecting) "
+      + "busy=\(state.busy) checking=\(state.checking) "
+      + "running=\(state.status?.running ?? false) compatible=\(state.status?.compatible ?? false) "
+      + "build=\(state.status?.build ?? "none") available=\(state.status?.availableBuild ?? "none") "
+      + "update=\(state.status?.updateAvailable ?? false) canUpdate=\(state.canUpdate) "
+      + "terminals=\(state.status?.terminals ?? -1)"
+    NSLog("Jam server status: %@", observation)
+  }
   func reconnectMachine(_ endpoint: String) {
     if (endpoint.isEmpty && localTimeout != nil)
       || serverStatuses[endpoint]?.state == "inspection_failed"
@@ -93,6 +104,14 @@ extension Store {
       }
     }
   }
+  func refreshServerAfterConnection(_ endpoint: String) {
+    // A passive probe can finish before the SSH forwarding socket exists.
+    // Discard that result, including a reply still in flight, once connected.
+    serverGenerations[endpoint, default: 0] &+= 1
+    serverStatuses.removeValue(forKey: endpoint)
+    serverCheckDates.removeValue(forKey: endpoint)
+    checkServer(endpoint)
+  }
   func checkServer(_ endpoint: String) {
     guard !serverBusy.contains(endpoint), checkingServers.insert(endpoint).inserted else { return }
     serverCheckDates[endpoint] = Date()
@@ -128,6 +147,7 @@ extension Store {
         {
           self.start()
         }
+        self.logServerStatus("checked", endpoint: endpoint, state: self.machineActions(endpoint))
         guard self.scheduledServerUpdates.contains(endpoint), let status = decoded else { return }
         if status.running && status.compatible && !status.updateAvailable
           && status.availableBuild != nil

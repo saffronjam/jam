@@ -105,6 +105,9 @@ extension Store {
         self.remoteLoading.remove(id)
         self.remoteConnecting.remove(id)
         self.remoteMessages[id] = result["error"] as? String ?? "Connected"
+        if let error = result["error"] as? String {
+          NSLog("Jam remote connection: connect endpoint=%@ error=%@", id, error)
+        }
         if let required = result["upgrade_required"] as? [String: Any],
           let minimum = required["minimum"] as? String
         {
@@ -116,6 +119,7 @@ extension Store {
         if result["error"] == nil {
           self.appUpgrade.forgetRequirement(endpoint: id)
           self.observeServer(result["HostInfo"] as? [String: Any], endpoint: id)
+          self.refreshServerAfterConnection(id)
         }
         self.remoteNext[id] = .distantPast
         self.refreshRemotes()
@@ -156,6 +160,7 @@ extension Store {
           self.remoteConnecting.remove(remote.id)
           guard self.remotes.contains(where: { $0.id == remote.id }) else { return }
           if let error = state["error"] as? String {
+            NSLog("Jam remote connection: refresh endpoint=%@ error=%@", remote.id, error)
             if let required = connection["upgrade_required"] as? [String: Any],
               let minimum = required["minimum"] as? String
             {
@@ -170,7 +175,9 @@ extension Store {
               delay * Double.random(in: 0.8...1.2))
           } else {
             self.appUpgrade.forgetRequirement(endpoint: remote.id)
+            let wasConnected = self.remoteMessages[remote.id] == "Connected"
             self.remoteMessages[remote.id] = "Connected"
+            if !wasConnected { self.refreshServerAfterConnection(remote.id) }
             if let agents, self.availableAgents[remote.id] != agents {
               self.availableAgents[remote.id] = agents
             }

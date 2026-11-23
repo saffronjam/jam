@@ -65,11 +65,15 @@ struct MachineList: View {
   @ViewBuilder private func serverMenu(_ endpoint: String) -> some View {
     let state = store.machineActions(endpoint)
     if state.status?.blocked != true {
-      if !state.connected {
+      if state.incompatibleServer {
+        Text("Server update required")
+      } else if !state.connected {
         Text(state.connecting ? "Connecting…" : "Offline")
       } else if state.checking {
         Text("Checking server…")
-      } else if let status = state.status, status.availableBuild != nil {
+      } else if let status = state.status, status.running, status.compatible,
+        status.availableBuild != nil
+      {
         Text(state.needsUpdate ? "Update available" : "Server is up to date")
       }
     }
@@ -158,7 +162,9 @@ struct MachineList: View {
         if inside { hoveredMachine = id } else if hoveredMachine == id { hoveredMachine = nil }
       }
       .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: hoveredMachine == id)
-      .accessibilityElement(children: .combine)
+      .accessibilityElement(children: .contain)
+      .accessibilityLabel(name)
+      .accessibilityIdentifier("machine." + (id.isEmpty ? "local" : id))
 
   }
 }
