@@ -22,6 +22,8 @@ def render():
             f"Fixture: `{case.fixture or 'isolated local installation'}`.",
             "",
         ]
+        if case.behavior_ids:
+            lines += ["Behaviors: " + ", ".join(f"`{key}`" for key in case.behavior_ids) + ".", ""]
         for index, step in enumerate(case.steps, 1):
             lines.append(f"{index}. `{step!r}`")
         lines.append("")

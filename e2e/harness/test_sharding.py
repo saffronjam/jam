@@ -75,11 +75,12 @@ def test_real_pytest_shards_execute_the_entire_missing_app_contract(tmp_path):
     shutil.copytree(source, copied, ignore=shutil.ignore_patterns(
         "artifacts", ".venv", "harness", "__pycache__", ".pytest_cache", "upstream"))
     env = dict(os.environ, PYTHONPATH=str(copied))
+    platform = "macos" if sys.platform == "darwin" else "linux"
     combined = []
     for index in range(2):
         folder = tmp_path / f"results-{index}"
         command = [sys.executable, "-m", "pytest", "-c", "pyproject.toml", "tests", "-q",
-                   "--platform", "linux", "--shard-index", str(index), "--shard-count", "2",
+                   "--platform", platform, "--shard-index", str(index), "--shard-count", "2",
                    "--source-revision", "source", "--fixture-producer", "producer",
                    "--artifacts-dir", str(folder), "--junitxml", str(folder / "acceptance.xml")]
         result = subprocess.run(command, cwd=copied, env=env, capture_output=True,
@@ -88,7 +89,8 @@ def test_real_pytest_shards_execute_the_entire_missing_app_contract(tmp_path):
         root = ElementTree.parse(folder / "acceptance.xml").getroot()
         cases = list(root.iter("testcase"))
         receipt = json.loads((folder / "shard.json").read_text())
-        assert [c.get("name")[18:-1] for c in cases] == receipt["selected"]
+        assert [c.get("name").removeprefix("test_user_journey[").removesuffix("]")
+                for c in cases] == receipt["selected"]
         assert all(c.find("error") is not None and "Missing application artifact" in
                    c.find("error").get("message", "") for c in cases)
         assert not list(root.iter("skipped"))

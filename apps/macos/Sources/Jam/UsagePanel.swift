@@ -102,13 +102,13 @@ struct UsagePanel: View {
               } label: {
                 Image(systemName: "chevron.left").frame(width: 24, height: 24).contentShape(
                   Rectangle())
-              }.help("Previous usage account")
+              }.help("Previous usage account").accessibilityLabel("Previous usage account")
               Button {
                 move(1)
               } label: {
                 Image(systemName: "chevron.right").frame(width: 24, height: 24).contentShape(
                   Rectangle())
-              }.help("Next usage account")
+              }.help("Next usage account").accessibilityLabel("Next usage account")
             }
           }.buttonStyle(.plain).frame(height: headerHeight)
           VStack(alignment: .leading, spacing: 10) {

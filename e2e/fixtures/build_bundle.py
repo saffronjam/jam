@@ -40,6 +40,8 @@ HTTPS = (
     "usage-auth-error",
     "usage-rate-limited",
     "update-available",
+    "update-slow-prepare",
+    "update-foreign-server",
     "update-bad-signature",
     "update-bad-checksum",
     "update-download-failed",
@@ -53,17 +55,20 @@ REMOTE = (
     "remote-auth-rejected",
     "remote-password-required",
     "remote-host-untrusted",
+    "usage-remote-account",
+    "usage-remote-other-account",
 )
 
 
 def recipes(ssh_image=None, engine=None, vm=None, previous=False, newer=False,
-            incompatible=False, legacy=False, limited=False):
+            incompatible=False, legacy=False, limited=False, failing_takeover=False):
     values = {}
     remote_worlds = REMOTE + (("remote-update-available",) if previous else ())
     remote_worlds += (("update-required",) if newer else ())
     remote_worlds += (("remote-incompatible",) if incompatible else ())
     remote_worlds += (("remote-legacy",) if legacy else ())
     remote_worlds += (("remote-limited",) if limited else ())
+    remote_worlds += (("remote-takeover-failure",) if legacy and failing_takeover else ())
     for recipe in LOCAL + HTTPS + (remote_worlds if ssh_image or vm else ()):
         values[recipe] = spec = {
             "setup": [["{python}", "{bundle}/provision_world.py", "{root}", recipe, "--repo", "{repo}"]],
@@ -72,7 +77,11 @@ def recipes(ssh_image=None, engine=None, vm=None, previous=False, newer=False,
         }
         if recipe == "provider-missing":
             spec["setup"] = []
-        if recipe in HTTPS or recipe == "update-required":
+        if recipe == "update-foreign-server":
+            spec["services"][0]["argv"] = ["{python}", "{bundle}/foreign_server.py",
+                                           "{root}", "{daemon}"]
+        if recipe in HTTPS or recipe in {"update-required", "usage-remote-account",
+                                         "usage-remote-other-account"}:
             spec["services"].insert(
                 0,
                 {
@@ -100,11 +109,13 @@ def recipes(ssh_image=None, engine=None, vm=None, previous=False, newer=False,
                 else "{bundle}/remote/incompatible.tar.gz"
                 if recipe == "remote-incompatible"
                 else "{bundle}/remote/legacy.tar.gz"
-                if recipe == "remote-legacy"
+                if recipe in {"remote-legacy", "remote-takeover-failure"}
                 else "{bundle}/remote/limited.tar.gz"
                 if recipe == "remote-limited"
                 else "{bundle}/remote/server.tar.gz"
             )
+            if recipe == "remote-takeover-failure":
+                spec["installations"] = {"macos": "releases/takeover-failure/Jam-macos-arm64.zip"}
             if vm:
                 spec["services"].insert(
                     0,
@@ -277,7 +288,9 @@ def build(
             builds["archives"] = receipts
             (output / "remote/builds.json").write_text(json.dumps(builds) + "\n")
     (output / "manifest.json").write_text(
-        json.dumps(recipes(ssh_image, engine, vm, **{name: bool(path) for name, path in variants.items()}),
+        json.dumps(recipes(ssh_image, engine, vm,
+                           failing_takeover=(output / "releases/takeover-failure/Jam-macos-arm64.zip").is_file(),
+                           **{name: bool(path) for name, path in variants.items()}),
                    indent=2) + "\n"
     )
 

@@ -302,6 +302,9 @@ def jam(request, case):
             "Missing application artifact: supply --app. An absent Linux client is a failing setup, not a skip."
         )
     app = Path(app).resolve()
+    from jam_e2e.bundle import installation_archive
+
+    archive = installation_archive(options.getoption("--fixture-bundle"), case.fixture, platform)
     cli = options.getoption("--cli")
     daemon = options.getoption("--daemon")
     if platform == "macos":
@@ -325,7 +328,13 @@ def jam(request, case):
             original = app
             app = Path(temporary) / "installation/Jam.app"
             app.parent.mkdir()
-            subprocess.run(["/usr/bin/ditto", str(original), str(app)], check=True, timeout=60)
+            if archive is None:
+                subprocess.run(["/usr/bin/ditto", str(original), str(app)], check=True, timeout=60)
+            else:
+                subprocess.run(["/usr/bin/ditto", "-xk", str(archive), str(app.parent)],
+                               check=True, timeout=60)
+                subprocess.run(["/usr/bin/codesign", "--verify", "--deep", "--strict", str(app)],
+                               check=True, timeout=30)
             if not options.getoption("--cli"):
                 cli = app / "Contents/Resources/bin/jam"
             if not options.getoption("--daemon"):

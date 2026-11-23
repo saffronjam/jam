@@ -7,6 +7,24 @@ import time
 from pathlib import Path
 
 
+def installation_archive(manifest, recipe, platform):
+    if not manifest or not recipe:
+        return None
+    manifest = Path(manifest).resolve()
+    document = json.loads(manifest.read_text())
+    spec = document["recipes"].get(recipe, {})
+    installations = spec.get("installations")
+    if installations is None:
+        return None
+    if platform not in installations:
+        raise ValueError(f"Recipe {recipe} needs a packaged {platform} installation")
+    archive = (manifest.parent / installations[platform]).resolve()
+    if not archive.is_relative_to(manifest.parent) or not archive.is_file():
+        raise ValueError(f"Missing private installation archive for {recipe}: {archive}")
+    return archive
+
+
+
 class Resources:
     def __init__(self):
         self.processes = []

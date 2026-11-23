@@ -191,8 +191,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p .cache/stock
-          gh release download v0.0.4 --repo saffronjam/jam --pattern Jam-v0.0.4-macos-arm64.zip --dir .cache/stock
-          ditto -xk .cache/stock/Jam-v0.0.4-macos-arm64.zip .cache/stock
+          gh release download v0.0.8 --repo saffronjam/jam --pattern Jam-v0.0.8-macos-arm64.zip --dir .cache/stock
+          ditto -xk .cache/stock/Jam-v0.0.8-macos-arm64.zip .cache/stock
           codesign --verify --deep --strict .cache/stock/Jam.app
       - name: Smoke the unmodified installed stock artifact
         if: ${{ !cancelled() && runner.os == 'macOS' }}

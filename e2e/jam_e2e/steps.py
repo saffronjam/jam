@@ -92,10 +92,17 @@ done
         from .remote import server_changed
 
         server_changed(profile, args[0])
+    elif op == "takeover_rolled_back":
+        from .remote import takeover_rolled_back
+
+        takeover_rolled_back(profile)
     elif op == "remote_file_text":
         from .remote import peer_command
 
-        assert peer_command(profile, "cat -- " + shlex.quote("/home/fixture/project/" + args[0])) == args[1]
+        name, expected = args
+        path = shlex.quote("/home/fixture/project/" + name)
+        wait(lambda: peer_command(profile, f"if test -f {path}; then printf ready:; cat -- {path}; fi")
+             == "ready:" + expected, f"exact remote file contents for {name}")
     elif op == "remote_server_stable":
         from .remote import peer_call
 
@@ -175,7 +182,7 @@ done
             assert not ui.has(args[0]), f"Unexpected visible {args[0]}"
             time.sleep(0.1)
     elif op == "disabled":
-        assert not ui.element(args[0]).is_enabled(), f"{args[0]} must be disabled"
+        assert not ui.element(*args).is_enabled(), f"{args[0]} must be disabled"
     elif op == "enabled":
         wait(lambda: ui.element(*args).is_enabled(), f"enabled {args[0]}")
     elif op == "count":
@@ -289,6 +296,32 @@ done
         if oversized:
             image = image.ljust(16 * 1024 * 1024 + 1, b"\0")
         ui.clipboard_image(kind, image, "unexpected text flavor" if mixed else None)
+    elif op == "block_clipboard_storage":
+        marker = profile.temporary / f"jam-clipboard-{os.geteuid()}"
+        with marker.open("x") as file:
+            file.write("Keep this existing file")
+    elif op == "clipboard_storage_unchanged":
+        marker = profile.temporary / f"jam-clipboard-{os.geteuid()}"
+        assert marker.read_text() == "Keep this existing file"
+        assert list(profile.temporary.glob("jam-clipboard-*/*.png")) == []
+    elif op == "open_directory":
+        path = profile.home / args[0]
+        path.mkdir(exist_ok=True)
+        jam.command("Open Workspace")
+        ui.choose_directory(path)
+    elif op == "usage_requests_from_both_hosts":
+        events = profile.root / "https.events"
+
+        def received():
+            if not events.exists():
+                return False
+            lines = events.read_text().splitlines(keepends=True)
+            requests = [json.loads(line) for line in lines if line.endswith("\n")]
+            hosts = {entry["fixture_host"] for entry in requests
+                     if entry["path"] == "/codex/usage" and entry["authenticated"]}
+            return hosts == {"local", "remote"}
+
+        wait(received, "real usage requests from both fixture hosts", timeout=60)
     elif op == "type_terminal":
         ui.type(args[0])
     elif op == "image_paste_result":
@@ -299,6 +332,12 @@ done
         from .visual import synchronized_frames
 
         synchronized_frames(jam, *args)
+    elif op == "rendered_label":
+        from .dialogs import screen_target
+
+        label, forbidden = args
+        prefix = f"visual-label-{len(list(profile.repo.glob('visual-label-*-target.json'))):03}"
+        screen_target(ui, label, prefix=prefix, forbidden=forbidden)
     elif op in {"clipboard_equals", "clipboard_stable"}:
         wait(lambda: ui.clipboard() == args[0], "clipboard contains the exact selected text")
         if op == "clipboard_stable":
@@ -408,12 +447,19 @@ done
             return len(agents) == 1 and agents[0].get(args[0]) == args[1]
 
         wait(matches, f"single agent {args[0]}={args[1]}")
-    elif op == "pane_field":
+    elif op == "remember_pane":
+        [pane] = profile.layout()["panes"]
+        memory["pane"] = pane["id"]
+    elif op in {"pane_field", "remembered_pane_field"}:
         def matches():
             panes = profile.layout()["panes"]
+            if op == "remembered_pane_field":
+                panes = [pane for pane in panes if pane["id"] == memory["pane"]]
             return len(panes) == 1 and panes[0].get(args[0]) == args[1]
 
-        wait(matches, f"single pane {args[0]}={args[1]!r}")
+        wait(matches, f"pane {args[0]}={args[1]!r}")
+    elif op == "release_program_completion":
+        (profile.repo / "program-phase.done").touch()
     elif op == "program_identity":
         probe = Path(__file__).with_name("program_probe.py")
         output = profile.repo / "program-phase.json"

@@ -1,6 +1,7 @@
 """Create scenario setup through Jam's shipped CLI, never its database or RPC internals."""
 
 import argparse
+import base64
 import json
 import os
 import shlex
@@ -62,6 +63,9 @@ def seed(root, recipe, repo):
         "remote-incompatible",
         "remote-legacy",
         "remote-limited",
+        "remote-takeover-failure",
+        "usage-remote-account",
+        "usage-remote-other-account",
     ):
         ssh = [
             "/usr/bin/ssh",
@@ -78,6 +82,17 @@ def seed(root, recipe, repo):
         )
         remote = call("remote", "add", "Fixture", "jam-fixture")
         ids["remote"] = remote["id"]
+        if recipe.startswith("usage-remote-"):
+            credentials = json.loads((root / "home/.codex/auth.json").read_text())
+            if recipe == "usage-remote-other-account":
+                claims = {"sub": "second-user", "email": "second@example.invalid"}
+                encoded = base64.urlsafe_b64encode(json.dumps(claims).encode()).decode().rstrip("=")
+                token = "fixture." + encoded + ".fixture"
+                credentials["tokens"].update(access_token=token, id_token=token, account_id="second-account")
+            credentials["tokens"]["access_token"] += "-remote"
+            subprocess.run([*ssh, 'umask 077; mkdir -p "$HOME/.codex"; cat > "$HOME/.codex/auth.json"'],
+                           input=json.dumps(credentials), check=True, capture_output=True,
+                           text=True, timeout=15)
         # A real archive upload/extraction exceeded the ordinary 20-second
         # CLI budget on a TCG guest. Keep this specific provisioning operation
         # within the bundle supervisor's 60-second setup deadline.
@@ -105,7 +120,7 @@ def seed(root, recipe, repo):
         ids["remote_sessions"] = {
             pane["id"]: pane["session_generation"] for pane in remote_state["State"]["panes"]
         }
-        if recipe == "remote-legacy":
+        if recipe in {"remote-legacy", "remote-takeover-failure"}:
             assert len(ids["remote_sessions"]) == 1
             pane = next(iter(ids["remote_sessions"]))
             installed_call("pane", "send", "--pane", pane, "--text",
@@ -286,7 +301,7 @@ def seed(root, recipe, repo):
         providers = ("claude", "codex") if recipe == "usage-two-providers" else ("codex",)
         if recipe == "stopped-coordinator":
             providers = ("claude",)
-        if recipe in ("usage-no-sessions", "usage-configured-login"):
+        if recipe in ("usage-no-sessions", "usage-configured-login") or recipe.startswith("usage-remote-"):
             providers = ()
         for provider in providers:
             agent = call(
