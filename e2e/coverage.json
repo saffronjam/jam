@@ -1,0 +1,633 @@
+{
+  "schema": 1,
+  "source_base": "ac5d1613798fdd46bfd0d1c5f635c698ea328016",
+  "source_tip": "004cf26b5f1224522e1c9c6899e8313ad8f73f78",
+  "behaviors": [
+    {
+      "id": "images",
+      "title": "Native image paste and errors",
+      "reviewed": false,
+      "cases": [
+        "IMAGE-001",
+        "IMAGE-002",
+        "IMAGE-003",
+        "IMAGE-004",
+        "IMAGE-005",
+        "IMAGE-006"
+      ],
+      "assertions": [
+        "Mixed format PNG and TIFF paste uses image bytes on the target host",
+        "Pasted path and following input arrive as separate arguments",
+        "Oversized and capability-limited image paste show errors and leave a usable terminal"
+      ],
+      "supporting_tests": []
+    },
+    {
+      "id": "creation",
+      "title": "Pending workspace and worktree operations",
+      "reviewed": false,
+      "cases": [
+        "CREATE-001",
+        "CREATE-002",
+        "CREATE-003",
+        "CREATE-004",
+        "CREATE-005"
+      ],
+      "assertions": [
+        "Failed worktree creation preserves existing state and supports explicit Retry or Dismiss",
+        "Successful Retry creates one usable workspace",
+        "A real blocked Git checkout is pending until released, then exposes a usable first terminal"
+      ],
+      "supporting_tests": []
+    },
+    {
+      "id": "creation-recovery",
+      "title": "Creation interruption and compatibility",
+      "reviewed": false,
+      "cases": [
+        "CREATE-003",
+        "CREATE-005"
+      ],
+      "assertions": [
+        "Capability-limited remote fallback creates a live terminal using the peer home",
+        "Explicit Retry after a real timed-out operation results in one workspace"
+      ],
+      "supporting_tests": []
+    },
+    {
+      "id": "takeover",
+      "title": "Explicit server takeover and rollback",
+      "reviewed": false,
+      "cases": [
+        "TAKEOVER-001",
+        "TAKEOVER-002"
+      ],
+      "assertions": [
+        "Cancel preserves the existing server and its session identities",
+        "Confirm uses the current build with the same workspace layout and new sessions"
+      ],
+      "supporting_tests": []
+    },
+    {
+      "id": "diagnostics",
+      "title": "Timeout diagnostics and server operations",
+      "reviewed": false,
+      "cases": [
+        "DIAG-001"
+      ],
+      "assertions": [
+        "A stopped owned daemon exposes details and resumes without replacing the daemon or shell"
+      ],
+      "supporting_tests": []
+    },
+    {
+      "id": "update-settings",
+      "title": "Nested settings update flows",
+      "reviewed": false,
+      "cases": [
+        "UPDATE-SETTINGS-001"
+      ],
+      "assertions": [
+        "An available managed update prepares a sheet from Settings and cancellation preserves the installation"
+      ],
+      "supporting_tests": []
+    },
+    {
+      "id": "accounts",
+      "title": "Account grouping and source availability",
+      "reviewed": false,
+      "cases": [
+        "ACCOUNT-001"
+      ],
+      "assertions": [
+        "A configured account is visible without any active agent session"
+      ],
+      "supporting_tests": []
+    },
+    {
+      "id": "identity",
+      "title": "Reported agent identity and lifetime",
+      "reviewed": false,
+      "cases": [
+        "IDENTITY-001",
+        "IDENTITY-002",
+        "IDENTITY-003",
+        "IMAGE-004"
+      ],
+      "assertions": [
+        "Canonical provider and reported source appear via the public CLI and visible pane label",
+        "Acknowledgement/clear retain provider; shell return ends it",
+        "Titles alone do not register agents"
+      ],
+      "supporting_tests": []
+    },
+    {
+      "id": "focus-close",
+      "title": "Focus acknowledgement and close confirmations",
+      "reviewed": false,
+      "cases": [
+        "CLOSE-001"
+      ],
+      "assertions": [
+        "Closing an exited workspace requires no confirmation and preserves its files"
+      ],
+      "supporting_tests": []
+    },
+    {
+      "id": "rendering",
+      "title": "Synchronized frames, cursor and sidebar presentation",
+      "reviewed": false,
+      "cases": [
+        "RENDER-001",
+        "RENDER-002"
+      ],
+      "assertions": [
+        "Native pixel samples during a fragmented redraw show the last completed frame",
+        "An unterminated redraw eventually publishes its frame and terminal input continues"
+      ],
+      "supporting_tests": []
+    }
+  ],
+  "changed_files": [
+    {
+      "path": ".github/actions/setup-macos/action.yml",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": ".github/workflows/check.yml",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": ".github/workflows/release.yml",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "Cargo.lock",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "Cargo.toml",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "README.md",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "apps/macos/Sources/Jam/AppSettings.swift",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "apps/macos/Sources/Jam/AppUpgrade.swift",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "apps/macos/Sources/Jam/AppUpgradeState.swift",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "apps/macos/Sources/Jam/Commands.swift",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "apps/macos/Sources/Jam/InlineRename.swift",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "apps/macos/Sources/Jam/Jam.swift",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "apps/macos/Sources/Jam/MachineList.swift",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "apps/macos/Sources/Jam/Remote.swift",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "apps/macos/Sources/Jam/ServerManagement.swift",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "apps/macos/Sources/Jam/ServerStatus.swift",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "apps/macos/Sources/Jam/SidebarUpdates.swift",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "apps/macos/Sources/Jam/TabDragging.swift",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "apps/macos/Sources/Jam/TerminalClipboard.swift",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "apps/macos/Sources/Jam/UsagePanel.swift",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "apps/macos/Sources/Jam/UsageState.swift",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "apps/macos/Sources/Jam/WarningToast.swift",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "apps/macos/Sources/Jam/WorkspaceCell.swift",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "apps/macos/Sources/Jam/WorkspaceCreation.swift",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "apps/macos/Sources/Jam/WorkspaceCreationFlow.swift",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "apps/macos/Sources/Jam/WorkspaceSidebar.swift",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "apps/macos/Sources/Jam/WorktreePicker.swift",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "apps/macos/Tests/JamTests/AgentUsageTests.swift",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "apps/macos/Tests/JamTests/ServerStatusTests.swift",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "apps/macos/Tests/JamTests/SidebarUpdatesTests.swift",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "apps/macos/Tests/JamTests/WorkspaceCreationTests.swift",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "apps/macos/Tests/JamUITests/TerminalSwitchTests.swift",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "crates/jam-core/Cargo.toml",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "crates/jam-core/src/agents.rs",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "crates/jam-core/src/client.rs",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "crates/jam-core/src/clipboard.rs",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "crates/jam-core/src/config.rs",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "crates/jam-core/src/coordination.rs",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "crates/jam-core/src/input.rs",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "crates/jam-core/src/lib.rs",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "crates/jam-core/src/protocol.rs",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "crates/jam-core/src/recovery.rs",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "crates/jam-core/src/release_version.rs",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "crates/jam-core/src/remote.rs",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "crates/jam-core/src/server.rs",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "crates/jam-core/src/server_control.rs",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "crates/jam-core/src/server_control/takeover.rs",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "crates/jam-core/src/status.rs",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "crates/jam-core/src/upgrade.rs",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "crates/jam-core/src/upgrade/crash_recovery.rs",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "crates/jam-core/src/upgrade/remote_tests.rs",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "crates/jam-core/src/usage/mod.rs",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "crates/jam-core/src/usage/process.rs",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "crates/jam-core/src/usage/providers.rs",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "crates/jam-core/src/vt.rs",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "crates/jam-core/src/worktree.rs",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "crates/jam-core/src/worktree_template.rs",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "crates/jam-native/src/lib.rs",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "crates/jam/Cargo.toml",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "crates/jam/src/bin/jam.rs",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "crates/jam/tests/persistence.rs",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "docs/protocol.md",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "justfile",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "scripts/daemon.py",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "scripts/macos-toolchain.json",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "scripts/macos_toolchain.py",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "scripts/package-macos.py",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "scripts/release/build-macos.sh",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "scripts/release/notices.py",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "scripts/remote-build.py",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "scripts/remote-install.py",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "scripts/remote-smoke.py",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "scripts/server-inspect.py",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "scripts/test.py",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "scripts/tests/test_macos_packaging.py",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "scripts/tests/test_macos_toolchain.py",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "scripts/tests/test_remote_install.py",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "scripts/tests/test_server_inspect.py",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "scripts/tests/upgrade_transaction.py",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    },
+    {
+      "path": "skills/jam/SKILL.md",
+      "reviewed": false,
+      "classification": "pending",
+      "reason": ""
+    }
+  ]
+}

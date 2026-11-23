@@ -60,6 +60,8 @@ def seed(root, recipe, repo):
         "remote-update-available",
         "update-required",
         "remote-incompatible",
+        "remote-legacy",
+        "remote-limited",
     ):
         ssh = [
             "/usr/bin/ssh",
@@ -103,6 +105,17 @@ def seed(root, recipe, repo):
         ids["remote_sessions"] = {
             pane["id"]: pane["session_generation"] for pane in remote_state["State"]["panes"]
         }
+        if recipe == "remote-legacy":
+            assert len(ids["remote_sessions"]) == 1
+            pane = next(iter(ids["remote_sessions"]))
+            installed_call("pane", "send", "--pane", pane, "--text",
+                           "printf x >> /home/fixture/project/takeover-executions", "--enter")
+            def execution_recorded():
+                result = subprocess.run([*ssh, "cat /home/fixture/project/takeover-executions"],
+                                        check=False, capture_output=True, text=True, timeout=15)
+                return result.returncode == 0 and result.stdout == "x"
+
+            wait(execution_recorded, "one command ran in the legacy server terminal")
         host = json.loads((root / "ssh.ready").read_text())
 
         def control(*args):
@@ -273,7 +286,7 @@ def seed(root, recipe, repo):
         providers = ("claude", "codex") if recipe == "usage-two-providers" else ("codex",)
         if recipe == "stopped-coordinator":
             providers = ("claude",)
-        if recipe == "usage-no-sessions":
+        if recipe in ("usage-no-sessions", "usage-configured-login"):
             providers = ()
         for provider in providers:
             agent = call(

@@ -163,3 +163,37 @@ def test_native_wayland_driver(request, tmp_path):
                         ui.restore_clipboard()
                     finally:
                         ui.quit()
+
+
+def test_native_mixed_clipboard_keeps_binary_and_text_formats(request, tmp_path):
+    from jam_e2e.clipboard import image_fixture, linux_clipboard, representations
+
+    launcher = tmp_path / "gtk-clipboard-probe"
+    probe = Path(__file__).with_name("gtk_probe.py")
+    launcher.write_text(f'#!/bin/sh\nexec /usr/bin/python3 "{probe}"\n')
+    launcher.chmod(0o700)
+    profile = SimpleNamespace(root=tmp_path, repo=tmp_path, env=dict(os.environ))
+    ui = Desktop("linux", request.config.getoption("--webdriver-url"), launcher, profile)
+    ui.launch()
+    try:
+        image, _ = image_fixture("png")
+        before = linux_clipboard("capture", profile)
+        ui.clipboard_image("png", image, "GTK clipboard 日本語")
+        expected = representations("linux", "png", image, "GTK clipboard 日本語")
+        actual = linux_clipboard("capture", profile)
+        assert {mime: actual[mime] for mime in expected} == expected
+        ui.activate()
+        ui.click("Probe text", "field")
+        ui.chord("ctrl+v")
+        wait(lambda: ui.field_value("Probe text") == "GTK clipboard 日本語",
+             "standard GTK field reads the text flavor")
+        ui.restore_clipboard()
+        restored = linux_clipboard("capture", profile)
+        assert {mime: restored[mime] for mime in before} == before
+        if not before:
+            assert not restored
+    finally:
+        try:
+            ui.restore_clipboard()
+        finally:
+            ui.quit()

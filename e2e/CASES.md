@@ -1,6 +1,6 @@
 # Desktop acceptance cases
 
-251 cases; identical collection on macOS and Linux. No skips or expected failures.
+273 cases; identical collection on macOS and Linux. No skips or expected failures.
 
 Each numbered step is performed externally. Fixture names identify required setup recipes, not alternate assertions.
 
@@ -978,7 +978,7 @@ Fixture: `remote-persistence-disabled`.
 
 Fixture: `remote-incompatible`.
 
-1. `('visible', 'update')`
+1. `('visible', 'Takeover required')`
 
 ## UPDATE-001: update available
 
@@ -1980,7 +1980,7 @@ Fixture: `usage-unknown-account`.
 
 1. `('click', 'Codex', 'button')`
 2. `('visible', 'Codex usage')`
-3. `('visible', 'Account identity unavailable; shown separately for this machine.')`
+3. `('visible', 'Account identity unavailable. Shown separately for this machine.')`
 4. `('visible', 'Local')`
 
 ## USAGE-004: usage no sessions external user workflow
@@ -2005,10 +2005,10 @@ Fixture: `usage-auth-error`.
 
 Fixture: `usage-rate-limited`.
 
-1. `('visible', 'Usage service rate limited; retrying later')`
+1. `('visible', 'Usage service rate limited. Retrying later')`
 2. `('click', 'Codex, fixture@example.invalid', 'button')`
 3. `('visible', 'Codex usage')`
-4. `('visible', 'Usage service rate limited; retrying later')`
+4. `('visible', 'Usage service rate limited. Retrying later')`
 5. `('key', 'ESCAPE')`
 6. `('run', 'printf usage-rate-shell-alive')`
 7. `('output', 'usage-rate-shell-alive')`
@@ -2782,3 +2782,335 @@ Fixture: `provider-custom-hooks`.
 5. `('click', 'integration.codex.remove')`
 6. `('target_visible', 'integration.codex.install')`
 7. `('home_json_equals', '.codex/hooks.json', {'fixture_user_setting': {'keep': True}, 'hooks': {'SessionStart': [{'matcher': '', 'hooks': [{'type': 'command', 'command': 'printf fixture-user-hook'}]}]}})`
+
+## IDENTITY-001: Reported Codex identity survives activity acknowledgement and clear
+
+Fixture: `isolated local installation`.
+
+1. `('program_identity', 'codex')`
+2. `('pane_field', 'agent_provider', 'codex')`
+3. `('pane_field', 'agent_source', 'reported')`
+4. `('pane_field', 'agent_role', None)`
+5. `('visible', 'Codex')`
+6. `('program_phase', 'done')`
+7. `('pane_field', 'status', 'done')`
+8. `('click', 'Terminal', 'terminal')`
+9. `('pane_field', 'status', 'unknown')`
+10. `('pane_field', 'agent_provider', 'codex')`
+11. `('visible', 'Codex')`
+12. `('program_phase', 'clear')`
+13. `('pane_field', 'agent_provider', 'codex')`
+14. `('program_phase', 'exit')`
+15. `('pane_field', 'agent_provider', None)`
+16. `('pane_field', 'agent_source', None)`
+17. `('run', 'printf identity-returned-to-shell')`
+18. `('output', 'identity-returned-to-shell')`
+
+## IDENTITY-002: Reported Claude identity survives activity acknowledgement and clear
+
+Fixture: `isolated local installation`.
+
+1. `('program_identity', 'claude-code')`
+2. `('pane_field', 'agent_provider', 'claude')`
+3. `('pane_field', 'agent_source', 'reported')`
+4. `('pane_field', 'agent_role', None)`
+5. `('visible', 'Claude')`
+6. `('program_phase', 'done')`
+7. `('pane_field', 'status', 'done')`
+8. `('click', 'Terminal', 'terminal')`
+9. `('pane_field', 'status', 'unknown')`
+10. `('pane_field', 'agent_provider', 'claude')`
+11. `('visible', 'Claude')`
+12. `('program_phase', 'clear')`
+13. `('pane_field', 'agent_provider', 'claude')`
+14. `('program_phase', 'exit')`
+15. `('pane_field', 'agent_provider', None)`
+16. `('pane_field', 'agent_source', None)`
+17. `('run', 'printf identity-returned-to-shell')`
+18. `('output', 'identity-returned-to-shell')`
+
+## IDENTITY-003: A terminal title mentioning a provider does not register an agent
+
+Fixture: `isolated local installation`.
+
+1. `('run', "printf '\\033]0;codex build report\\007'")`
+2. `('pane_field', 'agent_provider', None)`
+3. `('pane_field', 'agent_source', None)`
+4. `('pane_field', 'agent_role', None)`
+5. `('run', 'printf title-is-not-an-agent')`
+6. `('output', 'title-is-not-an-agent')`
+
+## IMAGE-001: PNG paste writes a private image on the local host
+
+Fixture: `isolated local installation`.
+
+1. `('run', 'true')`
+2. `('clipboard_image', 'png', True, False)`
+3. `('type_terminal', "printf '%s\\n' ")`
+4. `('paste',)`
+5. `('type_terminal', 'queued-after-image > image-path.txt')`
+6. `('key', 'ENTER')`
+7. `('image_paste_result', 'png', False)`
+
+## IMAGE-002: TIFF paste writes a private image on the local host
+
+Fixture: `isolated local installation`.
+
+1. `('run', 'true')`
+2. `('clipboard_image', 'tiff', True, False)`
+3. `('type_terminal', "printf '%s\\n' ")`
+4. `('context', 'Terminal', 'terminal')`
+5. `('click', 'Paste', 'menu')`
+6. `('type_terminal', 'queued-after-image > image-path.txt')`
+7. `('key', 'ENTER')`
+8. `('image_paste_result', 'tiff', False)`
+
+## IMAGE-003: PNG paste writes a private image on the remote host
+
+Fixture: `remote-connected`.
+
+1. `('remote_shell',)`
+2. `('clipboard_image', 'png', True, False)`
+3. `('type_terminal', "printf '%s\\n' ")`
+4. `('paste',)`
+5. `('type_terminal', 'queued-after-image > image-path.txt')`
+6. `('key', 'ENTER')`
+7. `('image_paste_result', 'png', True)`
+
+## IMAGE-004: Control-V in a reported agent pane pastes the image before queued input
+
+Fixture: `isolated local installation`.
+
+1. `('program_identity', 'codex', 'image-arguments')`
+2. `('pane_field', 'agent_source', 'reported')`
+3. `('clipboard_image', 'png', True, False)`
+4. `('chord', 'ctrl+v')`
+5. `('type_terminal', 'queued-after-image')`
+6. `('key', 'ENTER')`
+7. `('image_paste_result', 'png', False)`
+
+## IMAGE-005: Oversized clipboard image is rejected without typing into the terminal
+
+Fixture: `isolated local installation`.
+
+1. `('probe',)`
+2. `('clipboard_image', 'png', True, True)`
+3. `('paste',)`
+4. `('visible', 'Clipboard image is too large')`
+5. `('probe_no_input',)`
+6. `('probe_key', 'x')`
+7. `('probe_hex', '78')`
+
+## IMAGE-006: A server without image capability leaves its terminal usable
+
+Fixture: `remote-limited`.
+
+1. `('remote_shell',)`
+2. `('clipboard_image', 'png', True, False)`
+3. `('paste',)`
+4. `('visible', 'Image pasting needs an updated Jam server on this machine')`
+5. `('remote_shell', 'printf image-error-shell-usable')`
+6. `('remote_workspace_preserved',)`
+
+## CREATE-001: Failed worktree creation can be retried once after its base ref is repaired
+
+Fixture: `isolated local installation`.
+
+1. `('command', 'New Worktree')`
+2. `('fill', 'Branch name', 'creation-retry')`
+3. `('fill', 'Base revision', 'repairable-base')`
+4. `('click', 'Create', 'button')`
+5. `('enabled', 'Retry', 'button')`
+6. `('enabled', 'Dismiss', 'button')`
+7. `('settle_count', 'workspaces', 1)`
+8. `('git_no_branch', 'creation-retry')`
+9. `('git_update_ref', 'repairable-base')`
+10. `('click', 'Retry', 'button')`
+11. `('created_workspace', 'wt/Project ü with spaces/creation-retry', False)`
+12. `('run', 'printf new-worktree-ready > creation-result.txt')`
+13. `('home_file_text', 'wt/Project ü with spaces/creation-retry/creation-result.txt', 'new-worktree-ready')`
+14. `('settle_count', 'workspaces', 2)`
+15. `('git_branch', 'creation-retry')`
+
+## CREATE-002: Dismissing a failed worktree restores the previous usable terminal
+
+Fixture: `isolated local installation`.
+
+1. `('remember_layout',)`
+2. `('remember_pids',)`
+3. `('command', 'New Worktree')`
+4. `('fill', 'Branch name', 'creation-dismiss')`
+5. `('fill', 'Base revision', 'invalid-creation-base')`
+6. `('click', 'Create', 'button')`
+7. `('enabled', 'Retry', 'button')`
+8. `('click', 'Dismiss', 'button')`
+9. `('absent', 'Retry')`
+10. `('same_layout',)`
+11. `('same_pids',)`
+12. `('git_no_branch', 'creation-dismiss')`
+13. `('run', 'printf creation-dismissed')`
+14. `('output', 'creation-dismissed')`
+
+## CREATE-003: A capability-limited remote creates one workspace in the remote home
+
+Fixture: `remote-limited`.
+
+1. `('remote_shell',)`
+2. `('command', 'New Workspace')`
+3. `('created_workspace', '/home/fixture', True)`
+4. `('type_terminal', 'printf remote-creation-ready > /home/fixture/project/creation-result.txt')`
+5. `('key', 'ENTER')`
+6. `('remote_file_text', 'creation-result.txt', 'remote-creation-ready')`
+
+## TAKEOVER-001: Cancelling a legacy server takeover preserves its running sessions
+
+Fixture: `remote-legacy`.
+
+1. `('visible', 'Takeover required', 60)`
+2. `('context', 'Fixture', 'machine')`
+3. `('click', 'Take Over Server…', 'menu')`
+4. `('visible', 'Take over the server on Fixture?')`
+5. `('visible', 'Running terminals will stop')`
+6. `('enabled', 'Take Over and Reconnect', 'button')`
+7. `('click', 'Cancel', 'button')`
+8. `('remote_workspace_preserved',)`
+9. `('remote_server_stable', 2)`
+
+## TAKEOVER-002: An explicit legacy takeover restores the saved layout and starts fresh shells
+
+Fixture: `remote-legacy`.
+
+1. `('visible', 'Takeover required', 60)`
+2. `('context', 'Fixture', 'machine')`
+3. `('click', 'Take Over Server…', 'menu')`
+4. `('enabled', 'Take Over and Reconnect', 'button')`
+5. `('click', 'Take Over and Reconnect', 'button')`
+6. `('remote_server_changed', 'takeover')`
+7. `('remote_file_text', 'takeover-executions', 'x')`
+8. `('remote_shell', 'printf y >> takeover-executions')`
+9. `('remote_file_text', 'takeover-executions', 'xy')`
+
+## DIAG-001: Inspecting an unresponsive local server preserves its daemon and live shell
+
+Fixture: `isolated local installation`.
+
+1. `('remember_layout',)`
+2. `('remember_pids',)`
+3. `('suspend_daemon',)`
+4. `('visible', 'Local server is not responding', 45)`
+5. `('context', 'Local', 'machine')`
+6. `('click', 'Server Details…', 'menu')`
+7. `('visible', 'Server — Local')`
+8. `('visible', 'without stopping running sessions')`
+9. `('resume_daemon',)`
+10. `('absent', 'Server — Local')`
+11. `('same_layout',)`
+12. `('same_pids',)`
+13. `('run', 'printf daemon-recovered-without-restart')`
+14. `('output', 'daemon-recovered-without-restart')`
+
+## UPDATE-SETTINGS-001: Settings prepares and cancels one managed upgrade sheet
+
+Fixture: `update-available`.
+
+1. `('remember_layout',)`
+2. `('remember_pids',)`
+3. `('settings', 'General')`
+4. `('click', 'Check for Updates…', 'button')`
+5. `('visible', 'Jam 0.0.5 is available')`
+6. `('enabled', 'Upgrade…', 'button')`
+7. `('click', 'Upgrade…', 'button')`
+8. `('visible', 'Upgrade Jam')`
+9. `('enabled', 'Upgrade and Restart', 'button')`
+10. `('click', 'Cancel', 'button')`
+11. `('absent', 'Upgrade Jam')`
+12. `('installed_version', '0.0.4')`
+13. `('same_layout',)`
+14. `('same_pids',)`
+
+## ACCOUNT-001: A configured login appears without any active agent session
+
+Fixture: `usage-configured-login`.
+
+1. `('visible', 'USAGE')`
+2. `('click', 'Codex, fixture@example.invalid', 'button')`
+3. `('visible', 'Codex usage')`
+4. `('visible', 'fixture@example.invalid')`
+5. `('key', 'ESCAPE')`
+6. `('pane_field', 'agent_provider', None)`
+7. `('run', 'printf configured-account-shell-usable')`
+8. `('output', 'configured-account-shell-usable')`
+
+## RENDER-001: Synchronized output hides partial redraws
+
+Fixture: `isolated local installation`.
+
+1. `('remember_pids',)`
+2. `('synchronized_frames', 'complete')`
+3. `('run', 'printf input-after-synchronized-output')`
+4. `('output', 'input-after-synchronized-output')`
+5. `('same_pids',)`
+
+## RENDER-002: An unterminated synchronized redraw releases its frame after the deadline
+
+Fixture: `isolated local installation`.
+
+1. `('remember_pids',)`
+2. `('synchronized_frames', 'timeout')`
+3. `('run', 'printf input-after-synchronized-output')`
+4. `('output', 'input-after-synchronized-output')`
+5. `('same_pids',)`
+
+## CREATE-004: A pending worktree becomes one selected workspace with a usable terminal
+
+Fixture: `isolated local installation`.
+
+1. `('hold_worktree_checkout',)`
+2. `('command', 'New Worktree')`
+3. `('fill', 'Branch name', 'pending-creation')`
+4. `('fill', 'Base revision', 'HEAD')`
+5. `('click', 'Create', 'button')`
+6. `('checkout_pending',)`
+7. `('visible', 'Opening workspace')`
+8. `('release_worktree_checkout',)`
+9. `('created_workspace', 'wt/Project ü with spaces/pending-creation', False)`
+10. `('absent', 'Opening workspace')`
+11. `('run', 'printf pending-worktree-ready > creation-result.txt')`
+12. `('home_file_text', 'wt/Project ü with spaces/pending-creation/creation-result.txt', 'pending-worktree-ready')`
+13. `('settle_count', 'workspaces', 2)`
+
+## CREATE-005: An interrupted creation resumes its existing operation after Retry
+
+Fixture: `isolated local installation`.
+
+1. `('hold_worktree_checkout',)`
+2. `('command', 'New Worktree')`
+3. `('fill', 'Branch name', 'pending-creation')`
+4. `('fill', 'Base revision', 'HEAD')`
+5. `('click', 'Create', 'button')`
+6. `('checkout_pending',)`
+7. `('visible', 'Opening workspace')`
+8. `('suspend_daemon',)`
+9. `('visible', 'Retry', 35)`
+10. `('resume_daemon',)`
+11. `('release_worktree_checkout',)`
+12. `('click', 'Retry', 'button')`
+13. `('created_workspace', 'wt/Project ü with spaces/pending-creation', False)`
+14. `('absent', 'Opening workspace')`
+15. `('run', 'printf pending-worktree-ready > creation-result.txt')`
+16. `('home_file_text', 'wt/Project ü with spaces/pending-creation/creation-result.txt', 'pending-worktree-ready')`
+17. `('settle_count', 'workspaces', 2)`
+
+## CLOSE-001: A workspace with no live terminals closes without a confirmation
+
+Fixture: `isolated local installation`.
+
+1. `('write_config', 'close_empty_tabs = false\nclose_empty_workspaces = false\n')`
+2. `('relaunch',)`
+3. `('type_terminal', 'exit')`
+4. `('key', 'ENTER')`
+5. `('visible', 'No terminals')`
+6. `('count', 'workspaces', 1)`
+7. `('command', 'Close Workspace')`
+8. `('settle_count', 'workspaces', 0)`
+9. `('file_text', 'tracked.txt', 'first\nsecond\n')`

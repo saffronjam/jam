@@ -15,6 +15,61 @@ def execute(jam, step, memory):
     ui, profile = jam.ui, jam.profile
     if op == "run":
         jam.run(*args)
+    elif op == "suspend_daemon":
+        memory["suspended_pid"] = profile.suspend_daemon()
+        wait(lambda: (profile.owned_daemon_status(memory["suspended_pid"]) or "").startswith("T"),
+             "the owned daemon suspended", timeout=5)
+    elif op == "resume_daemon":
+        profile.resume_daemon()
+        pid = memory["suspended_pid"]
+        wait(lambda: (status := profile.owned_daemon_status(pid)) and not status.startswith("T"),
+             "the same owned daemon resumed", timeout=5)
+    elif op == "git_update_ref":
+        profile.git("update-ref", "refs/tags/" + args[0], "HEAD")
+    elif op == "hold_worktree_checkout":
+        ready = shlex.quote(str(profile.root / "checkout.ready"))
+        release = shlex.quote(str(profile.root / "checkout.release"))
+        hook = profile.repo / ".git/hooks/post-checkout"
+        hook.write_text(f"""#!/bin/sh
+set -eu
+touch {ready}
+remaining=900
+while [ ! -e {release} ]; do
+  test "$remaining" -gt 0
+  remaining=$((remaining - 1))
+  sleep 0.1
+done
+""")
+        hook.chmod(0o700)
+    elif op == "checkout_pending":
+        wait((profile.root / "checkout.ready").exists, "real Git post-checkout hook", timeout=30)
+    elif op == "release_worktree_checkout":
+        profile.release_checkout()
+    elif op == "created_workspace":
+        path, remote = args
+        if not remote:
+            path = str(profile.home / path)
+        if remote:
+            from .remote import peer_call
+
+            observe = lambda: peer_call(profile, "workspace", "list")["State"]
+        else:
+            observe = profile.layout
+
+        def ready():
+            state = observe()
+            matches = [entry for entry in state["workspaces"] if entry["path"] == path]
+            if not matches:
+                return False
+            assert len(matches) == 1, "Creation produced duplicate workspace paths"
+            entry = matches[0]
+            if len(entry["tabs"]) != 1:
+                return False
+            pane = entry.get("active_pane")
+            return any(p["id"] == pane and not p["exited"] and p.get("session_generation")
+                       for p in state["panes"])
+
+        wait(ready, f"one live initial terminal at {path}", timeout=60)
     elif op in {"open_client", "use_client", "close_client"}:
         if jam.clients is None:
             from .clients import Clients
@@ -226,6 +281,24 @@ def execute(jam, step, memory):
         ui.key("ENTER")
     elif op == "clipboard":
         ui.clipboard(*args)
+    elif op == "clipboard_image":
+        from .clipboard import image_fixture
+
+        kind, mixed, oversized = args
+        image, _ = image_fixture(kind)
+        if oversized:
+            image = image.ljust(16 * 1024 * 1024 + 1, b"\0")
+        ui.clipboard_image(kind, image, "unexpected text flavor" if mixed else None)
+    elif op == "type_terminal":
+        ui.type(args[0])
+    elif op == "image_paste_result":
+        from .clipboard import verify_image
+
+        verify_image(profile, *args)
+    elif op == "synchronized_frames":
+        from .visual import synchronized_frames
+
+        synchronized_frames(jam, *args)
     elif op in {"clipboard_equals", "clipboard_stable"}:
         wait(lambda: ui.clipboard() == args[0], "clipboard contains the exact selected text")
         if op == "clipboard_stable":
@@ -335,6 +408,26 @@ def execute(jam, step, memory):
             return len(agents) == 1 and agents[0].get(args[0]) == args[1]
 
         wait(matches, f"single agent {args[0]}={args[1]}")
+    elif op == "pane_field":
+        def matches():
+            panes = profile.layout()["panes"]
+            return len(panes) == 1 and panes[0].get(args[0]) == args[1]
+
+        wait(matches, f"single pane {args[0]}={args[1]!r}")
+    elif op == "program_identity":
+        probe = Path(__file__).with_name("program_probe.py")
+        output = profile.repo / "program-phase.json"
+        jam.terminal()
+        ui.type(shlex.join([sys.executable, str(probe), args[0], str(output), *args[1:]]))
+        ui.key("ENTER")
+        wait(output.exists, "foreground program status receipt")
+    elif op == "program_phase":
+        ui.type(args[0])
+        ui.key("ENTER")
+        if args[0] != "exit":
+            output = profile.repo / "program-phase.json"
+            wait(lambda: json.loads(output.read_text())["phase"] == args[0],
+                 "foreground program phase " + args[0])
     elif op in ("remember_agent_session", "same_agent_session"):
         agents = profile.call("coordinate", "list")["Coordination"]["agents"]
         assert len(agents) == 1 and agents[0]["session"]

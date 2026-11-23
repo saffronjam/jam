@@ -53,6 +53,7 @@ class Desktop:
         self.platform, self.endpoint, self.app, self.profile = platform, endpoint, app, profile
         self.session = None
         self.saved_clipboard = None
+        self.saved_binary_clipboard = None
         self.clipboard_owner = self
         self.dialog_active = False
         self.composition = None
@@ -992,12 +993,36 @@ class Desktop:
         self.session.set_clipboard_text(text)
 
     def restore_clipboard(self):
+        if self.saved_binary_clipboard is not None:
+            from .clipboard import linux_clipboard
+
+            # The binary snapshot predates any text-only clipboard mutations.
+            linux_clipboard("restore", self.profile, self.saved_binary_clipboard)
+            self.saved_binary_clipboard = None
+            self.saved_clipboard = None
         if self.saved_clipboard is not None:
             if self.platform == "macos":
                 self._mac_clipboard("restore", self.saved_clipboard)
             else:
                 self.clipboard(self.saved_clipboard)
             self.saved_clipboard = None
+
+    def clipboard_image(self, kind, image, text=None):
+        from .clipboard import linux_clipboard, representations
+
+        owner = self.clipboard_owner
+        contents = representations(self.platform, kind, image, text)
+        if self.platform == "macos":
+            if owner.saved_clipboard is None:
+                owner.saved_clipboard = owner._mac_clipboard("capture")
+            owner._mac_clipboard("restore", contents)
+        else:
+            if owner.saved_binary_clipboard is None:
+                if owner.saved_clipboard is not None:
+                    raise AssertionError("Take the native clipboard snapshot before changing text")
+                owner.saved_binary_clipboard = linux_clipboard("capture", owner.profile)
+            linux_clipboard("restore", owner.profile, contents)
+            self.activate()
 
     def _mac_clipboard(self, action, data=None):
         helper = Path(__file__).parents[1] / "native/macos/clipboard.swift"

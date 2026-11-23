@@ -21,6 +21,8 @@ def test_fixture_never_reuses_personal_profile(tmp_path, monkeypatch):
     assert "OPENAI_API_KEY" not in profile.env
     assert "SSH_AUTH_SOCK" not in profile.env
     assert profile.env["HOME"] == str(tmp_path / "home")
+    assert profile.env["TMPDIR"] == str(tmp_path / "tmp")
+    assert profile.temporary.stat().st_mode & 0o077 == 0
     assert profile.env["WAYLAND_DISPLAY"] == "/isolated-compositor/wayland-fixture"
     assert profile.env["XDG_RUNTIME_DIR"] == str(tmp_path / "run")
     assert profile.git("status", "--porcelain") == ""

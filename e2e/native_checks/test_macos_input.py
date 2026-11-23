@@ -229,3 +229,24 @@ def test_native_retina_output_and_input(native_ui):
     ui.resize(700, 400)
     ui.restore_display_scale()
     assert ui.display_scale_state.observe()["scale"] == 1
+
+
+def test_native_pasteboard_round_trips_images_and_text(native_ui):
+    from jam_e2e.clipboard import image_fixture, representations
+
+    ui = native_ui
+    before = ui._mac_clipboard("capture")
+    for kind in ("png", "tiff"):
+        image, _ = image_fixture(kind)
+        ui.clipboard_image(kind, image, "AppKit clipboard 日本語")
+        [actual] = ui._mac_clipboard("capture")
+        [expected] = representations("macos", kind, image, "AppKit clipboard 日本語")
+        assert {value["type"]: value["data"] for value in actual} == {
+            value["type"]: value["data"] for value in expected
+        }
+    ui.click("Probe text", "field")
+    ui.chord("cmd+v")
+    wait(lambda: ui.field_value("Probe text") == "AppKit clipboard 日本語",
+         "standard AppKit field reads the text flavor")
+    ui.restore_clipboard()
+    assert ui._mac_clipboard("capture") == before

@@ -20,10 +20,11 @@ permissions:
   actions: read
 jobs:
   real-ssh:
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - uses: ./.github/actions/setup-macos
       - name: Select a completed fixture release for this environment proof
         id: fixture
         env:
@@ -71,7 +72,9 @@ jobs:
           python3 e2e/fixtures/build_bundle.py .cache/vm-bundle \
             --trust .cache/fixture-bundle/trust --releases .cache/fixture-bundle/releases \
             --remote-archive .cache/fixture-bundle/releases/v0.0.4/jam-v0.0.4-linux-aarch64.tar.gz \
-            --remote-previous-archive .cache/previous-server/jam-v0.0.4-linux-aarch64.tar.gz \
+            --remote-legacy-archive .cache/previous-server/jam-v0.0.4-linux-aarch64.tar.gz \
+            --remote-previous-archive .cache/fixture-bundle/releases/previous/jam-previous-linux-aarch64.tar.gz \
+            --remote-limited-archive .cache/fixture-bundle/releases/limited/jam-limited-linux-aarch64.tar.gz \
             --remote-next-archive .cache/fixture-bundle/releases/v0.0.5/jam-v0.0.5-linux-aarch64.tar.gz \
             --remote-incompatible-archive .cache/fixture-bundle/releases/incompatible/jam-incompatible-linux-aarch64.tar.gz \
             --vm-image "$PWD/.cache/debian-bookworm-arm64.qcow2" \
