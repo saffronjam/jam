@@ -2948,10 +2948,10 @@ Behaviors: `images`.
 
 1. `('run', 'true')`
 2. `('clipboard_image', 'tiff', True, False)`
-3. `('type_terminal', "printf '%s\\n' ")`
+3. `('type_shell_command', "printf '%s\\n' ")`
 4. `('context', 'Terminal', 'terminal')`
 5. `('click', 'Paste', 'menu')`
-6. `('type_terminal', 'queued-after-image > image-path.txt')`
+6. `('type_shell_command', 'queued-after-image > image-path.txt')`
 7. `('key', 'ENTER')`
 8. `('image_paste_result', 'tiff', False)`
 
@@ -3303,8 +3303,10 @@ Behaviors: `focus-close`.
 6. `('visible', 'Start Shell')`
 7. `('count', 'workspaces', 1)`
 8. `('command', 'Close Workspace')`
-9. `('settle_count', 'workspaces', 0)`
-10. `('file_text', 'tracked.txt', 'first\nsecond\n')`
+9. `('count', 'workspaces', 0)`
+10. `('absent', 'Close project and its open worktrees?')`
+11. `('settle_count', 'workspaces', 0)`
+12. `('file_text', 'tracked.txt', 'first\nsecond\n')`
 
 ## CLOSE-002: A live worktree requires confirmation before closing an empty project
 
@@ -3329,11 +3331,12 @@ Behaviors: `focus-close`.
 15. `('click', 'Close Workspace', 'menu')`
 16. `('visible', 'Close project and its open worktrees?')`
 17. `('click', 'Close', 'button')`
-18. `('settle_count', 'workspaces', 0)`
-19. `('settle_count', 'panes', 0)`
-20. `('file_text', 'tracked.txt', 'first\nsecond\n')`
-21. `('file_text', '../Fixture checkout/dirty.txt', 'Keep this uncommitted work\n')`
-22. `('git_branch', 'feature/existing')`
+18. `('count', 'workspaces', 0)`
+19. `('settle_count', 'workspaces', 0)`
+20. `('settle_count', 'panes', 0)`
+21. `('file_text', 'tracked.txt', 'first\nsecond\n')`
+22. `('file_text', '../Fixture checkout/dirty.txt', 'Keep this uncommitted work\n')`
+23. `('git_branch', 'feature/existing')`
 
 ## CLOSE-003: A live coordinator requires confirmation before closing its otherwise empty project
 
@@ -3358,9 +3361,10 @@ Behaviors: `focus-close`.
 15. `('click', 'Close Workspace', 'menu')`
 16. `('visible', 'Close project and its open worktrees?')`
 17. `('click', 'Close', 'button')`
-18. `('settle_count', 'workspaces', 0)`
-19. `('settle_count', 'panes', 0)`
-20. `('file_text', 'tracked.txt', 'first\nsecond\n')`
+18. `('count', 'workspaces', 0)`
+19. `('settle_count', 'workspaces', 0)`
+20. `('settle_count', 'panes', 0)`
+21. `('file_text', 'tracked.txt', 'first\nsecond\n')`
 
 ## CLOSE-004: A project and worktree with no live terminals close together without confirmation
 
@@ -3381,10 +3385,11 @@ Behaviors: `focus-close`.
 11. `('count', 'workspaces', 2)`
 12. `('context', 'Fixture', 'row')`
 13. `('click', 'Close Workspace', 'menu')`
-14. `('absent', 'Close project and its open worktrees?')`
-15. `('settle_count', 'workspaces', 0)`
-16. `('file_text', '../Fixture checkout/dirty.txt', 'Keep this uncommitted work\n')`
-17. `('git_branch', 'feature/existing')`
+14. `('count', 'workspaces', 0)`
+15. `('absent', 'Close project and its open worktrees?')`
+16. `('settle_count', 'workspaces', 0)`
+17. `('file_text', '../Fixture checkout/dirty.txt', 'Keep this uncommitted work\n')`
+18. `('git_branch', 'feature/existing')`
 
 ## IMAGE-007: Control-V is delivered as ordinary terminal input outside an agent pane
 
@@ -3910,7 +3915,7 @@ Fixture: `isolated local installation`.
 
 Behaviors: `creation`, `focus-close`.
 
-1. `('probe',)`
+1. `('probe', 'raw', '90')`
 2. `('hold_worktree_checkout',)`
 3. `('command', 'New Worktree')`
 4. `('fill', 'Branch name', 'isolated-handoff')`
