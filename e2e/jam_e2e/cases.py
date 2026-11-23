@@ -2357,7 +2357,7 @@ case(
     ("interrupt_remote_install",),
     ("context", "Fixture", "machine"),
     ("click", "Update Server…", "menu"),
-    ("enabled", "Update and Restart", "button"),
+    ("enabled", "Update and Restart", "button", 90),
     ("click", "Update and Restart", "button"),
     ("visible", "Could not complete the server action.", 95),
     ("observed_interrupted_install",),
