@@ -426,6 +426,8 @@ done
         assert previous == first and visited == set(values)
     elif op == "type_terminal":
         ui.type(args[0])
+    elif op == "type_shell_command":
+        ui.type_shell_command(args[0])
     elif op == "image_paste_result":
         from .clipboard import verify_image
 
@@ -627,9 +629,9 @@ done
     elif op == "probe":
         output = profile.repo / "probe.json"
         probe = Path(__file__).with_name("terminal_probe.py")
-        command = shlex.join([sys.executable, str(probe), str(output), *args])
+        command = shlex.join([sys.executable, str(probe), output.name, *args])
         jam.terminal()
-        ui.type(command)
+        ui.type_shell_command(command)
         ui.key("ENTER")
         wait(lambda: output.with_suffix(".ready").exists(), "raw PTY probe ready")
     elif op == "probe_key":

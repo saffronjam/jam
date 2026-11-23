@@ -109,10 +109,10 @@ fn unresponsive_local_server_reports_inspection_failure_without_takeover() {
         panic!("expected the initial daemon identity");
     };
     let pid = daemon.child.id().to_string();
-    let signal = |name| {
+    let signal = |name: &str| {
         assert!(
             Command::new("/bin/kill")
-                .args([name, &pid])
+                .args([name, pid.as_str()])
                 .status()
                 .unwrap()
                 .success()

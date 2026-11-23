@@ -51,9 +51,21 @@ def verify_image(profile, kind, remote=False):
 
     # The trailing shell argument must be parsed separately. This verifies that
     # the inserted path does not consume the keys typed immediately afterward.
-    receipt = wait(lambda: (value if (value := read_path()).endswith("\nqueued-after-image\n")
-                            else None), "image path and following terminal input", timeout=60)
-    path, sentinel = receipt.splitlines()
+    receipt = ""
+
+    def command_finished():
+        nonlocal receipt
+        receipt = read_path()
+        return receipt.endswith("queued-after-image\n")
+
+    try:
+        wait(command_finished, "image path and following terminal input", timeout=60)
+    except AssertionError as error:
+        error.add_note(f"Last shell receipt: {receipt!r}")
+        raise
+    lines = receipt.splitlines()
+    assert len(lines) == 2, f"Expected an image path followed by terminal input, got {receipt!r}"
+    path, sentinel = lines
     assert sentinel == "queued-after-image"
     path = PurePosixPath(path)
     assert path.is_absolute() and path.suffix == ".png" and ".." not in path.parts
