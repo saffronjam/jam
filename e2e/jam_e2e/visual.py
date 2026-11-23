@@ -120,6 +120,8 @@ def synchronized_frames(jam, mode):
 
     wait(initial, "initial frame appears in native terminal pixels", timeout=10)
     path.with_suffix(".go").touch()
+    wait(lambda: json.loads(path.read_text())["phase"] == "holding",
+         "the foreground process has emitted a synchronized partial frame", timeout=5)
     samples = []
     final_color = "after" if mode == "complete" else "partial"
 

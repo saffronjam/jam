@@ -81,7 +81,9 @@ struct MachineActions {
   let status: ServerStatus?
   // A reachable server with an older protocol cannot establish an app
   // connection. Keep its explicit upgrade/restart actions available.
-  var incompatibleServer: Bool { status?.running == true && status?.compatible == false }
+  var incompatibleServer: Bool {
+    status?.running == true && status?.compatible == false && status?.state != "inspection_failed"
+  }
   private var manageable: Bool {
     (connected || incompatibleServer) && status?.managementAvailable != false
   }

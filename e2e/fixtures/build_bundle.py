@@ -65,15 +65,13 @@ REMOTE = (
 
 
 def recipes(ssh_image=None, engine=None, vm=None, previous=False, newer=False,
-            incompatible=False, legacy=False, limited=False, failing_takeover=False,
-            unmanaged=False):
+            incompatible=False, legacy=False, limited=False, unmanaged=False):
     values = {}
     remote_worlds = REMOTE + (("remote-update-available",) if previous else ())
     remote_worlds += (("update-required", "update-required-without-compatible-release") if newer else ())
     remote_worlds += (("remote-incompatible",) if incompatible else ())
-    remote_worlds += (("remote-legacy",) if legacy else ())
+    remote_worlds += (("remote-legacy", "remote-takeover-failure") if legacy else ())
     remote_worlds += (("remote-limited",) if limited else ())
-    remote_worlds += (("remote-takeover-failure",) if legacy and failing_takeover else ())
     update_worlds = HTTPS + (("update-unmanaged",) if unmanaged else ())
     for recipe in LOCAL + update_worlds + (remote_worlds if ssh_image or vm else ()):
         values[recipe] = spec = {
@@ -128,8 +126,6 @@ def recipes(ssh_image=None, engine=None, vm=None, previous=False, newer=False,
                 if recipe == "remote-limited"
                 else "{bundle}/remote/server.tar.gz"
             )
-            if recipe == "remote-takeover-failure":
-                spec["installations"] = {"macos": "releases/takeover-failure/Jam-macos-arm64.zip"}
             if vm:
                 spec["services"].insert(
                     0,
@@ -303,7 +299,6 @@ def build(
             (output / "remote/builds.json").write_text(json.dumps(builds) + "\n")
     (output / "manifest.json").write_text(
         json.dumps(recipes(ssh_image, engine, vm,
-                           failing_takeover=(output / "releases/takeover-failure/Jam-macos-arm64.zip").is_file(),
                            unmanaged=(output / "releases/unmanaged/Jam-macos-arm64.zip").is_file(),
                            **{name: bool(path) for name, path in variants.items()}),
                    indent=2) + "\n"

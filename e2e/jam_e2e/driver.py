@@ -591,6 +591,11 @@ class Desktop:
                     for e in self.session.find_elements(By.XPATH, f"//{tag}{screen}[@value={value}]")
                     if e.is_displayed()
                 ]
+            if self.platform == "macos" and role == "menu" and len(matches) > 1:
+                # Closed menu-bar actions are still in XCTest's tree with
+                # zero-area bounds. Choose only the real open menu.
+                bounds = [(element, element.rect) for element in matches]
+                matches = [element for element, rect in bounds if rect["width"] > 0 and rect["height"] > 0]
             if index is not None:
                 return matches[index] if len(matches) > index else None
             if len(matches) > 1:
@@ -813,6 +818,15 @@ class Desktop:
                     actions.key_action.key_up(Keys.SHIFT)
                 actions.key_action.key_up(Keys.ALT)
         actions.perform()
+
+    def type_shell_command(self, text):
+        # Fixture commands can be long and contain many shifted characters.
+        # Post committed text through the native input path on macOS. Cases
+        # about physical keys continue to use type, key or chord.
+        if self.platform == "macos":
+            self._type_unicode(text)
+        else:
+            self.type(text)
 
     def _type_unicode(self, text):
         # Avoid XCTest's transient Hex Input source and incomplete surrogate

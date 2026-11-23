@@ -52,12 +52,14 @@ struct ServerStatusTests {
     let live = MachineActions(
       connected: true, connecting: false, busy: false, checking: false, status: unlinked)
     assert(live.canCheck && !live.canTakeover && !live.canRestart && !live.canUpdate)
-    var failed = status()
-    failed.state = "inspection_failed"
-    failed.managementAvailable = false
+    let failed = ServerStatus(
+      running: true, compatible: false, build: nil, availableBuild: nil, updateAvailable: true,
+      terminals: nil, error: "Local server is not responding", state: "inspection_failed",
+      managementAvailable: false)
     let retryable = MachineActions(
       connected: false, connecting: false, busy: false, checking: false, status: failed)
     assert(retryable.canCheck && !retryable.canTakeover && !retryable.canRestart)
+    assert(!retryable.incompatibleServer && !retryable.needsUpdate && !retryable.canUpdate)
     assert(!failed.blocked && failed.label == "Server unavailable")
     for value in [
       "unsupported", "takeover_required", "recovery_required", "client_update_required",

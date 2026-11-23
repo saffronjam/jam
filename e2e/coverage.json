@@ -109,7 +109,7 @@
         "Cancel preserves the existing server and its session identities",
         "Confirm uses the current build with the same workspace layout and new sessions",
         "A newer server offers only a client upgrade and leaves the remote sessions intact",
-        "A signed installation with a compiled failing remote candidate rolls back to the prior server and saved layout",
+        "A signed replacement refused by the real remote service rolls back to the prior server and saved layout",
         "An actual interrupted installation remains pending until recovery is confirmed, then restores the previous build and layout without replay",
         "Confirmation is bound to the inspected process; a stale confirmation makes no change, and Retry prepares fresh consent",
         "A foreign local daemon can be replaced after confirmation, with the saved workspace and one execution of each command"
@@ -140,6 +140,7 @@
       ],
       "supporting_tests": [
         "crates/jam/tests/persistence.rs::a_blocked_coordination_write_does_not_block_health_or_terminal_input",
+        "crates/jam/tests/persistence.rs::unresponsive_local_server_reports_inspection_failure_without_takeover",
         "apps/macos/Tests/JamTests/ServerStatusTests.swift",
         "scripts/tests/test_server_inspect.py",
         "apps/macos/Tests/JamTests/SidebarUpdatesTests.swift"

@@ -23,6 +23,9 @@ class Jam:
     def terminal(self):
         self.ui.click("Terminal", "terminal", index=0)
 
+    def open_workspace(self):
+        self.ui.chord("cmd+o" if self.ui.platform == "macos" else "ctrl+o")
+
     def remote_shell(self, command=""):
         from .remote import peer_call
 
@@ -33,8 +36,8 @@ class Jam:
         self.ui.click("Remote project", "row")
         self.terminal()
         marker = "REMOTE_UI_" + uuid.uuid4().hex
-        self.ui.type((command + "; " if command else "") + "echo; echo "
-                     + marker[:12] + "'" + marker[12:] + "'")
+        self.ui.type_shell_command((command + "; " if command else "") + "echo; echo "
+                                   + marker[:12] + "'" + marker[12:] + "'")
         self.ui.key("ENTER")
 
         def executed():
@@ -63,7 +66,7 @@ class Jam:
     def _shell(self, command):
         marker = "JAM_RESULT_" + uuid.uuid4().hex
         # The contiguous result marker does not occur in the typed command.
-        self.ui.type(
+        self.ui.type_shell_command(
             command
             + "; echo; echo "
             + marker[:12]

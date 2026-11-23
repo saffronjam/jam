@@ -146,6 +146,27 @@ def seed(root, recipe, repo):
                 return result.returncode == 0 and result.stdout == "x"
 
             wait(execution_recorded, "one command ran in the legacy server terminal")
+        if recipe == "remote-takeover-failure":
+            # Refuse startup of the app's actual compatible replacement in
+            # this guest's user service. The legacy server must still boot
+            # normally when the installer restores it.
+            builds = Path(os.environ["JAM_E2E_REMOTE_ARCHIVE"]).parent / "builds.json"
+            archives = json.loads(builds.read_text())["archives"]
+            candidate = archives["current"]["build"]
+            assert candidate != archives["legacy"]["build"]
+            guard = (
+                "import json, pathlib, sys\n"
+                "manifest = pathlib.Path.home() / '.local/share/jam/servers/current/manifest.json'\n"
+                f"if json.loads(manifest.read_text())['build'] == {candidate!r}:\n"
+                "    sys.exit('E2E candidate daemon startup failure')\n"
+            )
+            subprocess.run([
+                *ssh, 'set -eu; umask 077; d="$HOME/.config/systemd/user/jamd.service.d"; '
+                'mkdir -p "$d"; cat > "$d/fixture-candidate-guard.py"; '
+                'printf "[Service]\\nExecStartPre=/usr/bin/python3 %%h/.config/systemd/user/'
+                'jamd.service.d/fixture-candidate-guard.py\\n" > "$d/fixture-candidate-guard.conf"; '
+                'systemctl --user daemon-reload',
+            ], input=guard, check=True, capture_output=True, text=True, timeout=15)
         host = json.loads((root / "ssh.ready").read_text())
 
         def control(*args):
