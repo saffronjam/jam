@@ -310,6 +310,7 @@ struct AppSettingsView: View {
           Spacer()
           Text("\(draft.config.maxAgentsPerCoordinator)").monospacedDigit()
           Toggle("Automatically resume interrupted work", isOn: $draft.config.resumeInterruptedWork)
+            .accessibilityLabel("Automatically resume interrupted work")
           Stepper("Maximum workers", value: $draft.config.maxAgentsPerCoordinator, in: 1...64)
             .labelsHidden().fixedSize()
         }

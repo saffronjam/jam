@@ -55,7 +55,9 @@ struct WorktreeListFixture: View {
 @main struct TerminalSwitchTests {
   static func main() throws {
     setbuf(stdout, nil)
-    _ = NSApplication.shared
+    let application = NSApplication.shared
+    application.setActivationPolicy(.accessory)
+    application.finishLaunching()
     if CommandLine.arguments.contains("--mouse-gestures") {
       try checkTerminalMouseGestures()
       return
@@ -116,7 +118,9 @@ struct WorktreeListFixture: View {
       contentRect: NSRect(x: -3000, y: -3000, width: 1100, height: 700),
       styleMask: [.titled, .resizable], backing: .buffered, defer: false)
     window.contentView = NSHostingView(rootView: ServerSheetFixture(store: store))
-    window.orderFront(nil)
+    window.makeKeyAndOrderFront(nil)
+    application.activate(ignoringOtherApps: true)
+    try wait("native PTY geometry owner") { application.isActive && window.isKeyWindow }
     defer { window.orderOut(nil) }
 
     var cached: [String: (TerminalNSView, UnsafeMutableRawPointer, NSRect)] = [:]
@@ -2209,7 +2213,13 @@ struct WorktreeListFixture: View {
       guard Date() < deadline else {
         throw NSError(domain: "Timed out: " + stage, code: 1)
       }
-      RunLoop.current.run(until: Date().addingTimeInterval(0.002))
+      let application = NSApplication.shared
+      if let event = application.nextEvent(
+        matching: .any, until: Date().addingTimeInterval(0.002), inMode: .default, dequeue: true)
+      {
+        application.sendEvent(event)
+      }
+      application.updateWindows()
     }
   }
 }

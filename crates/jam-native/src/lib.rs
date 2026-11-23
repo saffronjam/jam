@@ -10,6 +10,25 @@ use std::{
     os::unix::process::CommandExt,
     thread,
 };
+fn frame_text(frame: &jam_core::vt::TerminalFrame) -> String {
+    frame
+        .cells
+        .chunks(frame.cols.max(1) as usize)
+        .map(|row| {
+            row.iter()
+                .filter(|cell| cell.wide < 2)
+                .map(|cell| {
+                    if cell.text.is_empty() {
+                        " "
+                    } else {
+                        &cell.text
+                    }
+                })
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
 fn json_result(f: impl FnOnce() -> anyhow::Result<serde_json::Value>) -> *mut c_char {
     let v = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
     let v = match v {
@@ -401,6 +420,7 @@ pub unsafe extern "C" fn jam_view_draw(
     target_width: u32,
     target_height: u32,
     scale: f32,
+    owns_geometry: bool,
 ) -> *mut c_char {
     json_result(|| {
         if ptr.is_null() || !scale.is_finite() || scale <= 0.0 {
@@ -428,7 +448,8 @@ pub unsafe extern "C" fn jam_view_draw(
             }
         }
         let resized = size != v.last_size;
-        if resized
+        if owns_geometry
+            && resized
             && v.mirror.request(Request::Resize {
                 pane: v.pane.clone(),
                 cols: size.0,
@@ -501,6 +522,7 @@ pub unsafe extern "C" fn jam_view_action(
         let v = unsafe { &mut *ptr.cast::<View>() };
         let action = unsafe { string(action) };
         match action.as_str() {
+            "reclaim_size" => v.last_size = (0, 0),
             "clear_selection" => v.mirror.clear_selection(),
             "bottom" => v.mirror.bottom(),
             "scroll" => v.mirror.scroll(y as isize),
