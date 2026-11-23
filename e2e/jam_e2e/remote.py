@@ -39,14 +39,56 @@ def peer_call(profile, *args):
     return value
 
 
+def server_transactions(profile):
+    command = '''python3 -c 'import glob,json,os; print(json.dumps([json.load(open(path))
+for path in glob.glob(os.path.expanduser("~/.local/share/jam/servers/transactions/*.json"))]))' '''
+    return json.loads(peer_command(profile, command))
+
+
+def restart_peer_outside_client(profile):
+    before = peer_call(profile, "daemon", "info")["HostInfo"]
+    peer_command(profile, "systemctl --user restart jamd.service")
+
+    def restarted():
+        try:
+            after = peer_call(profile, "daemon", "info")["HostInfo"]
+        except subprocess.CalledProcessError as error:
+            if any(message in error.stderr.lower() for message in
+                   ("connection refused", "no such file", "failed to fill whole buffer")):
+                return None
+            raise
+        assert after["build"] == before["build"]
+        return after if after["incarnation"] != before["incarnation"] else None
+
+    return wait(restarted, "a new process for the same peer server", timeout=30)
+
+
+def interrupt_remote_install(profile):
+    helper = Path(__file__).parents[1] / "fixtures/interrupt_remote_install.py"
+    script = shlex.quote(helper.read_text())
+    peer_command(profile, "set -eu; test ! -e /usr/local/bin/systemctl; "
+                 f"printf '%s' {script} > ~/fixture-systemctl; "
+                 "sudo -n install -m 755 ~/fixture-systemctl /usr/local/bin/systemctl; "
+                 "test \"$(command -v systemctl)\" = /usr/local/bin/systemctl; "
+                 "touch ~/fixture-interrupt-install")
+
+
+def interrupted_install_receipt(profile):
+    receipt = json.loads(peer_command(profile, "cat ~/fixture-interrupted-install.json"))
+    assert receipt["phase"] == "stop_requested"
+    [observed] = [tx for tx in server_transactions(profile) if tx["id"] == receipt["id"]]
+    assert observed == receipt
+    builds = json.loads((Path(profile.env["JAM_E2E_REMOTE_ARCHIVE"]).parent / "builds.json").read_text())
+    assert receipt["old_build"] == builds["archives"]["previous"]["build"]
+    assert receipt["new_build"] == builds["archives"]["current"]["build"] != receipt["old_build"]
+    return receipt
+
+
 def takeover_rolled_back(profile):
     ids = json.loads((profile.root / "fixture-ids.json").read_text())
     bundle = Path(profile.env["JAM_E2E_REMOTE_ARCHIVE"]).parents[1]
     candidate = json.loads((bundle / "releases/failing/remote/aarch64.json").read_text())
-    command = '''python3 -c 'import glob,json,os; print(json.dumps([json.load(open(path))
-for path in glob.glob(os.path.expanduser("~/.local/share/jam/servers/transactions/*.json"))]))' '''
-    transactions = json.loads(peer_command(profile, command))
-    [attempt] = [tx for tx in transactions if tx.get("phase") == "rolled_back"
+    [attempt] = [tx for tx in server_transactions(profile) if tx.get("phase") == "rolled_back"
                  and tx.get("new_build") == candidate["build"]]
     assert attempt["old_build"] != attempt["new_build"]
     journal = peer_command(profile, "journalctl --user -u jamd.service --no-pager -n 100")

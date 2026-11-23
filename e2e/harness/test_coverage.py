@@ -23,7 +23,7 @@ def test_reviewed_bidirectional_mapping():
     assert validate(ledger, cases) == 1
 
 
-@pytest.mark.parametrize("defect", ["unreviewed", "no-cases", "no-assertions", "unknown-case",
+@pytest.mark.parametrize("defect", ["unreviewed", "no-cases", "no-assertions", "empty-assertion", "unknown-case",
                                    "unknown-behavior", "reverse-mapping", "duplicate", "file", "missing-file",
                                    "file-behavior"])
 def test_uncovered_behavior_never_counts_as_complete(defect):
@@ -32,6 +32,7 @@ def test_uncovered_behavior_never_counts_as_complete(defect):
     if defect == "unreviewed": row["reviewed"] = False
     elif defect == "no-cases": row["cases"] = []
     elif defect == "no-assertions": row["assertions"] = []
+    elif defect == "empty-assertion": row["assertions"] = [" "]
     elif defect == "unknown-case": row["cases"] = ["MISSING"]
     elif defect == "unknown-behavior": cases = [replace(cases[0], behavior_ids=("missing",))]
     elif defect == "reverse-mapping": cases.append(replace(cases[0], id="IMG-002"))

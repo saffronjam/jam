@@ -34,7 +34,9 @@ def activate(application):
         print(json.dumps({"error": str(error) if error is not None else None}), flush=True)
 
     def capture(path):
-        formats = iter(clipboard.get_formats().get_mime_types())
+        offered = clipboard.get_formats().get_mime_types()
+        print(f"Native clipboard offers {offered!r}", file=sys.stderr, flush=True)
+        formats = iter(offered)
         items = {}
         remaining = LIMIT
 
@@ -44,15 +46,20 @@ def activate(application):
                 path.write_text(json.dumps(items))
                 reply()
                 return
+            print(f"Reading clipboard MIME type {mime}", file=sys.stderr, flush=True)
             data = bytearray()
+            cancel = Gio.Cancellable()
+            timeout = GLib.timeout_add_seconds(6, cancel.cancel)
 
             def on_stream(source, result):
                 try:
                     stream, actual = source.read_finish(result)
                     if actual != mime or stream is None:
                         raise RuntimeError(f"Clipboard did not supply {mime}")
-                    stream.read_bytes_async(65536, GLib.PRIORITY_DEFAULT, None, on_bytes)
+                    stream.read_bytes_async(65536, GLib.PRIORITY_DEFAULT, cancel, on_bytes)
                 except Exception as error:
+                    if not cancel.is_cancelled():
+                        GLib.source_remove(timeout)
                     reply(error)
 
             def on_bytes(stream, result):
@@ -64,24 +71,22 @@ def activate(application):
                         if remaining < 0:
                             raise ValueError("Clipboard snapshot exceeds 16 MiB")
                         data.extend(chunk)
-                        stream.read_bytes_async(65536, GLib.PRIORITY_DEFAULT, None, on_bytes)
+                        stream.read_bytes_async(65536, GLib.PRIORITY_DEFAULT, cancel, on_bytes)
                     else:
                         stream.close(None)
+                        GLib.source_remove(timeout)
                         items[mime] = base64.b64encode(data).decode("ascii")
                         next_format()
                 except Exception as error:
+                    if not cancel.is_cancelled():
+                        GLib.source_remove(timeout)
                     reply(error)
 
-            clipboard.read_async([mime], GLib.PRIORITY_DEFAULT, None, on_stream)
+            clipboard.read_async([mime], GLib.PRIORITY_DEFAULT, cancel, on_stream)
 
         next_format()
 
     def perform(request):
-        try:
-            window_origin(os.getpid(), TITLE, activate=True)
-        except Exception as error:
-            reply(error)
-            return
         deadline = GLib.get_monotonic_time() + 3_000_000
 
         def active():
@@ -90,6 +95,8 @@ def activate(application):
                     return GLib.SOURCE_CONTINUE
                 reply(RuntimeError("Native clipboard window did not receive focus"))
                 return GLib.SOURCE_REMOVE
+            print(f"Handling native clipboard {request['action']} in focused window",
+                  file=sys.stderr, flush=True)
             try:
                 path = Path(request["path"])
                 if request["action"] == "capture":
@@ -114,7 +121,16 @@ def activate(application):
 
     def input_loop():
         for line in sys.stdin:
-            GLib.idle_add(perform, json.loads(line))
+            try:
+                request = json.loads(line)
+                print(f"Activating clipboard window for {request['action']}", file=sys.stderr, flush=True)
+                # Keep the GTK main loop available while the independent KWin
+                # observer asks the compositor for activation over D-Bus.
+                window_origin(os.getpid(), TITLE, activate=True)
+            except Exception as error:
+                reply(error)
+                continue
+            GLib.idle_add(perform, request)
         GLib.idle_add(application.quit)
 
     def ready(_window):

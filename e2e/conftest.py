@@ -382,6 +382,13 @@ def jam(request, case):
                             evidence = Path(options.getoption("--artifacts-dir")) / kind / case.id
                             evidence.mkdir(parents=True, exist_ok=True)
                             shutil.copy2(source, evidence / source.name)
+                for name in ("fixture-server-transition.log", "fixture-takeover-rollback.json",
+                             "fixture-server-recovery.json"):
+                    source = profile.root / name
+                    if source.is_file():
+                        evidence = Path(options.getoption("--artifacts-dir")) / "server" / case.id
+                        evidence.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(source, evidence / name)
             except Exception:
                 failures.append("Native evidence retention:\n" + traceback.format_exc())
             callbacks = [profile.release_checkout, profile.resume_daemon, client.close_clients,

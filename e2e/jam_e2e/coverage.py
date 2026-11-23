@@ -14,7 +14,9 @@ def validate(ledger, cases):
     if not rows or len({r["id"] for r in rows}) != len(rows):
         raise ValueError("Behavior IDs must be nonempty and unique")
     for row in rows:
-        if not row["reviewed"] or not row["cases"] or not row["assertions"]:
+        if (row["reviewed"] is not True or not row["cases"] or not row["assertions"]
+                or any(not isinstance(assertion, str) or not assertion.strip()
+                       for assertion in row["assertions"])):
             raise ValueError("Uncovered or unreviewed behavior: " + row["id"])
         if len(set(row["cases"])) != len(row["cases"]):
             raise ValueError("Duplicate case mapping: " + row["id"])

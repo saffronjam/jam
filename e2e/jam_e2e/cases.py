@@ -524,7 +524,7 @@ DOMAINS = {
     ],
     "REMOTE": [
         ("remote-connected", None, "Connected"),
-        ("remote-offline", None, "Offline"),
+        ("remote-offline", None, "Server unavailable"),
         ("remote-auth-rejected", None, "Permission denied"),
         ("remote-persistence-disabled", None, "Session persistence warning for Fixture"),
         ("remote-incompatible", None, "Takeover required"),
@@ -547,7 +547,7 @@ for prefix, recipes in DOMAINS.items():
             steps = [("remote_shell",), ("remote_workspace_preserved",)]
         elif recipe == "remote-auth-rejected":
             steps = [
-                ("visible", "Offline"), ("absent", "SSH Authentication"),
+                ("visible", "Server unavailable"), ("absent", "SSH Authentication"),
                 ("remote_rejected", "Permission denied"),
                 ("context", "Fixture", "machine"), ("enabled", "Reconnect", "menu"),
                 ("key", "ESCAPE"), ("remote_workspace_preserved",),
@@ -562,11 +562,13 @@ for prefix, recipes in DOMAINS.items():
                 ("click", "Cancel", "button"),
                 ("remote_workspace_preserved",),
             ]
+        behavior_ids = ("diagnostics",) if recipe in {"remote-offline", "remote-auth-rejected"} else ()
         case(
             f"{prefix}-{i:03}",
             recipe.replace("-", " "),
             *steps,
             fixture=recipe,
+            behavior_ids=behavior_ids,
         )
 
 for id, recipe, confirmation, accept, error in (
@@ -799,6 +801,7 @@ case(
     ("target_visible", LONG_TAB_NAME, "button"),
     ("same_layout",),
     ("same_pids",),
+    behavior_ids=("rendering",),
 )
 
 for i, (source, destination) in enumerate((("Tab 1", "Tab 2"), ("Tab 2", "Tab 1")), 1):
@@ -1176,7 +1179,12 @@ INTEGRATION = [
 for id, recipe, steps in INTEGRATION:
     if id.startswith("RECOVERY-"):
         steps = [("click", "Coordinator", "row"), *steps]
-    case(id, recipe.replace("-", " ") + " external user workflow", *steps, fixture=recipe)
+    behaviors = {"USAGE": ("accounts",), "UPDATE": ("update-settings",)}
+    mapped = behaviors.get(id.split("-")[0], ())
+    if id in {"WT-008", "WT-009"}:
+        mapped = ("creation",)
+    case(id, recipe.replace("-", " ") + " external user workflow", *steps, fixture=recipe,
+         behavior_ids=mapped)
 
 case(
     "REMOTE-014",
@@ -1354,6 +1362,7 @@ for index, appearance in enumerate(("Light", "Dark"), 1):
         ("visual_text", rendered_text, appearance.lower()),
         ("same_layout",),
         ("same_pids",),
+        behavior_ids=("rendering",),
     )
 
 case(
@@ -1368,6 +1377,7 @@ case(
     ("visual_text", "RENDER AFTER RESIZE 5837"),
     ("same_layout",),
     ("same_pids",),
+    behavior_ids=("rendering",),
 )
 
 case(
@@ -1849,11 +1859,12 @@ case(
     ("remember_layout",),
     ("remember_pids",),
     ("suspend_daemon",),
-    ("visible", "Local server is not responding", 45),
+    ("visible", "Not responding", 60),
     ("context", "Local", "machine"),
     ("click", "Server Details…", "menu"),
     ("visible", "Server — Local"),
     ("visible", "without stopping running sessions"),
+    ("visible", "Local server is not responding"),
     ("enabled", "Retry", "button"),
     ("click", "Retry", "button"),
     ("enabled", "Retry", "button"),
@@ -1904,6 +1915,7 @@ case(
     ("enabled", "Upgrade…", "button"),
     ("click", "Upgrade…", "button"),
     ("visible", "Upgrade Jam"),
+    ("single_sheet", "Upgrade Jam"),
     ("enabled", "Upgrade and Restart", "button"),
     ("click", "Cancel", "button"),
     ("absent", "Upgrade Jam"),
@@ -1952,6 +1964,23 @@ case(
     ("output", "input-after-cursor-changes"),
     ("same_pids",),
     behavior_ids=("rendering",),
+)
+
+case(
+    "SIDEBAR-001",
+    "A narrow inset sidebar keeps the status legible beside a long machine name",
+    ("remote_shell",),
+    ("resize", 840, 560),
+    ("peer_transport", True),
+    ("visible", "Server unavailable", 60),
+    ("sidebar_status_pixels", "Fixture diagnostics with a name that exceeds the narrow sidebar",
+     "Server unavailable"),
+    ("peer_transport", False),
+    ("remote_shell",),
+    ("absent", "Server unavailable"),
+    ("remote_workspace_preserved",),
+    fixture="remote-long-sidebar",
+    behavior_ids=("rendering", "diagnostics"),
 )
 
 for index, interrupted in enumerate((False, True), 4):
@@ -2025,6 +2054,30 @@ for index, world in enumerate(("dirty-checkout", "single-coordinator"), 2):
         fixture=world,
         behavior_ids=("focus-close",),
     )
+
+case(
+    "CLOSE-004",
+    "A project and worktree with no live terminals close together without confirmation",
+    ("write_config", "close_empty_tabs = false\nclose_empty_workspaces = false\n"),
+    ("relaunch",),
+    ("click", "Fixture checkout", "row"),
+    ("type_terminal", "exit"),
+    ("key", "ENTER"),
+    ("live_panes", 1),
+    ("click", "Fixture", "row"),
+    ("type_terminal", "exit"),
+    ("key", "ENTER"),
+    ("live_panes", 0),
+    ("count", "workspaces", 2),
+    ("context", "Fixture", "row"),
+    ("click", "Close Workspace", "menu"),
+    ("absent", "Close project and its open worktrees?"),
+    ("settle_count", "workspaces", 0),
+    ("file_text", "../Fixture checkout/dirty.txt", "Keep this uncommitted work\n"),
+    ("git_branch", "feature/existing"),
+    fixture="dirty-checkout",
+    behavior_ids=("focus-close",),
+)
 
 case(
     "IMAGE-007",
@@ -2125,6 +2178,35 @@ case(
 )
 
 case(
+    "FOCUS-002",
+    "An inactive window keeps completion unread and repeating workspace selection acknowledges it",
+    ("remember_pane",),
+    ("program_identity", "codex", "done-on-file"),
+    ("remembered_pane_field", "agent_source", "reported"),
+    ("open_client", "second"),
+    ("command", "New Tab"),
+    ("target_visible", "Tab 2", "button"),
+    ("remember_pids",),
+    ("release_program_completion",),
+    ("remembered_pane_field", "status", "done"),
+    ("run", "printf second-window-keeps-focus"),
+    ("output", "second-window-keeps-focus"),
+    ("remembered_pane_field", "status", "done"),
+    ("use_client", "primary"),
+    ("click", "Tab 1", "button"),
+    ("remembered_pane_field", "status", "unknown"),
+    ("program_phase", "done"),
+    ("remembered_pane_field", "status", "done"),
+    ("click", "Project ü with spaces", "row"),
+    ("remembered_pane_field", "status", "unknown"),
+    ("remembered_pane_field", "agent_provider", "codex"),
+    ("program_phase", "exit"),
+    ("close_client", "second"),
+    ("same_pids",),
+    behavior_ids=("focus-close", "identity"),
+)
+
+case(
     "ACCOUNT-002",
     "The same configured login on two machines shares one account page",
     ("remote_shell",),
@@ -2211,8 +2293,8 @@ case(
 case(
     "ACCOUNT-006",
     "The account page sums active provider processes across local and remote terminals",
-    ("run", "bash -c 'exec -a codex /bin/sleep 180' &"),
-    ("remote_shell", "bash -c 'exec -a codex /bin/sleep 180' &"),
+    ("run", "bash -c 'exec -a codex /bin/sleep 180' & fixture_job=$!"),
+    ("remote_shell", "bash -c 'exec -a codex /bin/sleep 180' & fixture_job=$!"),
     ("usage_requests_from_both_hosts",),
     ("click", "Codex, fixture@example.invalid", "button"),
     ("visible", "2 active sessions"),
@@ -2220,6 +2302,26 @@ case(
     ("absent", "Next usage account"),
     ("remote_workspace_preserved",),
     fixture="usage-remote-account",
+    behavior_ids=("accounts",),
+)
+
+case(
+    "ACCOUNT-007",
+    "A rejected remote login shows its own error with no local authorization action",
+    ("remote_shell",),
+    ("usage_requests_from_both_hosts",),
+    ("visible", "Sign in again to read usage"),
+    ("click", "Codex, second@example.invalid", "button"),
+    ("visible", "Sign in again to read usage"),
+    ("absent", "Allow Keychain Access"),
+    ("key", "ESCAPE"),
+    ("click", "Next usage account", "button"),
+    ("click", "Codex, fixture@example.invalid", "button"),
+    ("visible", "25%"),
+    ("absent", "Sign in again to read usage"),
+    ("key", "ESCAPE"),
+    ("remote_workspace_preserved",),
+    fixture="usage-remote-auth-error",
     behavior_ids=("accounts",),
 )
 
@@ -2241,6 +2343,83 @@ case(
 )
 
 case(
+    "TAKEOVER-005",
+    "An interrupted remote installation requires explicit recovery before replacing its sessions",
+    ("remote_run", "printf x >> recovery-executions"),
+    ("interrupt_remote_install",),
+    ("context", "Fixture", "machine"),
+    ("click", "Update Server…", "menu"),
+    ("enabled", "Update and Restart", "button"),
+    ("click", "Update and Restart", "button"),
+    ("visible", "Could not complete the server action.", 95),
+    ("observed_interrupted_install",),
+    ("remote_workspace_preserved",),
+    ("remote_server_stable", 2),
+    ("click", "Cancel", "button"),
+    ("context", "Fixture", "machine"),
+    ("click", "Take Over Server…", "menu"),
+    ("enabled", "Try Again", "button"),
+    ("click", "Try Again", "button"),
+    ("visible", "Finish the interrupted server operation and reconnect"),
+    ("enabled", "Recover and Reconnect", "button"),
+    ("remote_workspace_preserved",),
+    ("click", "Recover and Reconnect", "button"),
+    ("remote_server_changed", "restart"),
+    ("observed_recovered_install",),
+    ("remote_file_text", "recovery-executions", "x"),
+    ("remote_run", "printf y >> recovery-executions"),
+    ("remote_file_text", "recovery-executions", "xy"),
+    fixture="remote-update-available",
+    behavior_ids=("takeover",),
+)
+
+case(
+    "TAKEOVER-006",
+    "A takeover confirmation expires when the inspected peer process changes",
+    ("visible", "Takeover required", 60),
+    ("context", "Fixture", "machine"),
+    ("click", "Take Over Server…", "menu"),
+    ("enabled", "Take Over and Reconnect", "button"),
+    ("restart_peer_outside_client",),
+    ("click", "Take Over and Reconnect", "button"),
+    ("visible", "The server changed. Inspect it again before taking over", 60),
+    ("restarted_peer_preserved",),
+    ("click", "Try Again", "button"),
+    ("enabled", "Take Over and Reconnect", "button"),
+    ("click", "Take Over and Reconnect", "button"),
+    ("visible", "Remote project", 120),
+    ("click", "Remote project", "row"),
+    ("remote_server_changed", "takeover"),
+    ("remote_file_text", "takeover-executions", "x"),
+    ("remote_shell", "printf y >> takeover-executions"),
+    ("remote_file_text", "takeover-executions", "xy"),
+    fixture="remote-legacy",
+    behavior_ids=("takeover",),
+)
+
+case(
+    "TAKEOVER-007",
+    "Explicit local takeover replaces a foreign daemon and restores the saved workspace",
+    ("visible", "Takeover required", 45),
+    ("run", "printf x >> local-takeover-executions"),
+    ("remember_layout",),
+    ("remember_local_server",),
+    ("context", "Local", "machine"),
+    ("click", "Take Over Server…", "menu"),
+    ("visible", "The server belongs to another Jam installation"),
+    ("enabled", "Take Over and Reconnect", "button"),
+    ("click", "Take Over and Reconnect", "button"),
+    ("local_server_replaced",),
+    ("same_layout",),
+    ("absent", "Takeover required"),
+    ("file_text", "local-takeover-executions", "x"),
+    ("run", "printf y >> local-takeover-executions"),
+    ("file_text", "local-takeover-executions", "xy"),
+    fixture="update-foreign-server",
+    behavior_ids=("takeover",),
+)
+
+case(
     "RENAME-001",
     "The inline tab editor replaces the old rendered label and returns focus",
     ("context", "Tab 1", "button"),
@@ -2248,11 +2427,11 @@ case(
     ("fill", "Tab name", "BEFORE 9374"),
     ("key", "ENTER"),
     ("tab_name", "BEFORE 9374"),
-    ("rendered_label", "BEFORE 9374", None),
+    ("rendered_label", "BEFORE 9374", None, "BEFORE 9374", "button"),
     ("context", "BEFORE 9374", "button"),
     ("click", "Rename", "menu"),
     ("fill", "Tab name", "AFTER 2846"),
-    ("rendered_label", "AFTER 2846", "BEFORE 9374"),
+    ("rendered_label", "AFTER 2846", "BEFORE 9374", "Tab name", "field"),
     ("key", "ENTER"),
     ("tab_name", "AFTER 2846"),
     ("run_focused", "printf rename-returned-terminal-focus"),
@@ -2341,6 +2520,60 @@ case(
     behavior_ids=("creation",),
 )
 
+for index, completed in enumerate((True, False), 12):
+    branch = "restart-creation"
+    created_path = "/home/fixture/wt/project/" + branch
+    case(
+        f"CREATE-{index:03}",
+        "Retry finds a persisted checkout after the remote daemon restarts" if completed else
+        "Retry refuses to resubmit an unconfirmed checkout after the remote daemon restarts",
+        ("remote_shell",),
+        ("hold_worktree_checkout", "remote"),
+        ("command", "New Worktree"),
+        ("fill", "Branch name", branch),
+        ("fill", "Base revision", "HEAD"),
+        ("click", "Create", "button"),
+        ("peer_checkout", branch),
+        ("peer_transport", True),
+        ("visible", "Retry", 45),
+        *((("release_peer_checkout",), ("created_workspace", created_path, True)) if completed else ()),
+        ("restart_peer_outside_client",),
+        ("peer_transport", False),
+        ("click", "Retry", "button"),
+        *((
+            ("absent", "Retry"),
+            ("type_terminal", "pwd > /home/fixture/project/restart-result.txt"),
+            ("key", "ENTER"),
+            ("remote_file_text", "restart-result.txt", created_path + "\n"),
+            ("created_workspace", created_path, True),
+        ) if completed else (
+            ("visible", "The server restarted. Check the workspace list before starting again."),
+            ("click", "Dismiss", "button"),
+            ("remote_shell", "printf original-shell-recovered"),
+            ("remote_server_changed", "restart"),
+        )),
+        ("peer_checkout", branch),
+        fixture="remote-creation-transport",
+        behavior_ids=("creation", "creation-recovery"),
+    )
+
+case(
+    "CREATE-014",
+    "Opening an existing remote worktree starts a shell in its selected branch",
+    ("remote_shell", "git worktree add -b peer-existing /home/fixture/remote-existing HEAD"),
+    ("command", "Open Worktree"),
+    ("fill", "Filter by branch or path", "peer-existing"),
+    ("visible", "peer-existing"),
+    ("enabled", "Open", "button"),
+    ("key", "ENTER"),
+    ("created_workspace", "/home/fixture/remote-existing", True),
+    ("type_terminal", "{ pwd; git branch --show-current; } > /home/fixture/project/open-branch.txt"),
+    ("key", "ENTER"),
+    ("remote_file_text", "open-branch.txt", "/home/fixture/remote-existing\npeer-existing\n"),
+    fixture="remote-creation-transport",
+    behavior_ids=("creation",),
+)
+
 case(
     "UPDATE-SETTINGS-002",
     "A slow Settings download shows one progress sheet and can be cancelled",
@@ -2352,6 +2585,7 @@ case(
     ("enabled", "Upgrade…", "button"),
     ("click", "Upgrade…", "button"),
     ("visible", "Downloading and verifying the update…"),
+    ("single_sheet", "Upgrade Jam"),
     ("disabled", "Upgrade and Restart", "button"),
     ("click", "Cancel", "button"),
     ("absent", "Upgrade Jam"),
@@ -2381,4 +2615,76 @@ case(
     ("installed_version", "0.0.4"),
     fixture="update-foreign-server",
     behavior_ids=("update-settings", "takeover"),
+)
+
+case(
+    "UPDATE-SETTINGS-004",
+    "An unmanaged installation reports a release in Settings without offering an upgrade",
+    ("remember_layout",),
+    ("remember_pids",),
+    ("settings", "General"),
+    ("click", "Check for Updates…", "button"),
+    ("visible", "Jam 0.0.5 is available"),
+    ("disabled", "Upgrade…", "button"),
+    ("absent", "Upgrade Jam"),
+    ("click", "Cancel", "button"),
+    ("absent", "Jam 0.0.5 is available"),
+    ("installed_version", "0.0.4"),
+    ("same_layout",),
+    ("same_pids",),
+    fixture="update-unmanaged",
+    behavior_ids=("update-settings",),
+)
+
+case(
+    "UPDATE-SETTINGS-005",
+    "An unavailable minimum client release leaves the newer server untouched",
+    ("visible", "Update Jam required", 60),
+    ("settings", "General"),
+    ("enabled", "Check for Updates…", "button"),
+    ("click", "Check for Updates…", "button"),
+    ("visible", "This machine requires Jam 0.0.5"),
+    ("visible", "no matching published update is available"),
+    ("absent", "Upgrade…"),
+    ("click", "Cancel", "button"),
+    ("remote_workspace_preserved",),
+    ("remote_server_stable", 2),
+    fixture="update-required-without-compatible-release",
+    behavior_ids=("update-settings",),
+)
+
+case(
+    "UPDATE-SETTINGS-006",
+    "Settings offers an explicitly requested upgrade after the user skipped its notice",
+    ("click", "Skip This Version"),
+    ("absent", "Upgrade…"),
+    ("settings", "General"),
+    ("visible", "Jam 0.0.5 is available"),
+    ("enabled", "Upgrade…", "button"),
+    ("click", "Upgrade…", "button"),
+    ("single_sheet", "Upgrade Jam"),
+    ("enabled", "Upgrade and Restart", "button"),
+    ("click", "Cancel", "button"),
+    ("visible", "Automatically check for updates"),
+    ("installed_version", "0.0.4"),
+    fixture="update-available",
+    behavior_ids=("update-settings",),
+)
+
+case(
+    "UPDATE-SETTINGS-007",
+    "Settings opens one recovery sheet for an actual unfinished app upgrade",
+    ("remember_layout",),
+    ("remember_pids",),
+    ("settings", "General"),
+    ("click", "Recover Interrupted Upgrade…", "button"),
+    ("single_sheet", "Recover Interrupted Upgrade"),
+    ("enabled", "Recover", "button"),
+    ("click", "Cancel", "button"),
+    ("target_visible", "Recover Interrupted Upgrade…", "button"),
+    ("installed_version", "0.0.4"),
+    ("same_layout",),
+    ("same_pids",),
+    fixture="update-interrupted",
+    behavior_ids=("update-settings",),
 )

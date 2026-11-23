@@ -126,6 +126,37 @@ done
         from .remote import takeover_rolled_back
 
         takeover_rolled_back(profile)
+    elif op == "interrupt_remote_install":
+        from .remote import interrupt_remote_install
+
+        interrupt_remote_install(profile)
+    elif op == "restart_peer_outside_client":
+        from .remote import restart_peer_outside_client, server_transactions
+
+        memory["restarted_peer"] = restart_peer_outside_client(profile)
+        memory["peer_transactions"] = server_transactions(profile)
+    elif op == "restarted_peer_preserved":
+        from .remote import peer_call, server_transactions
+
+        after = peer_call(profile, "daemon", "info")["HostInfo"]
+        before = memory["restarted_peer"]
+        assert (after["build"], after["incarnation"]) == (before["build"], before["incarnation"])
+        transactions = server_transactions(profile)
+        assert sorted(transactions, key=lambda tx: tx["id"]) == sorted(
+            memory["peer_transactions"], key=lambda tx: tx["id"])
+    elif op == "observed_interrupted_install":
+        from .remote import interrupted_install_receipt
+
+        memory["interrupted_install"] = interrupted_install_receipt(profile)
+    elif op == "observed_recovered_install":
+        from .remote import server_transactions
+
+        before = memory["interrupted_install"]
+        [after] = [receipt for receipt in server_transactions(profile) if receipt["id"] == before["id"]]
+        assert after == {**before, "phase": "rolled_back"}
+        (profile.root / "fixture-server-recovery.json").write_text(json.dumps({
+            "before": before, "after": after,
+        }, indent=2))
     elif op == "remote_file_text":
         from .remote import peer_command
 
@@ -187,6 +218,8 @@ done
         ui.restore_input_source()
     elif op == "visible":
         ui.expect(*args)
+    elif op == "single_sheet":
+        ui.expect_single_sheet(*args)
     elif op == "stable_visible":
         ui.expect(args[0])
         until = time.monotonic() + args[1]
@@ -396,9 +429,25 @@ done
     elif op == "rendered_label":
         from .dialogs import screen_target
 
-        label, forbidden = args
+        label, forbidden, name, role = args
         prefix = f"visual-label-{len(list(profile.repo.glob('visual-label-*-target.json'))):03}"
-        screen_target(ui, label, prefix=prefix, forbidden=forbidden)
+        screen_target(ui, label, prefix=prefix, forbidden=forbidden,
+                      region=lambda: ui.element(name, role).rect, mode="7")
+    elif op == "sidebar_status_pixels":
+        from .dialogs import screen_target
+
+        name, status = args
+        window = ui.window_rect()
+        evidence = {"window": window}
+        for role in ("row", "machine"):
+            row = ui.element(name, role).rect
+            assert row["x"] >= window["x"] + 4, f"{role} reaches the outer window edge"
+            assert row["y"] + row["height"] <= window["y"] + window["height"]
+            box = screen_target(ui, status, prefix=f"visual-sidebar-{role}", bounds=True,
+                                region=lambda: ui.element(name, role).rect)
+            assert box["x"] + box["width"] <= row["x"] + row["width"] - 2
+            evidence[role] = {"bounds": row, "status": box}
+        (profile.repo / "visual-sidebar-geometry.json").write_text(json.dumps(evidence, indent=2))
     elif op in {"clipboard_equals", "clipboard_stable"}:
         wait(lambda: ui.clipboard() == args[0], "clipboard contains the exact selected text")
         if op == "clipboard_stable":
@@ -534,7 +583,7 @@ done
         probe = Path(__file__).with_name("program_probe.py")
         output = profile.repo / "program-phase.json"
         jam.terminal()
-        ui.type(shlex.join([sys.executable, str(probe), args[0], str(output), *args[1:]]))
+        ui.type(shlex.join([sys.executable, str(probe), args[0], output.name, *args[1:]]))
         ui.key("ENTER")
         wait(output.exists, "foreground program status receipt")
     elif op == "program_phase":
@@ -685,12 +734,17 @@ done
     elif op == "remaining_pids":
         remaining = jam.pids()
         assert remaining and remaining.items() <= memory["pids"].items(), "An unaffected shell restarted"
-    elif op == "restart_server":
+    elif op == "remember_local_server":
+        memory["local_server"] = json.loads((profile.socket.parent / "release.json").read_text())
+    elif op in {"restart_server", "local_server_replaced"}:
         receipt = profile.socket.parent / "release.json"
-        before = json.loads(receipt.read_text())
-        ui.context("Local")
-        ui.click("Restart Server…")
-        ui.click("Restart Server", "button")
+        if op == "restart_server":
+            before = json.loads(receipt.read_text())
+            ui.context("Local")
+            ui.click("Restart Server…")
+            ui.click("Restart Server", "button")
+        else:
+            before = memory["local_server"]
 
         def restarted():
             try:
@@ -703,7 +757,7 @@ done
             assert (after["build"], after["protocol"]) == (before["build"], before["protocol"])
             return after
 
-        after = wait(restarted, "a new live daemon after the UI restart")
+        after = wait(restarted, "a new live daemon after the confirmed action")
         (profile.repo / "server-restart.json").write_text(json.dumps({"before": before, "after": after}))
         wait(lambda: ui.has("Terminal"), "fresh terminal after server restart")
     elif op == "git_branch":

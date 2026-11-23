@@ -101,6 +101,9 @@ def handler(root, scenario, events):
             if state.get("http_error"):
                 self.send_error(int(state["http_error"]))
                 return
+            if remote_login and state.get("remote_auth_error") and path == "/codex/usage":
+                self.send_error(401)
+                return
             if path == "/claude/usage":
                 value = {
                     "five_hour": {"utilization": 38 if separate_usage else 25,

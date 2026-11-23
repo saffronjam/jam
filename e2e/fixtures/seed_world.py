@@ -54,6 +54,7 @@ def seed(root, recipe, repo):
     if recipe in (
         "remote-connected",
         "remote-creation-transport",
+        "remote-long-sidebar",
         "remote-offline",
         "remote-persistence-disabled",
         "remote-auth-rejected",
@@ -61,6 +62,7 @@ def seed(root, recipe, repo):
         "remote-host-untrusted",
         "remote-update-available",
         "update-required",
+        "update-required-without-compatible-release",
         "remote-incompatible",
         "remote-legacy",
         "remote-limited",
@@ -68,6 +70,7 @@ def seed(root, recipe, repo):
         "usage-remote-account",
         "usage-remote-other-account",
         "usage-remote-other-organization",
+        "usage-remote-auth-error",
     ):
         ssh = [
             "/usr/bin/ssh",
@@ -88,11 +91,13 @@ def seed(root, recipe, repo):
                        "-c user.email=fixture@example.invalid commit --allow-empty -m baseline"],
                 check=True, capture_output=True, timeout=15,
             )
-        remote = call("remote", "add", "Fixture", "jam-fixture")
+        name = ("Fixture diagnostics with a name that exceeds the narrow sidebar"
+                if recipe == "remote-long-sidebar" else "Fixture")
+        remote = call("remote", "add", name, "jam-fixture")
         ids["remote"] = remote["id"]
         if recipe.startswith("usage-remote-"):
             credentials = json.loads((root / "home/.codex/auth.json").read_text())
-            if recipe == "usage-remote-other-account":
+            if recipe in {"usage-remote-other-account", "usage-remote-auth-error"}:
                 claims = {"sub": "second-user", "email": "second@example.invalid"}
                 encoded = base64.urlsafe_b64encode(json.dumps(claims).encode()).decode().rstrip("=")
                 token = "fixture." + encoded + ".fixture"

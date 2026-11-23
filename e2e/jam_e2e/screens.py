@@ -1,5 +1,4 @@
 import json
-import shlex
 import tomllib
 import uuid
 
@@ -34,8 +33,8 @@ class Jam:
         self.ui.click("Remote project", "row")
         self.terminal()
         marker = "REMOTE_UI_" + uuid.uuid4().hex
-        self.ui.type((command + "; " if command else "") + "printf '\\n%s%s\\n' "
-                     + shlex.quote(marker[:12]) + " " + shlex.quote(marker[12:]))
+        self.ui.type((command + "; " if command else "") + "echo; echo "
+                     + marker[:12] + "'" + marker[12:] + "'")
         self.ui.key("ENTER")
 
         def executed():
@@ -66,10 +65,9 @@ class Jam:
         # The contiguous result marker does not occur in the typed command.
         self.ui.type(
             command
-            + "; printf '\\n%s%s\\n' "
-            + shlex.quote(marker[:12])
-            + " "
-            + shlex.quote(marker[12:])
+            + "; echo; echo "
+            + marker[:12]
+            + "'" + marker[12:] + "'"
         )
         self.ui.key("ENTER")
         wait(

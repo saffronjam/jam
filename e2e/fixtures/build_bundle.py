@@ -51,6 +51,7 @@ HTTPS = (
 REMOTE = (
     "remote-connected",
     "remote-creation-transport",
+    "remote-long-sidebar",
     "remote-offline",
     "remote-persistence-disabled",
     "remote-auth-rejected",
@@ -59,19 +60,22 @@ REMOTE = (
     "usage-remote-account",
     "usage-remote-other-account",
     "usage-remote-other-organization",
+    "usage-remote-auth-error",
 )
 
 
 def recipes(ssh_image=None, engine=None, vm=None, previous=False, newer=False,
-            incompatible=False, legacy=False, limited=False, failing_takeover=False):
+            incompatible=False, legacy=False, limited=False, failing_takeover=False,
+            unmanaged=False):
     values = {}
     remote_worlds = REMOTE + (("remote-update-available",) if previous else ())
-    remote_worlds += (("update-required",) if newer else ())
+    remote_worlds += (("update-required", "update-required-without-compatible-release") if newer else ())
     remote_worlds += (("remote-incompatible",) if incompatible else ())
     remote_worlds += (("remote-legacy",) if legacy else ())
     remote_worlds += (("remote-limited",) if limited else ())
     remote_worlds += (("remote-takeover-failure",) if legacy and failing_takeover else ())
-    for recipe in LOCAL + HTTPS + (remote_worlds if ssh_image or vm else ()):
+    update_worlds = HTTPS + (("update-unmanaged",) if unmanaged else ())
+    for recipe in LOCAL + update_worlds + (remote_worlds if ssh_image or vm else ()):
         values[recipe] = spec = {
             "setup": [["{python}", "{bundle}/provision_world.py", "{root}", recipe, "--repo", "{repo}"]],
             "services": [{"argv": ["{daemon}"], "ready": "{socket}"}],
@@ -82,7 +86,10 @@ def recipes(ssh_image=None, engine=None, vm=None, previous=False, newer=False,
         if recipe == "update-foreign-server":
             spec["services"][0]["argv"] = ["{python}", "{bundle}/foreign_server.py",
                                            "{root}", "{daemon}"]
-        if recipe in HTTPS or recipe == "update-required" or recipe.startswith("usage-remote-"):
+        if recipe == "update-unmanaged":
+            spec["installations"] = {"macos": "releases/unmanaged/Jam-macos-arm64.zip"}
+        if (recipe in update_worlds or recipe.startswith("update-required")
+                or recipe.startswith("usage-remote-")):
             spec["services"].insert(
                 0,
                 {
@@ -102,7 +109,7 @@ def recipes(ssh_image=None, engine=None, vm=None, previous=False, newer=False,
                 },
             )
         if recipe in remote_worlds:
-            if recipe == "remote-creation-transport":
+            if recipe in {"remote-creation-transport", "remote-long-sidebar"}:
                 spec["services"].insert(0, {
                     "argv": ["{python}", "{bundle}/ssh_transport.py", "{root}"],
                     "ready": "{root}/ssh-transport.ready",
@@ -112,7 +119,7 @@ def recipes(ssh_image=None, engine=None, vm=None, previous=False, newer=False,
                 "{bundle}/remote/previous.tar.gz"
                 if recipe == "remote-update-available"
                 else "{bundle}/remote/newer.tar.gz"
-                if recipe == "update-required"
+                if recipe.startswith("update-required")
                 else "{bundle}/remote/incompatible.tar.gz"
                 if recipe == "remote-incompatible"
                 else "{bundle}/remote/legacy.tar.gz"
@@ -297,6 +304,7 @@ def build(
     (output / "manifest.json").write_text(
         json.dumps(recipes(ssh_image, engine, vm,
                            failing_takeover=(output / "releases/takeover-failure/Jam-macos-arm64.zip").is_file(),
+                           unmanaged=(output / "releases/unmanaged/Jam-macos-arm64.zip").is_file(),
                            **{name: bool(path) for name, path in variants.items()}),
                    indent=2) + "\n"
     )
