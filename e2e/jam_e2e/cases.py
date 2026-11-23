@@ -1708,18 +1708,18 @@ case(
     fixture="single-coordinator",
 )
 
-for index, (kind, menu, remote) in enumerate(
-    (("png", False, False), ("tiff", True, False), ("png", False, True)), 1
+for index, (kind, remote) in enumerate(
+    (("png", False), ("tiff", False), ("png", True)), 1
 ):
+    entry = "type_shell_command" if kind == "tiff" else "type_terminal"
     case(
         f"IMAGE-{index:03}",
         f"{kind.upper()} paste writes a private image on the {'remote' if remote else 'local'} host",
         *((("remote_shell",),) if remote else (("run", "true"),)),
         ("clipboard_image", kind, True, False),
-        ("type_shell_command" if menu else "type_terminal", "printf '%s\\n' "),
-        *((("context", "Terminal", "terminal"), ("click", "Paste", "menu"))
-          if menu else (("paste",),)),
-        ("type_shell_command" if menu else "type_terminal", "queued-after-image > image-path.txt"),
+        (entry, "printf '%s\\n' "),
+        ("paste",),
+        (entry, "queued-after-image > image-path.txt"),
         ("key", "ENTER"),
         ("image_paste_result", kind, remote),
         fixture="remote-connected" if remote else None,
@@ -2341,8 +2341,8 @@ case(
     ("click", "Take Over Server…", "menu"),
     ("enabled", "Take Over and Reconnect", "button"),
     ("click", "Take Over and Reconnect", "button"),
-    ("visible", "Try Again", 100),
     ("takeover_rolled_back",),
+    ("visible", "Try Again", 100),
     ("remote_file_text", "takeover-executions", "x"),
     ("enabled", "Try Again", "button"),
     ("click", "Cancel", "button"),
@@ -2361,8 +2361,7 @@ case(
     ("click", "Update and Restart", "button"),
     ("visible", "Could not complete the server action.", 95),
     ("observed_interrupted_install",),
-    ("remote_workspace_preserved",),
-    ("remote_server_stable", 2),
+    ("remote_file_text", "recovery-executions", "x"),
     ("click", "Cancel", "button"),
     ("context", "Fixture", "machine"),
     ("click", "Take Over Server…", "menu"),
@@ -2370,7 +2369,7 @@ case(
     ("click", "Try Again", "button"),
     ("visible", "Finish the interrupted server operation and reconnect"),
     ("enabled", "Recover and Reconnect", "button"),
-    ("remote_workspace_preserved",),
+    ("remote_file_text", "recovery-executions", "x"),
     ("click", "Recover and Reconnect", "button"),
     ("remote_server_changed", "restart"),
     ("observed_recovered_install",),

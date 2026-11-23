@@ -150,15 +150,23 @@ def capture(item, jam, phase="call"):
         except Exception as error:  # noqa: BLE001 - retain the original failure
             errors.append(f"independent peer information: {error}")
     if "remote" in ids:
-        try:
-            from jam_e2e.remote import peer_command
+        from jam_e2e.remote import peer_command, server_transactions
 
+        try:
             (folder / "remote-ssh-journal.txt").write_text(peer_command(
                 jam.profile,
                 "sudo -n journalctl --no-pager -u ssh.service -u ssh.socket -n 100",
             ))
         except Exception as error:  # noqa: BLE001 - preserve the scenario failure
             errors.append(f"independent SSH service journal: {error}")
+        try:
+            (folder / "remote-server-transactions.json").write_text(
+                json.dumps(server_transactions(jam.profile), indent=2))
+            (folder / "remote-server-journal.txt").write_text(peer_command(
+                jam.profile, "journalctl --user -u jamd.service --no-pager -n 100",
+            ))
+        except Exception as error:  # noqa: BLE001 - preserve the scenario failure
+            errors.append(f"independent server transaction evidence: {error}")
     if sys.platform == "darwin":
         try:
             # Verify live native PIDs through the OS. logd can retain the first
@@ -396,6 +404,7 @@ def jam(request, case):
                          ui.quit, profile.stop]
             if resources:
                 callbacks.append(resources.stop)
+            callbacks.append(profile.release_native_home)
             for cleanup in callbacks:
                 try:
                     cleanup()

@@ -576,7 +576,10 @@ class Desktop:
         value = literal(name)
         screen = "[not(ancestor::XCUIElementTypeTouchBar)]" if self.platform == "macos" else ""
         query = f"//{tag}{screen}[@name={value} or @label={value} or @title={value} or @identifier={value} or @accessibility-id={value} or @description={value} or @placeholderValue={value}]"
-        modal = "//XCUIElementTypeSheet" if self.platform == "macos" else "//dialog"
+        sheet = "XCUIElementTypeSheet" if self.platform == "macos" else "dialog"
+        # The active upgrade sheet nests inside the Settings sheet, which can
+        # still report its own Cancel button as displayed in the native tree.
+        modal = f"//{sheet}[not(descendant::{sheet})]"
 
         def find():
             matches = [e for e in self.session.find_elements(By.XPATH, modal + query) if e.is_displayed()]
@@ -659,7 +662,7 @@ class Desktop:
 
         # A terminal is a focus surface, not a command control. XCTest reports
         # some native text areas as disabled even though physical input works.
-        element = (wait(enabled, f"enabled click target {name!r}") if role == "menu"
+        element = (wait(enabled, f"enabled click target {name!r}") if role in {"menu", "button"}
                    else self.element(name, role, index=index))
         if self.platform == "macos" and role == "disclosure":
             # SwiftUI's disclosure label ignores the default center click.

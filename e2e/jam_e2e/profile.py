@@ -2,6 +2,7 @@ import json
 import os
 import re
 import signal
+import stat
 import subprocess
 import sys
 import time
@@ -44,6 +45,7 @@ class Profile:
         )
         if sys.platform == "darwin":
             self.env["CFFIXED_USER_HOME"] = str(self.home)
+            (self.home / "Library").mkdir(mode=0o700)
         # Never inherit agent credentials into a fixture shell.
         for key in list(self.env):
             if any(token in key for token in ("TOKEN", "API_KEY", "SECRET", "AUTHORIZATION")):
@@ -120,6 +122,21 @@ class Profile:
 
     def write_config(self, text):
         self.config.write_text(text)
+
+    def release_native_home(self):
+        if sys.platform != "darwin":
+            return
+        library = self.home / "Library"
+        try:
+            metadata = library.lstat()
+        except FileNotFoundError:
+            return
+        assert stat.S_ISDIR(metadata.st_mode) and metadata.st_uid == os.geteuid()
+        assert library.resolve().is_relative_to(self.root.resolve())
+        # macOS can add a delete-deny ACL to the isolated Library. Remove
+        # it only from this fixture directory before TemporaryDirectory exits.
+        subprocess.run(["/bin/chmod", "-N", str(library)], check=True,
+                       capture_output=True, text=True, timeout=10)
 
     def stop(self):
         if self.socket.exists():

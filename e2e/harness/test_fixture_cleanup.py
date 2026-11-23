@@ -29,7 +29,8 @@ def test_all_owned_cleanup_runs_after_a_normal_scenario(tmp_path, monkeypatch, f
 
     def profile(root, *_):
         return SimpleNamespace(root=root, repo=root, env={}, stop=cleanup("profile"),
-                               release_checkout=cleanup("checkout"), resume_daemon=cleanup("resume"))
+                               release_checkout=cleanup("checkout"), resume_daemon=cleanup("resume"),
+                               release_native_home=cleanup("native_home"))
 
     ui = Mock(restore_display_scale=cleanup("display"), restore_input_source=cleanup("input_source"),
               restore_clipboard=cleanup("clipboard"), quit=cleanup("ui"))
@@ -50,4 +51,4 @@ def test_all_owned_cleanup_runs_after_a_normal_scenario(tmp_path, monkeypatch, f
         with pytest.raises(StopIteration):
             next(generator)
     assert events == ["checkout", "resume", "clients", "display", "input_source",
-                      "clipboard", "ui", "profile"]
+                      "clipboard", "ui", "profile", "native_home"]
