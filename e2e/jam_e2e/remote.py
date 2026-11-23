@@ -17,9 +17,8 @@ def peer_command(profile, command):
     try:
         result = subprocess.run([
             "/usr/bin/ssh", "-F", str(config), "-oBatchMode=yes",
-            # The guest's short boot-poll timeout is not this observer's
-            # handshake budget. Match the app while retaining the 20s command
-            # deadline and exactly one connection attempt.
+            # Match the app's handshake budget and retain a separate command
+            # deadline. Each observation makes exactly one connection attempt.
             "-oConnectTimeout=10", "-oConnectionAttempts=1",
             "-oUserKnownHostsFile=" + str(known_hosts), "jam-fixture", command,
         ], env=profile.env, check=True, capture_output=True, text=True, timeout=20)
@@ -90,9 +89,20 @@ def takeover_rolled_back(profile):
     builds = Path(profile.env["JAM_E2E_REMOTE_ARCHIVE"]).parent / "builds.json"
     archives = json.loads(builds.read_text())["archives"]
     candidate = archives["current"]
+
     def rolled_back():
-        attempts = [tx for tx in server_transactions(profile) if tx.get("new_build") == candidate["build"]]
+        try:
+            transactions = server_transactions(profile)
+        except subprocess.TimeoutExpired:
+            return None
+        except subprocess.CalledProcessError as error:
+            if error.returncode == 255 and "timed out during banner exchange" in error.stderr.lower():
+                return None
+            raise
+        attempts = [tx for tx in transactions if tx.get("new_build") == candidate["build"]]
         assert len(attempts) <= 1, attempts
+        if attempts:
+            assert attempts[0]["phase"] not in {"committed", "rollback_failed"}, attempts[0]
         return attempts[0] if attempts and attempts[0]["phase"] == "rolled_back" else None
 
     attempt = wait(rolled_back, "rollback receipt for the installed replacement", timeout=100)

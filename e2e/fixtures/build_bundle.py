@@ -147,7 +147,7 @@ def recipes(ssh_image=None, engine=None, vm=None, previous=False, newer=False,
                             "{root}/ssh.ready",
                         ],
                         "ready": "{root}/ssh.ready",
-                        "startup_timeout": 480,
+                        "startup_timeout": 660,
                         "stop_timeout": 25,
                     },
                 )
