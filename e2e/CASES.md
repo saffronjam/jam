@@ -3913,7 +3913,7 @@ Fixture: `isolated local installation`.
 
 Behaviors: `creation`, `focus-close`.
 
-1. `('probe', 'raw', '90')`
+1. `('probe', 'raw', '180')`
 2. `('hold_worktree_checkout',)`
 3. `('command', 'New Worktree')`
 4. `('fill', 'Branch name', 'isolated-handoff')`

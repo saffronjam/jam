@@ -2584,7 +2584,7 @@ case(
 case(
     "CREATE-015",
     "A pending worktree protects the previous terminal from input during handoff",
-    ("probe", "raw", "90"),
+    ("probe", "raw", "180"),
     ("hold_worktree_checkout",),
     ("command", "New Worktree"),
     ("fill", "Branch name", "isolated-handoff"),

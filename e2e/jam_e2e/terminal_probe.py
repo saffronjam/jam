@@ -17,7 +17,7 @@ def record(path, data):
 
 
 def main(output, mode="raw", startup_window=20):
-    assert 1 <= startup_window <= 90, "The raw input observer needs a bounded lifetime"
+    assert 1 <= startup_window <= 180, "The raw input observer needs a bounded lifetime"
     fd = sys.stdin.fileno()
     previous = termios.tcgetattr(fd)
     data = bytearray()
