@@ -1000,35 +1000,38 @@ class Desktop:
     def clipboard(self, text=None):
         if self.clipboard_owner is not self:
             return self.clipboard_owner.clipboard(text)
+        if self.platform == "linux":
+            import base64
+            from .clipboard import linux_clipboard
+
+            text_mime = "text/plain;charset=utf-8"
+            if text is None:
+                saved = linux_clipboard("capture", self.profile)
+                for mime in (text_mime, "text/plain", "UTF8_STRING"):
+                    if mime in saved:
+                        return base64.b64decode(saved[mime]).decode("utf-8")
+                return ""
+            if self.saved_binary_clipboard is None:
+                self.saved_binary_clipboard = linux_clipboard("capture", self.profile)
+            return linux_clipboard("restore", self.profile, {
+                text_mime: base64.b64encode(text.encode("utf-8")).decode("ascii"),
+            })
         if text is None:
-            if self.platform == "macos":
-                return subprocess.run(
-                    ["/usr/bin/pbpaste"], check=True, capture_output=True, text=True, timeout=10
-                ).stdout
-            return self.session.get_clipboard_text()
+            return subprocess.run(
+                ["/usr/bin/pbpaste"], check=True, capture_output=True, text=True, timeout=10
+            ).stdout
         if self.saved_clipboard is None:
-            if self.platform == "macos":
-                self.saved_clipboard = self._mac_clipboard("capture")
-            else:
-                self.saved_clipboard = self.clipboard()
-        if self.platform == "macos":
-            subprocess.run(["/usr/bin/pbcopy"], input=text, text=True, check=True, timeout=10)
-            return
-        self.session.set_clipboard_text(text)
+            self.saved_clipboard = self._mac_clipboard("capture")
+        subprocess.run(["/usr/bin/pbcopy"], input=text, text=True, check=True, timeout=10)
 
     def restore_clipboard(self):
         if self.saved_binary_clipboard is not None:
             from .clipboard import linux_clipboard
 
-            # The binary snapshot predates any text-only clipboard mutations.
             linux_clipboard("restore", self.profile, self.saved_binary_clipboard)
             self.saved_binary_clipboard = None
-            self.saved_clipboard = None
         if self.saved_clipboard is not None:
-            if self.platform == "macos":
-                self._mac_clipboard("restore", self.saved_clipboard)
-            else:
-                self.clipboard(self.saved_clipboard)
+            self._mac_clipboard("restore", self.saved_clipboard)
             self.saved_clipboard = None
 
     def clipboard_image(self, kind, image, text=None):
@@ -1042,11 +1045,8 @@ class Desktop:
             owner._mac_clipboard("restore", contents)
         else:
             if owner.saved_binary_clipboard is None:
-                if owner.saved_clipboard is not None:
-                    raise AssertionError("Take the native clipboard snapshot before changing text")
                 owner.saved_binary_clipboard = linux_clipboard("capture", owner.profile)
             linux_clipboard("restore", owner.profile, contents)
-            self.activate()
 
     def _mac_clipboard(self, action, data=None):
         helper = Path(__file__).parents[1] / "native/macos/clipboard.swift"

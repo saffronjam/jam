@@ -3,7 +3,6 @@
 import atexit
 import base64
 import io
-import json
 from pathlib import Path
 import select
 import subprocess
@@ -83,60 +82,52 @@ def verify_image(profile, kind, remote=False):
 
 
 _linux_owner = None
-_linux_log = None
-_linux_directory = None
 
 
 def linux_clipboard(action, profile, data=None):
-    # Wayland delivers data from its live owner. Keep the helper alive after
-    # each case so restored clipboard contents are still available to the next.
-    global _linux_owner, _linux_log, _linux_directory
-    if _linux_owner is None:
-        helper = Path(__file__).parents[1] / "native/linux/clipboard.py"
-        _linux_directory = tempfile.TemporaryDirectory(prefix="je-clipboard-")
-        env = dict(profile.env, GDK_BACKEND="wayland", TMPDIR=_linux_directory.name)
-        _linux_log = Path(_linux_directory.name) / "native-clipboard.log"
-        with _linux_log.open("w") as diagnostics:
-            _linux_owner = subprocess.Popen(
-                ["/usr/bin/python3", str(helper)], env=env, text=True,
-                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=diagnostics,
-            )
-        atexit.register(stop_linux_clipboard)
-        read_reply(_linux_owner)
-    with tempfile.NamedTemporaryFile(dir=profile.root, mode="w+", encoding="utf-8") as exchange:
-        if data is not None:
-            json.dump(data, exchange)
-            exchange.flush()
-        _linux_owner.stdin.write(json.dumps({"action": action, "path": exchange.name}) + "\n")
-        _linux_owner.stdin.flush()
-        read_reply(_linux_owner)
+    """Use the same owned native selection for snapshots and all fixture clipboard writes."""
+    global _linux_owner
+    with tempfile.TemporaryDirectory(dir=profile.root) as exchange:
+        directory = Path(exchange)
+        argv = ["/usr/local/bin/jam-e2e-clipboard", action, exchange]
         if action == "capture":
-            return json.load(exchange)
-    return None
+            result = subprocess.run(argv, env=profile.env, text=True, capture_output=True, timeout=20)
+            if result.returncode:
+                raise AssertionError(result.stderr.strip())
+            return {mime: base64.b64encode((directory / str(index)).read_bytes()).decode("ascii")
+                    for index, mime in enumerate(result.stdout.splitlines())}
+        if action != "restore" or data is None:
+            raise ValueError("Expected a clipboard snapshot or a restore with native data")
+        for index, encoded in enumerate(data.values()):
+            (directory / str(index)).write_bytes(base64.b64decode(encoded, validate=True))
+        process = subprocess.Popen(
+            [*argv, *data], env=profile.env, text=True, stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        )
+        if not select.select([process.stdout], [], [], 15)[0] or process.stdout.readline() != "ready\n":
+            diagnostic = stop_linux_owner(process)
+            raise AssertionError("The native Wayland clipboard owner did not start. " + diagnostic)
+        previous, _linux_owner = _linux_owner, process
+        stop_linux_owner(previous)
 
 
-def read_reply(process):
-    if not select.select([process.stdout], [], [], 20)[0]:
-        raise TimeoutError("Native Wayland clipboard helper did not respond:\n" +
-                           _linux_log.read_text(errors="replace")[-4000:])
-    line = process.stdout.readline()
-    if not line:
-        raise RuntimeError(f"Native Wayland clipboard helper exited: {process.poll()}\n" +
-                           _linux_log.read_text(errors="replace")[-4000:])
-    error = json.loads(line)["error"]
-    if error is not None:
-        raise RuntimeError(error)
-
-
-def stop_linux_clipboard():
-    if _linux_owner is None:
-        return
-    _linux_owner.stdin.close()
+def stop_linux_owner(process):
+    if process is None:
+        return ""
     try:
-        _linux_owner.wait(timeout=5)
+        if process.poll() is None:
+            process.terminate()
+        process.wait(timeout=5)
     except subprocess.TimeoutExpired:
-        _linux_owner.kill()
-        _linux_owner.wait(timeout=5)
+        process.kill()
+        process.wait(timeout=5)
     finally:
-        _linux_owner.stdout.close()
-        _linux_directory.cleanup()
+        diagnostics = process.stderr.read()
+        process.stdout.close()
+        process.stderr.close()
+    return diagnostics.strip()
+
+
+@atexit.register
+def stop_linux_clipboard():
+    stop_linux_owner(_linux_owner)
