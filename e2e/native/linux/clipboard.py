@@ -12,7 +12,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Gdk", "4.0")
-from gi.repository import Gdk, GLib, Gtk
+from gi.repository import Gdk, Gio, GLib, Gtk
 
 sys.path.insert(0, "/usr/local/share/selenium-webdriver-at-spi")
 from gtk_geometry import window_origin
@@ -21,21 +21,14 @@ LIMIT = 16 * 1024 * 1024
 TITLE = "Jam E2E Clipboard"
 
 
-def main():
-    faulthandler.dump_traceback_later(12)
-    if not os.environ.get("WAYLAND_DISPLAY") or not os.environ.get("KWIN_PID"):
-        raise RuntimeError("Clipboard requires the isolated Wayland desktop")
-    print("Opening GTK Wayland display", file=sys.stderr, flush=True)
-    Gtk.init()
+def activate(application):
     display = Gdk.Display.get_default()
     if display is None:
         raise RuntimeError("No native Wayland display")
     clipboard = display.get_clipboard()
-    loop = GLib.MainLoop()
-    window = Gtk.Window(title=TITLE, default_width=240, default_height=96)
+    window = Gtk.ApplicationWindow(application=application, title=TITLE)
+    window.set_default_size(240, 96)
     window.set_child(Gtk.Label(label=TITLE))
-    print("Presenting clipboard owner window", file=sys.stderr, flush=True)
-    window.present()
 
     def reply(error=None):
         print(json.dumps({"error": str(error) if error is not None else None}), flush=True)
@@ -122,16 +115,26 @@ def main():
     def input_loop():
         for line in sys.stdin:
             GLib.idle_add(perform, json.loads(line))
-        GLib.idle_add(loop.quit)
+        GLib.idle_add(application.quit)
 
-    threading.Thread(target=input_loop, daemon=True).start()
-    def ready():
+    def ready(_window):
         faulthandler.cancel_dump_traceback_later()
+        threading.Thread(target=input_loop, daemon=True).start()
         reply()
-        return GLib.SOURCE_REMOVE
 
-    GLib.idle_add(ready)
-    loop.run()
+    window.connect("map", ready)
+    print("Presenting GTK clipboard application window", file=sys.stderr, flush=True)
+    window.present()
+
+
+def main():
+    faulthandler.dump_traceback_later(12)
+    if not os.environ.get("WAYLAND_DISPLAY") or not os.environ.get("KWIN_PID"):
+        raise RuntimeError("Clipboard requires the isolated Wayland desktop")
+    application = Gtk.Application(application_id="dev.saffronjam.E2EClipboard",
+                                  flags=Gio.ApplicationFlags.NON_UNIQUE)
+    application.connect("activate", activate)
+    sys.exit(application.run([]))
 
 
 if __name__ == "__main__":

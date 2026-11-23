@@ -17,7 +17,9 @@ Install Python 3.11+ and uv, then run `uv sync --locked` in this directory.
 The Python dependencies are pinned in `uv.lock`. Run from another checkout by
 passing this directory to `uv --project`; no product sources are needed.
 
-On macOS, install full Xcode and grant its automation helper Accessibility access.
+Use macOS 26 for the active acceptance suite and its native controls. Install
+full Xcode and grant its automation helper Accessibility access. The historical
+runs linked below document earlier driver work.
 Use Appium **3.9.1** with Mac2 **4.6.1** (a compatible major-version pair):
 
 ```sh
@@ -125,6 +127,9 @@ hit testing as well as a scrolled-field edit.
 `Linux automation proof` exercises real GTK4
 controls, a physical slider drag, input, clipboard and screenshots in this environment. This low-level
 probe is separate from Jam acceptance and cannot satisfy a product scenario.
+Use the mixed-format native clipboard control before evaluating clipboard cases.
+It checks that a real GTK field can paste the text representation while the
+native clipboard retains the original PNG bytes.
 The complete GTK driver proof passed in
 [run 44928918319](https://github.com/saffronjam/jam/actions/runs/44928918319), including
 physical wheel scrolling, native composition, Unicode, resizing and later hit

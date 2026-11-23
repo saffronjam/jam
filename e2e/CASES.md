@@ -1,6 +1,6 @@
 # Desktop acceptance cases
 
-286 cases; identical collection on macOS and Linux. No skips or expected failures.
+298 cases; identical collection on macOS and Linux. No skips or expected failures.
 
 Each numbered step is performed externally. Fixture names identify required setup recipes, not alternate assertions.
 
@@ -2846,6 +2846,40 @@ Behaviors: `identity`.
 5. `('run', 'printf title-is-not-an-agent')`
 6. `('output', 'title-is-not-an-agent')`
 
+## IDENTITY-004: A client relaunch retains reported identity while a server restart clears it
+
+Fixture: `isolated local installation`.
+
+Behaviors: `identity`.
+
+1. `('remember_layout',)`
+2. `('remember_pids',)`
+3. `('program_identity', 'codex')`
+4. `('pane_field', 'agent_provider', 'codex')`
+5. `('pane_field', 'agent_source', 'reported')`
+6. `('relaunch',)`
+7. `('same_pids',)`
+8. `('pane_field', 'agent_provider', 'codex')`
+9. `('pane_field', 'agent_source', 'reported')`
+10. `('restart_server',)`
+11. `('same_layout',)`
+12. `('pane_field', 'agent_provider', None)`
+13. `('pane_field', 'agent_source', None)`
+14. `('run', 'printf restarted-plain-shell')`
+15. `('output', 'restarted-plain-shell')`
+
+## IDENTITY-005: A registered coordinator shows its provider and role in the terminal header
+
+Fixture: `single-coordinator`.
+
+Behaviors: `identity`.
+
+1. `('click', 'Coordinator', 'row')`
+2. `('visible', 'fixture-agent-resumed')`
+3. `('visible', 'Codex · Coordinator')`
+4. `('agent_field', 'provider', 'codex')`
+5. `('registered_pane_fields', {'agent_provider': 'codex', 'agent_source': 'registered', 'agent_role': 'coordinator'})`
+
 ## IMAGE-001: PNG paste writes a private image on the local host
 
 Fixture: `isolated local installation`.
@@ -3034,12 +3068,42 @@ Behaviors: `diagnostics`.
 6. `('click', 'Server Details…', 'menu')`
 7. `('visible', 'Server — Local')`
 8. `('visible', 'without stopping running sessions')`
-9. `('resume_daemon',)`
-10. `('absent', 'Server — Local')`
-11. `('same_layout',)`
-12. `('same_pids',)`
-13. `('run', 'printf daemon-recovered-without-restart')`
-14. `('output', 'daemon-recovered-without-restart')`
+9. `('enabled', 'Retry', 'button')`
+10. `('click', 'Retry', 'button')`
+11. `('enabled', 'Retry', 'button')`
+12. `('visible', 'without stopping running sessions')`
+13. `('resume_daemon',)`
+14. `('absent', 'Server — Local')`
+15. `('same_layout',)`
+16. `('same_pids',)`
+17. `('run', 'printf daemon-recovered-without-restart')`
+18. `('output', 'daemon-recovered-without-restart')`
+
+## DIAG-002: A broken SSH path exposes inspection and Retry without enabling destructive actions
+
+Fixture: `remote-creation-transport`.
+
+Behaviors: `diagnostics`.
+
+1. `('remote_shell',)`
+2. `('peer_transport', True)`
+3. `('visible', 'Server unavailable', 60)`
+4. `('context', 'Fixture', 'machine')`
+5. `('disabled', 'Update Server…', 'menu')`
+6. `('disabled', 'Restart Server…', 'menu')`
+7. `('absent', 'Take Over Server…')`
+8. `('click', 'Server Details…', 'menu')`
+9. `('visible', 'Server — Fixture')`
+10. `('visible', 'without stopping running sessions')`
+11. `('enabled', 'Retry', 'button')`
+12. `('click', 'Retry', 'button')`
+13. `('enabled', 'Retry', 'button')`
+14. `('remote_workspace_preserved',)`
+15. `('remote_server_stable', 2)`
+16. `('peer_transport', False)`
+17. `('absent', 'Server — Fixture')`
+18. `('remote_shell',)`
+19. `('remote_workspace_preserved',)`
 
 ## UPDATE-SETTINGS-001: Settings prepares and cancels one managed upgrade sheet
 
@@ -3102,6 +3166,18 @@ Behaviors: `rendering`.
 4. `('output', 'input-after-synchronized-output')`
 5. `('same_pids',)`
 
+## RENDER-003: A focused terminal renders steady, blinking and concealed cursor states
+
+Fixture: `isolated local installation`.
+
+Behaviors: `rendering`.
+
+1. `('remember_pids',)`
+2. `('cursor_frames',)`
+3. `('run', 'printf input-after-cursor-changes')`
+4. `('output', 'input-after-cursor-changes')`
+5. `('same_pids',)`
+
 ## CREATE-004: A pending worktree becomes one selected workspace with a usable terminal
 
 Fixture: `isolated local installation`.
@@ -3161,6 +3237,62 @@ Behaviors: `focus-close`.
 7. `('command', 'Close Workspace')`
 8. `('settle_count', 'workspaces', 0)`
 9. `('file_text', 'tracked.txt', 'first\nsecond\n')`
+
+## CLOSE-002: A live worktree requires confirmation before closing an empty project
+
+Fixture: `dirty-checkout`.
+
+Behaviors: `focus-close`.
+
+1. `('write_config', 'close_empty_tabs = false\nclose_empty_workspaces = false\n')`
+2. `('relaunch',)`
+3. `('click', 'Fixture', 'row')`
+4. `('type_terminal', 'exit')`
+5. `('key', 'ENTER')`
+6. `('visible', 'No terminals')`
+7. `('remember_pids',)`
+8. `('live_panes', 1)`
+9. `('context', 'Fixture', 'row')`
+10. `('click', 'Close Workspace', 'menu')`
+11. `('visible', 'Close project and its open worktrees?')`
+12. `('click', 'Cancel', 'button')`
+13. `('same_pids',)`
+14. `('context', 'Fixture', 'row')`
+15. `('click', 'Close Workspace', 'menu')`
+16. `('visible', 'Close project and its open worktrees?')`
+17. `('click', 'Close', 'button')`
+18. `('settle_count', 'workspaces', 0)`
+19. `('settle_count', 'panes', 0)`
+20. `('file_text', 'tracked.txt', 'first\nsecond\n')`
+21. `('file_text', '../Fixture checkout/dirty.txt', 'Keep this uncommitted work\n')`
+22. `('git_branch', 'feature/existing')`
+
+## CLOSE-003: A live coordinator requires confirmation before closing its otherwise empty project
+
+Fixture: `single-coordinator`.
+
+Behaviors: `focus-close`.
+
+1. `('write_config', 'close_empty_tabs = false\nclose_empty_workspaces = false\n')`
+2. `('relaunch',)`
+3. `('click', 'Fixture', 'row')`
+4. `('type_terminal', 'exit')`
+5. `('key', 'ENTER')`
+6. `('visible', 'No terminals')`
+7. `('remember_pids',)`
+8. `('live_panes', 1)`
+9. `('context', 'Fixture', 'row')`
+10. `('click', 'Close Workspace', 'menu')`
+11. `('visible', 'Close project and its open worktrees?')`
+12. `('click', 'Cancel', 'button')`
+13. `('same_pids',)`
+14. `('context', 'Fixture', 'row')`
+15. `('click', 'Close Workspace', 'menu')`
+16. `('visible', 'Close project and its open worktrees?')`
+17. `('click', 'Close', 'button')`
+18. `('settle_count', 'workspaces', 0)`
+19. `('settle_count', 'panes', 0)`
+20. `('file_text', 'tracked.txt', 'first\nsecond\n')`
 
 ## IMAGE-007: Control-V is delivered as ordinary terminal input outside an agent pane
 
@@ -3303,7 +3435,65 @@ Behaviors: `accounts`.
 9. `('click', 'Codex, second@example.invalid', 'button')`
 10. `('visible', '0 active sessions')`
 11. `('key', 'ESCAPE')`
-12. `('remote_workspace_preserved',)`
+12. `('context', 'Fixture', 'machine')`
+13. `('click', 'Disconnect', 'menu')`
+14. `('click', 'Codex, second@example.invalid', 'button')`
+15. `('visible', 'Machine unavailable. Showing last known usage.')`
+16. `('visible', '25%')`
+17. `('key', 'ESCAPE')`
+18. `('context', 'Fixture', 'machine')`
+19. `('click', 'Reconnect', 'menu')`
+20. `('remote_shell',)`
+21. `('click', 'Codex, second@example.invalid', 'button')`
+22. `('absent', 'Machine unavailable. Showing last known usage.')`
+23. `('key', 'ESCAPE')`
+24. `('remote_workspace_preserved',)`
+
+## ACCOUNT-004: One email shared by different organizations does not combine provider accounts
+
+Fixture: `usage-remote-other-organization`.
+
+Behaviors: `accounts`.
+
+1. `('remote_shell',)`
+2. `('usage_requests_from_both_hosts',)`
+3. `('visible', '67%')`
+4. `('usage_page_cycle', ('67%', '25%', '38%'))`
+5. `('remote_workspace_preserved',)`
+
+## ACCOUNT-005: Disabling a provider hides its usage and leaves the other provider available
+
+Fixture: `usage-configured-login`.
+
+Behaviors: `accounts`.
+
+1. `('visible', 'Claude')`
+2. `('visible', 'Codex')`
+3. `('settings', 'Agents')`
+4. `('click', 'Claude', 'toggle')`
+5. `('save',)`
+6. `('config', 'enabled_agents', ['codex'])`
+7. `('absent', 'Claude')`
+8. `('click', 'Codex, fixture@example.invalid', 'button')`
+9. `('visible', 'Codex usage')`
+10. `('key', 'ESCAPE')`
+11. `('run', 'printf terminal-available-with-integration-disabled')`
+12. `('output', 'terminal-available-with-integration-disabled')`
+
+## ACCOUNT-006: The account page sums active provider processes across local and remote terminals
+
+Fixture: `usage-remote-account`.
+
+Behaviors: `accounts`.
+
+1. `('run', "bash -c 'exec -a codex /bin/sleep 180' &")`
+2. `('remote_shell', "bash -c 'exec -a codex /bin/sleep 180' &")`
+3. `('usage_requests_from_both_hosts',)`
+4. `('click', 'Codex, fixture@example.invalid', 'button')`
+5. `('visible', '2 active sessions')`
+6. `('key', 'ESCAPE')`
+7. `('absent', 'Next usage account')`
+8. `('remote_workspace_preserved',)`
 
 ## TAKEOVER-004: A compiled replacement that cannot start rolls back the remote server
 
@@ -3362,6 +3552,70 @@ Behaviors: `creation`.
 11. `('run', 'printf original-selection-kept > selection-result.txt')`
 12. `('file_text', 'selection-result.txt', 'original-selection-kept')`
 13. `('settle_count', 'workspaces', 2)`
+
+## CREATE-009: A remote checkout completed through a transport outage is found by explicit Retry
+
+Fixture: `remote-creation-transport`.
+
+Behaviors: `creation`, `creation-recovery`.
+
+1. `('remote_shell',)`
+2. `('hold_worktree_checkout', 'remote')`
+3. `('command', 'New Worktree')`
+4. `('fill', 'Branch name', 'transport-creation')`
+5. `('fill', 'Base revision', 'HEAD')`
+6. `('click', 'Create', 'button')`
+7. `('peer_checkout', 'transport-creation')`
+8. `('visible', 'Opening workspace')`
+9. `('peer_transport', True)`
+10. `('visible', 'Retry', 45)`
+11. `('release_peer_checkout',)`
+12. `('created_workspace', '/home/fixture/wt/project/transport-creation', True)`
+13. `('peer_transport', False)`
+14. `('click', 'Retry', 'button')`
+15. `('absent', 'Opening workspace')`
+16. `('type_terminal', 'pwd > /home/fixture/project/transport-result.txt')`
+17. `('key', 'ENTER')`
+18. `('remote_file_text', 'transport-result.txt', '/home/fixture/wt/project/transport-creation\n')`
+19. `('peer_checkout', 'transport-creation')`
+
+## CREATE-010: Local New Workspace opens one ready terminal at the user's home
+
+Fixture: `isolated local installation`.
+
+Behaviors: `creation`.
+
+1. `('command', 'New Workspace')`
+2. `('created_workspace', '.', False)`
+3. `('run', '[ "$PWD" = "$HOME" ] && printf home-shell-ready > new-workspace.txt')`
+4. `('home_file_text', 'new-workspace.txt', 'home-shell-ready')`
+5. `('settle_count', 'workspaces', 2)`
+
+## CREATE-011: A pending checkout prevents reordering until the new workspace is ready
+
+Fixture: `isolated local installation`.
+
+Behaviors: `creation`.
+
+1. `('open_directory', 'Second workspace')`
+2. `('created_workspace', 'Second workspace', False)`
+3. `('click', 'Project ü with spaces', 'row')`
+4. `('hold_worktree_checkout',)`
+5. `('command', 'New Worktree')`
+6. `('fill', 'Branch name', 'reorder-creation')`
+7. `('fill', 'Base revision', 'HEAD')`
+8. `('click', 'Create', 'button')`
+9. `('checkout_pending',)`
+10. `('visible', 'Opening workspace')`
+11. `('drag', 'Second workspace', 'Project ü with spaces', 0.5, 0.12, 'row')`
+12. `('workspace_prefix', 'Project ü with spaces', 'Second workspace')`
+13. `('release_worktree_checkout',)`
+14. `('created_workspace', 'wt/Project ü with spaces/reorder-creation', False)`
+15. `('drag', 'Second workspace', 'Project ü with spaces', 0.5, 0.12, 'row')`
+16. `('workspace_prefix', 'Second workspace', 'Project ü with spaces')`
+17. `('settle_count', 'workspaces', 3)`
+18. `('run', 'printf reordered-selection-ready > selected-workspace.txt')`
+19. `('home_file_text', 'Second workspace/selected-workspace.txt', 'reordered-selection-ready')`
 
 ## UPDATE-SETTINGS-002: A slow Settings download shows one progress sheet and can be cancelled
 
