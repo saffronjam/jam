@@ -75,12 +75,13 @@ def interrupt_remote_install(profile):
 
 def interrupted_install_receipt(profile):
     receipt = json.loads(peer_command(profile, "cat ~/fixture-interrupted-install.json"))
-    assert receipt["phase"] == "stop_requested"
+    assert receipt["phase"] == "start_requested"
     [observed] = [tx for tx in server_transactions(profile) if tx["id"] == receipt["id"]]
     assert observed == receipt
     builds = json.loads((Path(profile.env["JAM_E2E_REMOTE_ARCHIVE"]).parent / "builds.json").read_text())
     assert receipt["old_build"] == builds["archives"]["previous"]["build"]
     assert receipt["new_build"] == builds["archives"]["current"]["build"] != receipt["old_build"]
+    assert peer_command(profile, "systemctl --user show jamd.service -p MainPID --value").strip() == "0"
     return receipt
 
 
@@ -89,8 +90,12 @@ def takeover_rolled_back(profile):
     builds = Path(profile.env["JAM_E2E_REMOTE_ARCHIVE"]).parent / "builds.json"
     archives = json.loads(builds.read_text())["archives"]
     candidate = archives["current"]
-    [attempt] = [tx for tx in server_transactions(profile) if tx.get("new_build") == candidate["build"]]
-    assert attempt["phase"] == "rolled_back", attempt
+    def rolled_back():
+        attempts = [tx for tx in server_transactions(profile) if tx.get("new_build") == candidate["build"]]
+        assert len(attempts) <= 1, attempts
+        return attempts[0] if attempts and attempts[0]["phase"] == "rolled_back" else None
+
+    attempt = wait(rolled_back, "rollback receipt for the installed replacement", timeout=100)
     assert attempt["old_build"] == archives["legacy"]["build"] != attempt["new_build"]
     journal = peer_command(profile, "journalctl --user -u jamd.service --no-pager -n 100")
     assert "E2E candidate daemon startup failure" in journal

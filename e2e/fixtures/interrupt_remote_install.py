@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-"""Interrupt the owned remote installer at the real service-stop boundary."""
+"""Interrupt the owned remote installer just before it starts the replacement."""
 
 import json
 import os
@@ -12,7 +12,7 @@ def main():
     home = Path.home()
     arguments = sys.argv[1:]
     armed = home / "fixture-interrupt-install"
-    if arguments != ["--user", "stop", "jamd.service"] or not armed.is_file():
+    if arguments != ["--user", "restart", "jamd.service"] or not armed.is_file():
         os.execv("/usr/bin/systemctl", ["systemctl", *arguments])
 
     # This file is installed only on the disposable SSH guest. Identify the
@@ -31,7 +31,7 @@ def main():
     assert b"--restart-active" in argv
     directory = home / ".local/share/jam/servers/transactions"
     [receipt] = [value for path in directory.glob("*.json")
-                 if (value := json.loads(path.read_text()))["phase"] == "stop_requested"]
+                 if (value := json.loads(path.read_text()))["phase"] == "start_requested"]
     (home / "fixture-interrupted-install.json").write_text(json.dumps(receipt))
     armed.unlink()
     os.kill(pid, signal.SIGKILL)

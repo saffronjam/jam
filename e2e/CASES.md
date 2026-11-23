@@ -2949,11 +2949,10 @@ Behaviors: `images`.
 1. `('run', 'true')`
 2. `('clipboard_image', 'tiff', True, False)`
 3. `('type_shell_command', "printf '%s\\n' ")`
-4. `('context', 'Terminal', 'terminal')`
-5. `('click', 'Paste', 'menu')`
-6. `('type_shell_command', 'queued-after-image > image-path.txt')`
-7. `('key', 'ENTER')`
-8. `('image_paste_result', 'tiff', False)`
+4. `('paste',)`
+5. `('type_shell_command', 'queued-after-image > image-path.txt')`
+6. `('key', 'ENTER')`
+7. `('image_paste_result', 'tiff', False)`
 
 ## IMAGE-003: PNG paste writes a private image on the remote host
 
@@ -3653,8 +3652,8 @@ Behaviors: `takeover`.
 3. `('click', 'Take Over Server…', 'menu')`
 4. `('enabled', 'Take Over and Reconnect', 'button')`
 5. `('click', 'Take Over and Reconnect', 'button')`
-6. `('visible', 'Try Again', 100)`
-7. `('takeover_rolled_back',)`
+6. `('takeover_rolled_back',)`
+7. `('visible', 'Try Again', 100)`
 8. `('remote_file_text', 'takeover-executions', 'x')`
 9. `('enabled', 'Try Again', 'button')`
 10. `('click', 'Cancel', 'button')`
@@ -3673,22 +3672,21 @@ Behaviors: `takeover`.
 6. `('click', 'Update and Restart', 'button')`
 7. `('visible', 'Could not complete the server action.', 95)`
 8. `('observed_interrupted_install',)`
-9. `('remote_workspace_preserved',)`
-10. `('remote_server_stable', 2)`
-11. `('click', 'Cancel', 'button')`
-12. `('context', 'Fixture', 'machine')`
-13. `('click', 'Take Over Server…', 'menu')`
-14. `('enabled', 'Try Again', 'button')`
-15. `('click', 'Try Again', 'button')`
-16. `('visible', 'Finish the interrupted server operation and reconnect')`
-17. `('enabled', 'Recover and Reconnect', 'button')`
-18. `('remote_workspace_preserved',)`
-19. `('click', 'Recover and Reconnect', 'button')`
-20. `('remote_server_changed', 'restart')`
-21. `('observed_recovered_install',)`
-22. `('remote_file_text', 'recovery-executions', 'x')`
-23. `('remote_run', 'printf y >> recovery-executions')`
-24. `('remote_file_text', 'recovery-executions', 'xy')`
+9. `('remote_file_text', 'recovery-executions', 'x')`
+10. `('click', 'Cancel', 'button')`
+11. `('context', 'Fixture', 'machine')`
+12. `('click', 'Take Over Server…', 'menu')`
+13. `('enabled', 'Try Again', 'button')`
+14. `('click', 'Try Again', 'button')`
+15. `('visible', 'Finish the interrupted server operation and reconnect')`
+16. `('enabled', 'Recover and Reconnect', 'button')`
+17. `('remote_file_text', 'recovery-executions', 'x')`
+18. `('click', 'Recover and Reconnect', 'button')`
+19. `('remote_server_changed', 'restart')`
+20. `('observed_recovered_install',)`
+21. `('remote_file_text', 'recovery-executions', 'x')`
+22. `('remote_run', 'printf y >> recovery-executions')`
+23. `('remote_file_text', 'recovery-executions', 'xy')`
 
 ## TAKEOVER-006: A takeover confirmation expires when the inspected peer process changes
 
