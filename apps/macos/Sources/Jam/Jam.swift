@@ -739,10 +739,16 @@ final class Store: ObservableObject {
   func newWorkspace() {
     beginCreation(.new)
   }
-  func reportFocus() {
-    guard canNameWorkspaces, !focus.isEmpty else { return }
+  func reportFocus(completion: (() -> Void)? = nil) {
+    guard canNameWorkspaces, !focus.isEmpty else {
+      completion?()
+      return
+    }
     let pane = focus
-    endpointQueue(currentEndpoint).async { _ = rpc(["FocusPane": ["pane": pane]]) }
+    endpointQueue(currentEndpoint).async {
+      _ = rpc(["FocusPane": ["pane": pane]])
+      if let completion { DispatchQueue.main.async { completion() } }
+    }
   }
   func restartPane(_ id: String, automatic: Bool = false) {
     if automatic && panes[id]?.agentRole != nil { return }
@@ -1346,6 +1352,9 @@ struct PaneCard: View {
             guard store.visiblePaneIDs.contains(id) else { return }
             if store.focus != id { store.focus = id }
             store.request(["Acknowledge": ["pane": id]])
+          },
+          onGeometryFocus: { ready in
+            store.reportFocus(completion: ready)
           }, onError: { store.paneErrors[id] = $0 },
           onReady: store.awaitingCreatedFrames.contains(id)
             ? { store.awaitingCreatedFrames.remove(id) } : nil
@@ -1390,6 +1399,7 @@ struct TerminalSurface: NSViewRepresentable {
   let isAIPane: Bool
   let focused: Bool
   let onFocus: () -> Void
+  let onGeometryFocus: (@escaping () -> Void) -> Void
   let onError: (String?) -> Void
   var onReady: (() -> Void)? = nil
   func makeNSView(context: Context) -> TerminalSurfaceHost {
@@ -1401,6 +1411,7 @@ struct TerminalSurface: NSViewRepresentable {
     v.isAIPane = isAIPane
     v.fontScale = fontScale
     v.onFocus = onFocus
+    v.onGeometryFocus = onGeometryFocus
     v.onReady = onReady
     v.onError = onError
     if v.focused != focused {
@@ -1419,7 +1430,11 @@ final class TerminalNSView: NSView, NSTextInputClient, NSMenuItemValidation {
   var handle: UnsafeMutableRawPointer?
   var displayClock: CADisplayLink?
   var displayTarget: DisplayTarget?
+  var geometryObservers: [NSObjectProtocol] = []
+  var ownsGeometry = false
+  var geometryClaimPending = false
   var onFocus: (() -> Void)?
+  var onGeometryFocus: ((@escaping () -> Void) -> Void)?
   var marked = NSAttributedString(string: "")
   var onError: ((String?) -> Void)?
   var meta: [String: Any] = [:]
@@ -1449,6 +1464,8 @@ final class TerminalNSView: NSView, NSTextInputClient, NSMenuItemValidation {
   }
   var activeKey = 0
   var activeModifiers = 0
+  var activeUnmodifiedText = ""
+  var activeKeyCode: UInt16?
   var pressed: [UInt16: (Int, String, Int)] = [:]
   let inputQueue = DispatchQueue(label: "jam.input")
   init(pane: String) {
@@ -1459,6 +1476,7 @@ final class TerminalNSView: NSView, NSTextInputClient, NSMenuItemValidation {
     setAccessibilityElement(true)
     setAccessibilityRole(.textArea)
     setAccessibilityLabel("Terminal")
+    setAccessibilityIdentifier("terminal.\(pane)")
     composition.font = .monospacedSystemFont(ofSize: 14, weight: .regular)
     composition.textColor = .labelColor
     composition.backgroundColor = .textBackgroundColor
@@ -1467,6 +1485,8 @@ final class TerminalNSView: NSView, NSTextInputClient, NSMenuItemValidation {
   }
   required init?(coder: NSCoder) { fatalError("unsupported") }
   override var acceptsFirstResponder: Bool { true }
+  override func isAccessibilityEnabled() -> Bool { !TerminalInputGate.blocked }
+  override func isAccessibilityFocused() -> Bool { window?.firstResponder === self }
   override func becomeFirstResponder() -> Bool {
     let accepted = super.becomeFirstResponder()
     if accepted {
@@ -1494,10 +1514,51 @@ final class TerminalNSView: NSView, NSTextInputClient, NSMenuItemValidation {
   }
   override func viewDidMoveToWindow() {
     super.viewDidMoveToWindow()
+    for observer in geometryObservers { NotificationCenter.default.removeObserver(observer) }
+    geometryObservers.removeAll()
     displayClock?.invalidate()
     displayClock = nil
     displayTarget = nil
-    guard window != nil else { return }
+    ownsGeometry = false
+    guard let window else { return }
+    // A different client may have resized this shared PTY while our window
+    // was inactive. Local bounds did not change, so reclaim them on activation.
+    let reclaim: (Notification) -> Void = { [weak self] _ in
+      guard let self else { return }
+      self.ownsGeometry = false
+      self.logGeometry("activation")
+      // AppKit can post activation before its active/key flags settle. Its
+      // paused display clock cannot provide the next check while obscured.
+      // Reclaim after this event completes, independently of that clock.
+      DispatchQueue.main.async { [weak self] in
+        guard let self else { return }
+        self.logGeometry("deferred activation")
+        guard NSApplication.shared.isActive, self.window?.isKeyWindow == true,
+          !self.isHiddenOrHasHiddenAncestor
+        else { return }
+        self.render()
+        self.logGeometry("activation rendered")
+      }
+    }
+    // The window's display clock can pause while another client obscures it.
+    // Record focus loss independently so the next frame can reclaim geometry
+    // even if no background frame observed the inactive/key-window flags.
+    let relinquish: (Notification) -> Void = { [weak self] _ in
+      self?.ownsGeometry = false
+      self?.logGeometry("deactivation")
+    }
+    geometryObservers = [
+      NotificationCenter.default.addObserver(
+        forName: NSWindow.didResignKeyNotification, object: window, queue: .main, using: relinquish),
+      NotificationCenter.default.addObserver(
+        forName: NSApplication.didResignActiveNotification, object: NSApplication.shared,
+        queue: .main, using: relinquish),
+      NotificationCenter.default.addObserver(
+        forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main, using: reclaim),
+      NotificationCenter.default.addObserver(
+        forName: NSApplication.didBecomeActiveNotification, object: NSApplication.shared,
+        queue: .main, using: reclaim),
+    ]
     invalidateFrame()
     prepareForDisplay()
     if focused {
@@ -1516,6 +1577,36 @@ final class TerminalNSView: NSView, NSTextInputClient, NSMenuItemValidation {
   }
   func invalidateFrame() {
     if let handle { jam_view_invalidate(handle) }
+  }
+  private func claimGeometry() {
+    guard focused, !geometryClaimPending, let onGeometryFocus else { return }
+    geometryClaimPending = true
+    logGeometry("requesting focus ownership")
+    // The daemon rejects resizes from a previous client until FocusPane is
+    // acknowledged. Use the store's existing endpoint queue to preserve focus
+    // ordering and reassert only the selected pane, without changing selection.
+    onGeometryFocus { [weak self] in
+      DispatchQueue.main.async {
+        guard let self else { return }
+        self.geometryClaimPending = false
+        guard self.focused, NSApplication.shared.isActive,
+          self.window?.isKeyWindow == true, !self.isHiddenOrHasHiddenAncestor
+        else { return }
+        self.ownsGeometry = true
+        _ = self.action("reclaim_size")
+        self.render()
+        self.logGeometry("focus request completed")
+      }
+    }
+  }
+  private func logGeometry(_ event: String) {
+    let state =
+      "\(event) pane=\(pane) window=\(window?.windowNumber ?? 0) "
+      + "active=\(NSApplication.shared.isActive) key=\(window?.isKeyWindow ?? false) "
+      + "visible=\(!isHiddenOrHasHiddenAncestor) owns=\(ownsGeometry) pending=\(geometryClaimPending) "
+      + "bounds=\(bounds.size) "
+      + "handle=\(handle != nil) frame=\(meta["cols"] as? Int ?? 0)x\(meta["rows"] as? Int ?? 0)"
+    NSLog("Jam terminal geometry: %@", state)
   }
   func prepareForDisplay() {
     guard let window, bounds.width > 0, bounds.height > 0 else { return }
@@ -1561,10 +1652,20 @@ final class TerminalNSView: NSView, NSTextInputClient, NSMenuItemValidation {
   func render() {
     guard let handle, let window, !isHiddenOrHasHiddenAncestor, bounds.width > 0, bounds.height > 0
     else { return }
+    // Activation notifications can arrive before AppKit finishes updating its
+    // active/key-window flags. Recheck ownership on the display clock as well,
+    // so an unchanged view can reclaim its PTY after another client resized it.
+    let owns = NSApplication.shared.isActive && window.isKeyWindow
+    if owns && !ownsGeometry {
+      _ = action("reclaim_size")
+      claimGeometry()
+    }
+    ownsGeometry = owns
     let s = window.backingScaleFactor
     let result = nativeString(
       jam_view_draw(
-        handle, UInt32(bounds.width * s), UInt32(bounds.height * s), Float(s * fontScale)))
+        handle, UInt32(bounds.width * s), UInt32(bounds.height * s), Float(s * fontScale),
+        owns && !geometryClaimPending))
     if let values = try? JSONSerialization.jsonObject(with: Data(result.utf8)) as? [String: Any] {
       meta = values
       if values["ready"] as? Bool == true, let notify = onReady {
@@ -1579,11 +1680,15 @@ final class TerminalNSView: NSView, NSTextInputClient, NSMenuItemValidation {
         lastError = ""
         onError?(nil)
       }
-      if let text = values["text"] as? String { setAccessibilityValue(text) }
+      if let text = values["text"] as? String, (accessibilityValue() as? String) != text {
+        setAccessibilityValue(text)
+        NSAccessibility.post(element: self, notification: .valueChanged)
+      }
       updateComposition()
     }
   }
   deinit {
+    for observer in geometryObservers { NotificationCenter.default.removeObserver(observer) }
     displayClock?.invalidate()
     if let handle { jam_view_drop(handle) }
   }
@@ -1727,6 +1832,13 @@ final class TerminalNSView: NSView, NSTextInputClient, NSMenuItemValidation {
   }
   override func keyDown(with event: NSEvent) {
     guard !TerminalInputGate.blocked else { return }
+    if event.keyCode == 53 && hasMarkedText() {
+      // AppKit otherwise commits a pending dead key before sending Escape.
+      // Cancel the conversion session before either can reach the PTY.
+      inputContext?.discardMarkedText()
+      unmarkText()
+      return
+    }
     if isAIPane,
       event.modifierFlags.intersection([.control, .command, .option, .shift]) == .control,
       event.charactersIgnoringModifiers?.lowercased() == "v", TerminalClipboard.hasImage(.general)
@@ -1741,6 +1853,8 @@ final class TerminalNSView: NSView, NSTextInputClient, NSMenuItemValidation {
       98: 127, 100: 128, 101: 129, 109: 130, 103: 131, 111: 132,
     ]
     activeModifiers = modifiers(event)
+    activeUnmodifiedText = event.charactersIgnoringModifiers ?? ""
+    activeKeyCode = event.keyCode
     let scalar = event.charactersIgnoringModifiers?.lowercased().unicodeScalars.first?.value ?? 0
     activeKey = special[event.keyCode] ?? ((97...122).contains(scalar) ? 20 + Int(scalar - 97) : 0)
     if !hasMarkedText(), activeKey != 0 {
@@ -1749,6 +1863,8 @@ final class TerminalNSView: NSView, NSTextInputClient, NSMenuItemValidation {
     defer {
       activeKey = 0
       activeModifiers = 0
+      activeUnmodifiedText = ""
+      activeKeyCode = nil
     }
     if !hasMarkedText(), let code = special[event.keyCode] {
       key(code, "", modifiers(event))
@@ -1773,7 +1889,17 @@ final class TerminalNSView: NSView, NSTextInputClient, NSMenuItemValidation {
     let s = (string as? NSAttributedString)?.string ?? string as? String ?? ""
     marked = NSAttributedString(string: "")
     updateComposition()
-    key(activeKey, s, activeModifiers)
+    var committedModifiers = activeModifiers
+    if committedModifiers & Int(JAM_MOD_ALT) != 0, s != activeUnmodifiedText {
+      // AppKit consumed Option to produce this layout's text (for example
+      // French/German brackets and backslash). Encoding it again as Meta
+      // turns those characters into terminal escape commands.
+      committedModifiers &= ~Int(JAM_MOD_ALT)
+      if let code = activeKeyCode, let held = pressed[code] {
+        pressed[code] = (held.0, held.1, committedModifiers)
+      }
+    }
+    key(activeKey, s, committedModifiers)
   }
   override func doCommand(by selector: Selector) {
     let map: [String: Int] = [
