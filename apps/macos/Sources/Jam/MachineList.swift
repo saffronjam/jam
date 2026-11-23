@@ -80,9 +80,6 @@ struct MachineList: View {
       Button("Take Over Server…") { store.showServerAction(endpoint, kind: .takeover) }
         .disabled(!state.canTakeover)
     }
-    if state.status?.blocked != true {
-      Button("Check for Updates") { store.checkServer(endpoint) }.disabled(!state.canCheck)
-    }
     if state.status?.state == "inspection_failed" {
       Button("Server Details…") { store.showServerAction(endpoint, kind: .inspect) }
         .disabled(state.busy)

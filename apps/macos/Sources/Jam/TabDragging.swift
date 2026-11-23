@@ -201,10 +201,9 @@ final class TabDragView: NSView {
     guard editor == nil else { return }
     let field = InlineNameEditor(frame: bounds.insetBy(dx: 4, dy: 3))
     field.stringValue = label.stringValue
-    field.placeholderString = "Tab name"
-    field.toolTip = nil
     field.setAccessibilityLabel("Tab name")
     editor = field
+    label.isHidden = true
     field.completion = { [weak self, weak field] value in
       if let name = value?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
         self?.label.stringValue = name
@@ -212,6 +211,7 @@ final class TabDragView: NSView {
       completion(value)
       field?.removeFromSuperview()
       self?.editor = nil
+      self?.label.isHidden = false
     }
     // InlineNameEditor activates itself once it joins the window.
     addSubview(field)

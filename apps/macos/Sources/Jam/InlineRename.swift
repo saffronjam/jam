@@ -27,8 +27,6 @@ final class InlineNameEditor: NSTextField, NSTextFieldDelegate {
     isSelectable = true
     isBezeled = true
     drawsBackground = true
-    placeholderString = "Automatic folder name"
-    toolTip = "Leave empty to follow the current folder"
   }
   required init?(coder: NSCoder) { fatalError("unsupported") }
   override func viewDidMoveToWindow() {
