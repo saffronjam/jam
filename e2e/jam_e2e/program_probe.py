@@ -21,7 +21,7 @@ def main():
 
     emit("working")
     if mode == ["done-on-file"]:
-        deadline = time.monotonic() + 55
+        deadline = time.monotonic() + 180
         while not output.with_suffix(".done").exists():
             if time.monotonic() >= deadline:
                 raise TimeoutError("No completion signal for fixture program")

@@ -1,6 +1,6 @@
 # Desktop acceptance cases
 
-312 cases; identical collection on macOS and Linux. No skips or expected failures.
+313 cases; identical collection on macOS and Linux. No skips or expected failures.
 
 Each numbered step is performed externally. Fixture names identify required setup recipes, not alternate assertions.
 
@@ -3899,6 +3899,31 @@ Behaviors: `creation`.
 8. `('type_terminal', '{ pwd; git branch --show-current; } > /home/fixture/project/open-branch.txt')`
 9. `('key', 'ENTER')`
 10. `('remote_file_text', 'open-branch.txt', '/home/fixture/remote-existing\npeer-existing\n')`
+
+## CREATE-015: A pending worktree protects the previous terminal from input during handoff
+
+Fixture: `isolated local installation`.
+
+Behaviors: `creation`, `focus-close`.
+
+1. `('probe',)`
+2. `('hold_worktree_checkout',)`
+3. `('command', 'New Worktree')`
+4. `('fill', 'Branch name', 'isolated-handoff')`
+5. `('fill', 'Base revision', 'HEAD')`
+6. `('click', 'Create', 'button')`
+7. `('checkout_pending',)`
+8. `('visible', 'Opening workspace')`
+9. `('key', 'ESCAPE')`
+10. `('probe_no_input',)`
+11. `('release_worktree_checkout',)`
+12. `('created_workspace', 'wt/Project ü with spaces/isolated-handoff', False)`
+13. `('run', 'printf handed-off > creation-focus.txt')`
+14. `('home_file_text', 'wt/Project ü with spaces/isolated-handoff/creation-focus.txt', 'handed-off')`
+15. `('probe_no_input',)`
+16. `('click', 'Project ü with spaces', 'row')`
+17. `('probe_key', 'x')`
+18. `('probe_hex', '78')`
 
 ## UPDATE-SETTINGS-002: A slow Settings download shows one progress sheet and can be cancelled
 
