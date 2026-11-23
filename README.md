@@ -58,6 +58,8 @@ just bundle        # Package the app with its remote servers
 
 Developer binaries and caches stay inside the checkout. Release builds must include both Linux server archives and all dependency notices.
 
+The standalone [desktop acceptance suite](e2e/README.md) drives installed applications through native UI automation on macOS and Linux. Both platforms collect the same scenarios; a missing Linux client remains an ordinary test failure.
+
 ## Architecture
 
 A Rust daemon owns terminal sessions. A shared renderer draws terminal contents; Swift provides the macOS interface. The CLI and app use the same daemon protocol.
