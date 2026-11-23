@@ -1,0 +1,100 @@
+name: macOS SSH environment proof
+on:
+  push:
+    paths:
+      - .github/workflows/e2e-remote-driver.yml
+      - e2e/fixtures/vm_service.py
+      - e2e/fixtures/fetch_vm_image.py
+  workflow_dispatch:
+    inputs:
+      fixture_run:
+        description: Successful Fixture release artifacts run to exercise
+        type: string
+        required: true
+      cases:
+        description: Explicit development-only pytest expression; empty runs every transport case
+        type: string
+        default: ''
+permissions:
+  contents: read
+  actions: read
+jobs:
+  real-ssh:
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - name: Select a completed fixture release for this environment proof
+        id: fixture
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTED_RUN: ${{ inputs.fixture_run }}
+        run: |
+          fixture_run="$REQUESTED_RUN"
+          if [ -z "$fixture_run" ]; then
+            fixture_run=$(gh run list --workflow e2e-release-fixtures.yml --branch "$GITHUB_REF_NAME" \
+              --status success --limit 1 --json databaseId --jq '.[0].databaseId')
+          fi
+          test -n "$fixture_run" && test "$fixture_run" != null
+          gh run view "$fixture_run" --json name,conclusion,headSha > build-source.json
+          python3 - <<'PY'
+          import json
+          value = json.load(open('build-source.json'))
+          assert value['name'] == 'Fixture release artifacts' and value['conclusion'] == 'success', value
+          PY
+          echo "run=$fixture_run" >> "$GITHUB_OUTPUT"
+          mkdir -p e2e/artifacts
+          mv build-source.json e2e/artifacts/build-source.json
+      - name: Install bounded headless guest prerequisites
+        run: |
+          brew list qemu >/dev/null 2>&1 || brew install qemu
+          brew list openssl@3 >/dev/null 2>&1 || brew install openssl@3
+          echo "$(brew --prefix openssl@3)/bin" >> "$GITHUB_PATH"
+          python3 -m venv .cache/e2e-bootstrap
+          .cache/e2e-bootstrap/bin/python -m pip install uv==0.13.5
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: fixture-release-bundle
+          path: build
+          run-id: ${{ steps.fixture.outputs.run }}
+          github-token: ${{ github.token }}
+      - name: Prepare immutable Linux guest and matching server archive
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p .cache/fixture-bundle
+          tar -xzf build/fixture-release-bundle.tar.gz -C .cache/fixture-bundle
+          codesign --verify --deep --strict .cache/fixture-bundle/installation/Jam.app
+          python3 e2e/fixtures/fetch_vm_image.py .cache/debian-bookworm-arm64.qcow2
+          mkdir -p .cache/previous-server
+          gh release download v0.0.4 --repo saffronjam/jam --pattern jam-v0.0.4-linux-aarch64.tar.gz --dir .cache/previous-server
+          python3 e2e/fixtures/build_bundle.py .cache/vm-bundle \
+            --trust .cache/fixture-bundle/trust --releases .cache/fixture-bundle/releases \
+            --remote-archive .cache/fixture-bundle/releases/v0.0.4/jam-v0.0.4-linux-aarch64.tar.gz \
+            --remote-previous-archive .cache/previous-server/jam-v0.0.4-linux-aarch64.tar.gz \
+            --remote-next-archive .cache/fixture-bundle/releases/v0.0.5/jam-v0.0.5-linux-aarch64.tar.gz \
+            --remote-incompatible-archive .cache/fixture-bundle/releases/incompatible/jam-incompatible-linux-aarch64.tar.gz \
+            --vm-image "$PWD/.cache/debian-bookworm-arm64.qcow2" \
+            --qemu "$(command -v qemu-system-aarch64)" --qemu-img "$(command -v qemu-img)" \
+            --vm-firmware "$(brew --prefix qemu)/share/qemu/edk2-aarch64-code.fd"
+      - name: Verify actual SSH, reconnect and systemd failure worlds
+        env:
+          E2E_CASES: ${{ inputs.cases }}
+        run: |
+          app="$PWD/.cache/fixture-bundle/installation/Jam.app"
+          selection=()
+          if [ -n "$E2E_CASES" ]; then
+            selection=(--allow-subset -k "$E2E_CASES")
+            echo "Explicit development subset: $E2E_CASES"
+          fi
+          .cache/e2e-bootstrap/bin/uv run --project e2e --locked pytest -c e2e/pyproject.toml e2e/transport \
+            --cli "$app/Contents/Resources/bin/jam" --daemon "$app/Contents/MacOS/jamd" \
+            --fixture-bundle "$PWD/.cache/vm-bundle/manifest.json" \
+            "${selection[@]}" \
+            --artifacts-dir e2e/artifacts/macos-ssh --junitxml=e2e/artifacts/macos-ssh.xml
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: macos-real-ssh-proof
+          path: e2e/artifacts/
+          if-no-files-found: error

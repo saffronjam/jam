@@ -1,0 +1,211 @@
+name: macOS automation proof
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      fixture_run:
+        description: Optional completed Fixture release artifacts run
+        type: string
+        required: false
+      cases:
+        description: Explicit partial development selector
+        type: string
+        default: TERM-001 or CFG-001 or DRAG-001 or INPUT-005
+        required: false
+      remote_worlds:
+        description: Provision real QEMU SSH worlds for this partial native diagnostic
+        type: boolean
+        default: false
+      native_cases:
+        description: Optional explicit partial native-control selector
+        type: string
+        required: false
+        default: ''
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: macos-driver-${{ github.event.pull_request.number || github.ref }}-${{ inputs.fixture_run || 'stock' }}-${{ inputs.cases || 'default' }}-${{ inputs.remote_worlds || false }}-${{ inputs.native_cases || 'all-controls' }}
+  cancel-in-progress: true
+jobs:
+  native-driver:
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      APPIUM_HOME: ${{ github.workspace }}/.cache/appium-home
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - name: Extract the standalone test project
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import shutil
+          from pathlib import Path
+
+          workspace = Path(os.environ['GITHUB_WORKSPACE']).resolve()
+          suite = Path(os.environ['RUNNER_TEMP']) / 'jam-e2e-standalone'
+          assert not suite.resolve().is_relative_to(workspace)
+          shutil.copytree(workspace / 'e2e', suite, ignore=shutil.ignore_patterns(
+              'artifacts', '.venv', '__pycache__', '.pytest_cache', '.ruff_cache', 'upstream'))
+          artifacts = workspace / 'e2e/artifacts'
+          artifacts.mkdir(parents=True, exist_ok=True)
+          (artifacts / 'standalone-project.json').write_text(json.dumps({
+              'suite': str(suite), 'product_checkout': str(workspace),
+              'scope': 'Only the E2E project is copied; the host checkout is not hidden.',
+          }, indent=2) + '\n')
+          with open(os.environ['GITHUB_ENV'], 'a') as env:
+              env.write(f'STANDALONE_SUITE={suite}\n')
+          PY
+      - name: Install the pinned automation tools
+        run: |
+          brew list tesseract >/dev/null 2>&1 || brew install tesseract
+          python3 -m venv .cache/e2e-bootstrap
+          .cache/e2e-bootstrap/bin/python -m pip install uv==0.13.5
+          npm install --prefix .cache/appium appium@3.9.1
+          .cache/appium/node_modules/.bin/appium driver install mac2@4.6.1
+          python3 e2e/environments/macos/prepare_driver.py "$APPIUM_HOME/node_modules/appium-mac2-driver"
+          sudo automationmodetool enable-automationmode-without-authentication
+          .cache/appium/node_modules/.bin/appium driver doctor mac2
+      - name: Record native input sources and display modes
+        run: |
+          mkdir -p e2e/artifacts/native-environment
+          swift e2e/native/macos/environment.swift > e2e/artifacts/native-environment/environment.json
+      - name: Fetch the unmodified published application
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test "$(uname -m)" = arm64
+          mkdir -p .cache/stock
+          gh release download v0.0.4 --repo saffronjam/jam --pattern Jam-v0.0.4-macos-arm64.zip --dir .cache/stock
+          ditto -xk .cache/stock/Jam-v0.0.4-macos-arm64.zip .cache/stock
+          codesign --verify --deep --strict .cache/stock/Jam.app
+      - name: Select the fixture installation for an explicit diagnostic run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FIXTURE_RUN: ${{ inputs.fixture_run }}
+          REMOTE_WORLDS: ${{ inputs.remote_worlds }}
+        run: |
+          echo "PROBE_APP=$PWD/.cache/stock/Jam.app" >> "$GITHUB_ENV"
+          if [ -n "$FIXTURE_RUN" ]; then
+            gh run view "$FIXTURE_RUN" --json name,conclusion,headSha > fixture-source.json
+            python3 - <<'PY'
+          import json
+          value = json.load(open('fixture-source.json'))
+          assert value['name'] == 'Fixture release artifacts' and value['conclusion'] == 'success', value
+          PY
+            gh run download "$FIXTURE_RUN" -n fixture-release-bundle -D .cache/fixture-input
+            mkdir -p .cache/fixture-bundle e2e/artifacts
+            tar -xzf .cache/fixture-input/fixture-release-bundle.tar.gz -C .cache/fixture-bundle
+            codesign --verify --deep --strict .cache/fixture-bundle/installation/Jam.app
+            remote=()
+            if [ "$REMOTE_WORLDS" = true ]; then
+              brew list qemu >/dev/null 2>&1 || brew install qemu
+              python3 e2e/fixtures/fetch_vm_image.py .cache/debian-bookworm-arm64.qcow2
+              mkdir -p .cache/previous-server
+              gh release download v0.0.4 --repo saffronjam/jam --pattern jam-v0.0.4-linux-aarch64.tar.gz --dir .cache/previous-server
+              remote=(
+                --remote-archive "$PWD/.cache/fixture-bundle/releases/v0.0.4/jam-v0.0.4-linux-aarch64.tar.gz"
+                --remote-previous-archive "$PWD/.cache/previous-server/jam-v0.0.4-linux-aarch64.tar.gz"
+                --remote-next-archive "$PWD/.cache/fixture-bundle/releases/v0.0.5/jam-v0.0.5-linux-aarch64.tar.gz"
+                --remote-incompatible-archive "$PWD/.cache/fixture-bundle/releases/incompatible/jam-incompatible-linux-aarch64.tar.gz"
+                --vm-image "$PWD/.cache/debian-bookworm-arm64.qcow2"
+                --qemu "$(command -v qemu-system-aarch64)" --qemu-img "$(command -v qemu-img)"
+                --vm-firmware "$(brew --prefix qemu)/share/qemu/edk2-aarch64-code.fd"
+              )
+            fi
+            python3 e2e/fixtures/build_bundle.py .cache/probe-bundle \
+              --trust .cache/fixture-bundle/trust --releases .cache/fixture-bundle/releases "${remote[@]}"
+            echo "PROBE_APP=$PWD/.cache/fixture-bundle/installation/Jam.app" >> "$GITHUB_ENV"
+            echo "PROBE_BUNDLE=$PWD/.cache/probe-bundle/manifest.json" >> "$GITHUB_ENV"
+            mv fixture-source.json e2e/artifacts/fixture-source.json
+          elif [ "$REMOTE_WORLDS" = true ]; then
+            echo 'Real remote diagnostic requires a completed fixture_run' >&2
+            exit 1
+          fi
+      - name: Start native WebDriver
+        run: |
+          mkdir -p e2e/artifacts
+          .cache/appium/node_modules/.bin/appium --address 127.0.0.1 --port 4723 --log "$PWD/e2e/artifacts/appium.log" &
+          python3 - <<'PY'
+          import time
+          from urllib.request import urlopen
+          deadline = time.monotonic() + 30
+          while True:
+              try:
+                  with urlopen('http://127.0.0.1:4723/status', timeout=1) as response:
+                      assert response.status == 200
+                  break
+              except OSError:
+                  if time.monotonic() >= deadline:
+                      raise
+                  time.sleep(.2)
+          PY
+      - name: Verify standalone runtime imports
+        working-directory: ${{ env.STANDALONE_SUITE }}
+        run: |
+          "$GITHUB_WORKSPACE/.cache/e2e-bootstrap/bin/uv" run --locked python - <<'PY'
+          import json
+          import os
+          import sys
+          from pathlib import Path
+          from jam_e2e import cases, driver, steps
+
+          root = Path.cwd().resolve()
+          origins = {module.__name__: str(Path(module.__file__).resolve())
+                     for module in (cases, driver, steps)}
+          assert all(Path(path).is_relative_to(root) for path in origins.values())
+          assert Path(sys.prefix).resolve().is_relative_to(root)
+          receipt = Path(os.environ['GITHUB_WORKSPACE']) / 'e2e/artifacts/standalone-runtime.json'
+          receipt.write_text(json.dumps({
+              'cwd': str(root), 'module_origins': origins,
+              'python_prefix': sys.prefix, 'shared_cases': len(cases.CASES),
+          }, indent=2) + '\n')
+          PY
+      - name: Verify native process attachment before SSH worlds
+        if: ${{ inputs.remote_worlds == true }}
+        working-directory: ${{ env.STANDALONE_SUITE }}
+        run: |
+          "$GITHUB_WORKSPACE/.cache/e2e-bootstrap/bin/uv" run --locked pytest -c pyproject.toml native_checks/test_macos_attachment.py \
+            --app "$GITHUB_WORKSPACE/.cache/stock/Jam.app" --platform macos \
+            --artifacts-dir "$GITHUB_WORKSPACE/e2e/artifacts/native-attachment" \
+            --junitxml="$GITHUB_WORKSPACE/e2e/artifacts/native-attachment.xml"
+      - name: Verify native AppKit input and display controls
+        if: ${{ inputs.fixture_run == '' && inputs.remote_worlds != true }}
+        working-directory: ${{ env.STANDALONE_SUITE }}
+        env:
+          NATIVE_CASES: ${{ inputs.native_cases }}
+        run: |
+          selector=()
+          if [ -n "$NATIVE_CASES" ]; then selector=(--allow-subset -k "$NATIVE_CASES"); fi
+          "$GITHUB_WORKSPACE/.cache/e2e-bootstrap/bin/uv" run --locked pytest -c pyproject.toml native_checks/test_macos_input.py \
+            --platform macos "${selector[@]}" \
+            --artifacts-dir "$GITHUB_WORKSPACE/e2e/artifacts/native-input" \
+            --junitxml="$GITHUB_WORKSPACE/e2e/artifacts/native-input.xml"
+      - name: Probe terminal, settings, dragging and key input
+        working-directory: ${{ env.STANDALONE_SUITE }}
+        env:
+          SELECTED_CASES: ${{ inputs.cases || 'TERM-001 or CFG-001 or DRAG-001 or INPUT-005' }}
+        run: |
+          fixture=()
+          if [ -n "${PROBE_BUNDLE:-}" ]; then fixture=(--fixture-bundle "$PROBE_BUNDLE"); fi
+          "$GITHUB_WORKSPACE/.cache/e2e-bootstrap/bin/uv" run --locked pytest -c pyproject.toml tests \
+            --app "$PROBE_APP" --platform macos "${fixture[@]}" --allow-subset \
+            -k "$SELECTED_CASES" \
+            --artifacts-dir "$GITHUB_WORKSPACE/e2e/artifacts/probe" \
+            --junitxml="$GITHUB_WORKSPACE/e2e/artifacts/probe.xml"
+      - name: Check the installed stock release
+        if: always()
+        working-directory: ${{ env.STANDALONE_SUITE }}
+        run: |
+          "$GITHUB_WORKSPACE/.cache/e2e-bootstrap/bin/uv" run --locked pytest -c pyproject.toml installed \
+            --app "$GITHUB_WORKSPACE/.cache/stock/Jam.app" --platform macos \
+            --artifacts-dir "$GITHUB_WORKSPACE/e2e/artifacts/stock" \
+            --junitxml="$GITHUB_WORKSPACE/e2e/artifacts/stock.xml"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: macos-native-driver-proof
+          path: e2e/artifacts/
+          if-no-files-found: error
