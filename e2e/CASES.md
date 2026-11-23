@@ -3668,7 +3668,7 @@ Behaviors: `takeover`.
 2. `('interrupt_remote_install',)`
 3. `('context', 'Fixture', 'machine')`
 4. `('click', 'Update Server…', 'menu')`
-5. `('enabled', 'Update and Restart', 'button')`
+5. `('enabled', 'Update and Restart', 'button', 90)`
 6. `('click', 'Update and Restart', 'button')`
 7. `('visible', 'Could not complete the server action.', 95)`
 8. `('observed_interrupted_install',)`

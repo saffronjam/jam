@@ -257,7 +257,8 @@ done
     elif op == "disabled":
         assert not ui.element(*args).is_enabled(), f"{args[0]} must be disabled"
     elif op == "enabled":
-        wait(lambda: ui.element(*args).is_enabled(), f"enabled {args[0]}")
+        name, role, *deadline = args
+        wait(lambda: ui.element(name, role).is_enabled(), f"enabled {name}", *deadline)
     elif op == "count":
         jam.count(*args)
     elif op == "live_panes":
