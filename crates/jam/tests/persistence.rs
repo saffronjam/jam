@@ -229,7 +229,9 @@ fn clipboard_images_are_stored_on_the_target_host_before_pasting() {
             }),
             Message::Ok
         ));
-        daemon.send(pane, "&& printf '\\111\\115\\101\\107\\105_OK\\n'\r");
+        // A slow login shell can print its first prompt after the PTY echoes our
+        // input. Start the probe output on its own line in either order.
+        daemon.send(pane, "&& printf '\\n\\111\\115\\101\\107\\105_OK\\n'\r");
         daemon.until(|| {
             daemon
                 .capture(pane)
