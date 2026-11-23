@@ -59,6 +59,8 @@ def serve(root, qemu, qemu_img, image, firmware, ready):
         command("/usr/bin/ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", key)
     seed = guest / "seed"
     seed.mkdir()
+    boot_marker = "jam-e2e-ready-" + uuid.uuid4().hex
+    console = root / "fixture-service-vm-console.log"
     config = {
         "hostname": "jam-fixture",
         "users": [
@@ -93,6 +95,7 @@ def serve(root, qemu, qemu_img, image, firmware, ready):
             ["systemctl", "daemon-reload"],
             ["systemctl", "enable", "--now", "jam-fixture-https.service"],
             ["touch", "/var/lib/jam-fixture-ready"],
+            ["sh", "-c", f"printf '\\n%s\\n' {boot_marker} > /dev/ttyAMA0"],
         ],
     }
     (seed / "user-data").write_text("#cloud-config\n" + json.dumps(config))
@@ -135,7 +138,7 @@ def serve(root, qemu, qemu_img, image, firmware, ready):
             "-boot",
             "strict=on",
             "-serial",
-            "file:" + str(root / "fixture-service-vm-console.log"),
+            "file:" + str(console),
             "-drive",
             "if=none,id=jam-os,format=qcow2,file=" + str(overlay),
             "-device",
@@ -150,7 +153,19 @@ def serve(root, qemu, qemu_img, image, firmware, ready):
         stdin=subprocess.DEVNULL,
     )
     try:
-        deadline = time.monotonic() + 420
+        deadline = time.monotonic() + 600
+        # Each successful SSH handshake creates a PAM session in the guest.
+        # Wait for cloud-init to finish installing packages through the serial
+        # console before running the first authenticated readiness check.
+        marker = boot_marker.encode()
+        while not console.is_file() or marker not in console.read_bytes().splitlines():
+            if process.poll() is not None:
+                raise AssertionError(f"SSH guest exited during boot: {process.returncode}")
+            if time.monotonic() >= deadline:
+                raise AssertionError("Cloud-init did not report readiness on the guest serial console")
+            if stopped.wait(2):
+                raise InterruptedError("SSH guest stopped during boot")
+
         while True:
             if process.poll() is not None:
                 raise AssertionError(f"SSH guest exited during boot: {process.returncode}")
@@ -161,17 +176,18 @@ def serve(root, qemu, qemu_img, image, firmware, ready):
                         "-F",
                         str(ssh / "config"),
                         "-oBatchMode=yes",
+                        "-oConnectTimeout=10",
                         "jam-fixture",
                         "test -f /var/lib/jam-fixture-ready && systemctl --user is-active default.target",
                     ],
                     check=False,
                     capture_output=True,
                     text=True,
-                    timeout=8,
+                    timeout=15,
                 )
                 if result.returncode == 0:
                     break
-                last_error = result.stderr
+                last_error = result.stderr.strip() or "the guest user manager is not active"
             except subprocess.TimeoutExpired:
                 last_error = "guest SSH handshake has not finished"
             if time.monotonic() >= deadline:

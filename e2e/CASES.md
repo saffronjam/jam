@@ -3652,8 +3652,8 @@ Behaviors: `takeover`.
 3. `('click', 'Take Over Server…', 'menu')`
 4. `('enabled', 'Take Over and Reconnect', 'button')`
 5. `('click', 'Take Over and Reconnect', 'button')`
-6. `('takeover_rolled_back',)`
-7. `('visible', 'Try Again', 100)`
+6. `('visible', 'Try Again', 150)`
+7. `('takeover_rolled_back',)`
 8. `('remote_file_text', 'takeover-executions', 'x')`
 9. `('enabled', 'Try Again', 'button')`
 10. `('click', 'Cancel', 'button')`
