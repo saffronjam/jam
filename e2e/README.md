@@ -4,6 +4,13 @@ This is a standalone Python/pytest project. It drives installed application arti
 through Appium Mac2 (macOS) or Selenium AT-SPI (Linux/Wayland). It does not import Jam
 code, link a Rust library, invoke Store callbacks, or require the Jam checkout.
 
+[New-main coverage](COVERAGE.md) tracks the scenarios and assertions for the
+changes through `004cf26`. The complete workflow requires the reviewed coverage
+ledger before provisioning. The two shards on each platform collect the full
+catalog first, then run even and odd catalog positions respectively. Their
+reports must contain every case exactly once, with matching source and fixture
+identities.
+
 ## Install and run
 
 Install Python 3.11+ and uv, then run `uv sync --locked` in this directory.
@@ -436,7 +443,7 @@ including `UPDATE-002`, `REMOTE-007`, `SERVER-001` through `SERVER-004`, and
 `SERVER-006`. These focused results do not establish the complete current
 macOS baseline. Missing recipes or installation artifacts remain hard setup errors.
 macOS fixture builds use the pinned repository toolchain on `macos-26`, while
-the native desktop scenarios continue to exercise the supported `macos-15`
+the native desktop scenarios continue to exercise the `macos-26`
 runtime.
 
 The `Fixture release artifacts` workflow builds real managed versions
@@ -505,8 +512,11 @@ incompatible wire protocol.
 The full macOS UI workflow now provisions these guests for remote scenarios;
 transport proof alone is not a passing remote UI result.
 
-`--remote-previous-archive` supplies a genuinely different older server build
-for update deferral. `--remote-next-archive` supplies a newer release for the
+`--remote-previous-archive` supplies a different older build with the same
+wire protocol for update deferral. `--remote-legacy-archive` supplies the
+published protocol-v7 server for explicit takeover. `--remote-limited-archive`
+supplies a compatible build without the image paste and workspace creation
+capabilities for client fallback and error scenarios. `--remote-next-archive` supplies a newer release for the
 required-client-upgrade world. That world's workspace is created with the newer
 installation's own CLI over SSH. Dependency checks verify real build versions
 and stable sessions; the shared native UI scenario must prove the upgrade gate.

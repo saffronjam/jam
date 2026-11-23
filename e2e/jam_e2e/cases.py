@@ -9,13 +9,14 @@ class Case:
     title: str
     steps: tuple
     fixture: str | None = None
+    behavior_ids: tuple[str, ...] = ()
 
 
 CASES = []
 
 
-def case(id, title, *steps, fixture=None):
-    CASES.append(Case(id, title, steps, fixture))
+def case(id, title, *steps, fixture=None, behavior_ids=()):
+    CASES.append(Case(id, title, steps, fixture, tuple(behavior_ids)))
 
 
 case(
@@ -526,7 +527,7 @@ DOMAINS = {
         ("remote-offline", None, "Offline"),
         ("remote-auth-rejected", None, "Permission denied"),
         ("remote-persistence-disabled", None, "Session persistence warning for Fixture"),
-        ("remote-incompatible", None, "update"),
+        ("remote-incompatible", None, "Takeover required"),
     ],
     "UPDATE": [
         ("update-available", None, "Upgrade…"),
@@ -904,7 +905,7 @@ INTEGRATION = [
         [
             ("click", "Codex", "button"),
             ("visible", "Codex usage"),
-            ("visible", "Account identity unavailable; shown separately for this machine."),
+            ("visible", "Account identity unavailable. Shown separately for this machine."),
             ("visible", "Local"),
         ],
     ),
@@ -926,10 +927,10 @@ INTEGRATION = [
         "USAGE-006",
         "usage-rate-limited",
         [
-            ("visible", "Usage service rate limited; retrying later"),
+            ("visible", "Usage service rate limited. Retrying later"),
             ("click", "Codex, fixture@example.invalid", "button"),
             ("visible", "Codex usage"),
-            ("visible", "Usage service rate limited; retrying later"),
+            ("visible", "Usage service rate limited. Retrying later"),
             ("key", "ESCAPE"),
             ("run", "printf usage-rate-shell-alive"),
             ("output", "usage-rate-shell-alive"),
@@ -1621,3 +1622,296 @@ for index, (provider, settings_path) in enumerate(
         ("home_json_equals", settings_path, USER_HOOK_SETTINGS),
         fixture="provider-custom-hooks",
     )
+
+# Reported identity is exercised by a foreground program, never by injecting
+# daemon state or invoking a client callback.
+for index, (reported, provider, label) in enumerate(
+    (("codex", "codex", "Codex"), ("claude-code", "claude", "Claude")), 1
+):
+    case(
+        f"IDENTITY-{index:03}",
+        f"Reported {label} identity survives activity acknowledgement and clear",
+        ("program_identity", reported),
+        ("pane_field", "agent_provider", provider),
+        ("pane_field", "agent_source", "reported"),
+        ("pane_field", "agent_role", None),
+        ("visible", label),
+        ("program_phase", "done"),
+        ("pane_field", "status", "done"),
+        ("click", "Terminal", "terminal"),
+        ("pane_field", "status", "unknown"),
+        ("pane_field", "agent_provider", provider),
+        ("visible", label),
+        ("program_phase", "clear"),
+        ("pane_field", "agent_provider", provider),
+        ("program_phase", "exit"),
+        ("pane_field", "agent_provider", None),
+        ("pane_field", "agent_source", None),
+        ("run", "printf identity-returned-to-shell"),
+        ("output", "identity-returned-to-shell"),
+        behavior_ids=("identity",),
+    )
+
+case(
+    "IDENTITY-003",
+    "A terminal title mentioning a provider does not register an agent",
+    ("run", "printf '\\033]0;codex build report\\007'"),
+    ("pane_field", "agent_provider", None),
+    ("pane_field", "agent_source", None),
+    ("pane_field", "agent_role", None),
+    ("run", "printf title-is-not-an-agent"),
+    ("output", "title-is-not-an-agent"),
+    behavior_ids=("identity",),
+)
+
+for index, (kind, menu, remote) in enumerate(
+    (("png", False, False), ("tiff", True, False), ("png", False, True)), 1
+):
+    case(
+        f"IMAGE-{index:03}",
+        f"{kind.upper()} paste writes a private image on the {'remote' if remote else 'local'} host",
+        *((("remote_shell",),) if remote else (("run", "true"),)),
+        ("clipboard_image", kind, True, False),
+        ("type_terminal", "printf '%s\\n' "),
+        *((("context", "Terminal", "terminal"), ("click", "Paste", "menu"))
+          if menu else (("paste",),)),
+        ("type_terminal", "queued-after-image > image-path.txt"),
+        ("key", "ENTER"),
+        ("image_paste_result", kind, remote),
+        fixture="remote-connected" if remote else None,
+        behavior_ids=("images",),
+    )
+
+case(
+    "IMAGE-004",
+    "Control-V in a reported agent pane pastes the image before queued input",
+    ("program_identity", "codex", "image-arguments"),
+    ("pane_field", "agent_source", "reported"),
+    ("clipboard_image", "png", True, False),
+    ("chord", "ctrl+v"),
+    ("type_terminal", "queued-after-image"),
+    ("key", "ENTER"),
+    ("image_paste_result", "png", False),
+    behavior_ids=("images", "identity"),
+)
+
+case(
+    "IMAGE-005",
+    "Oversized clipboard image is rejected without typing into the terminal",
+    ("probe",),
+    ("clipboard_image", "png", True, True),
+    ("paste",),
+    ("visible", "Clipboard image is too large"),
+    ("probe_no_input",),
+    ("probe_key", "x"),
+    ("probe_hex", "78"),
+    behavior_ids=("images",),
+)
+
+case(
+    "IMAGE-006",
+    "A server without image capability leaves its terminal usable",
+    ("remote_shell",),
+    ("clipboard_image", "png", True, False),
+    ("paste",),
+    ("visible", "Image pasting needs an updated Jam server on this machine"),
+    ("remote_shell", "printf image-error-shell-usable"),
+    ("remote_workspace_preserved",),
+    fixture="remote-limited",
+    behavior_ids=("images",),
+)
+
+case(
+    "CREATE-001",
+    "Failed worktree creation can be retried once after its base ref is repaired",
+    ("command", "New Worktree"),
+    ("fill", "Branch name", "creation-retry"),
+    ("fill", "Base revision", "repairable-base"),
+    ("click", "Create", "button"),
+    ("enabled", "Retry", "button"),
+    ("enabled", "Dismiss", "button"),
+    ("settle_count", "workspaces", 1),
+    ("git_no_branch", "creation-retry"),
+    ("git_update_ref", "repairable-base"),
+    ("click", "Retry", "button"),
+    ("created_workspace", "wt/Project ü with spaces/creation-retry", False),
+    ("run", "printf new-worktree-ready > creation-result.txt"),
+    ("home_file_text", "wt/Project ü with spaces/creation-retry/creation-result.txt", "new-worktree-ready"),
+    ("settle_count", "workspaces", 2),
+    ("git_branch", "creation-retry"),
+    behavior_ids=("creation",),
+)
+
+case(
+    "CREATE-002",
+    "Dismissing a failed worktree restores the previous usable terminal",
+    ("remember_layout",),
+    ("remember_pids",),
+    ("command", "New Worktree"),
+    ("fill", "Branch name", "creation-dismiss"),
+    ("fill", "Base revision", "invalid-creation-base"),
+    ("click", "Create", "button"),
+    ("enabled", "Retry", "button"),
+    ("click", "Dismiss", "button"),
+    ("absent", "Retry"),
+    ("same_layout",),
+    ("same_pids",),
+    ("git_no_branch", "creation-dismiss"),
+    ("run", "printf creation-dismissed"),
+    ("output", "creation-dismissed"),
+    behavior_ids=("creation",),
+)
+
+case(
+    "CREATE-003",
+    "A capability-limited remote creates one workspace in the remote home",
+    ("remote_shell",),
+    ("command", "New Workspace"),
+    ("created_workspace", "/home/fixture", True),
+    ("type_terminal", "printf remote-creation-ready > /home/fixture/project/creation-result.txt"),
+    ("key", "ENTER"),
+    ("remote_file_text", "creation-result.txt", "remote-creation-ready"),
+    fixture="remote-limited",
+    behavior_ids=("creation", "creation-recovery"),
+)
+
+case(
+    "TAKEOVER-001",
+    "Cancelling a legacy server takeover preserves its running sessions",
+    ("visible", "Takeover required", 60),
+    ("context", "Fixture", "machine"),
+    ("click", "Take Over Server…", "menu"),
+    ("visible", "Take over the server on Fixture?"),
+    ("visible", "Running terminals will stop"),
+    ("enabled", "Take Over and Reconnect", "button"),
+    ("click", "Cancel", "button"),
+    ("remote_workspace_preserved",),
+    ("remote_server_stable", 2),
+    fixture="remote-legacy",
+    behavior_ids=("takeover",),
+)
+
+case(
+    "TAKEOVER-002",
+    "An explicit legacy takeover restores the saved layout and starts fresh shells",
+    ("visible", "Takeover required", 60),
+    ("context", "Fixture", "machine"),
+    ("click", "Take Over Server…", "menu"),
+    ("enabled", "Take Over and Reconnect", "button"),
+    ("click", "Take Over and Reconnect", "button"),
+    ("remote_server_changed", "takeover"),
+    ("remote_file_text", "takeover-executions", "x"),
+    ("remote_shell", "printf y >> takeover-executions"),
+    ("remote_file_text", "takeover-executions", "xy"),
+    fixture="remote-legacy",
+    behavior_ids=("takeover",),
+)
+
+case(
+    "DIAG-001",
+    "Inspecting an unresponsive local server preserves its daemon and live shell",
+    ("remember_layout",),
+    ("remember_pids",),
+    ("suspend_daemon",),
+    ("visible", "Local server is not responding", 45),
+    ("context", "Local", "machine"),
+    ("click", "Server Details…", "menu"),
+    ("visible", "Server — Local"),
+    ("visible", "without stopping running sessions"),
+    ("resume_daemon",),
+    ("absent", "Server — Local"),
+    ("same_layout",),
+    ("same_pids",),
+    ("run", "printf daemon-recovered-without-restart"),
+    ("output", "daemon-recovered-without-restart"),
+    behavior_ids=("diagnostics",),
+)
+
+case(
+    "UPDATE-SETTINGS-001",
+    "Settings prepares and cancels one managed upgrade sheet",
+    ("remember_layout",),
+    ("remember_pids",),
+    ("settings", "General"),
+    ("click", "Check for Updates…", "button"),
+    ("visible", "Jam 0.0.5 is available"),
+    ("enabled", "Upgrade…", "button"),
+    ("click", "Upgrade…", "button"),
+    ("visible", "Upgrade Jam"),
+    ("enabled", "Upgrade and Restart", "button"),
+    ("click", "Cancel", "button"),
+    ("absent", "Upgrade Jam"),
+    ("installed_version", "0.0.4"),
+    ("same_layout",),
+    ("same_pids",),
+    fixture="update-available",
+    behavior_ids=("update-settings",),
+)
+
+case(
+    "ACCOUNT-001",
+    "A configured login appears without any active agent session",
+    ("visible", "USAGE"),
+    ("click", "Codex, fixture@example.invalid", "button"),
+    ("visible", "Codex usage"),
+    ("visible", "fixture@example.invalid"),
+    ("key", "ESCAPE"),
+    ("pane_field", "agent_provider", None),
+    ("run", "printf configured-account-shell-usable"),
+    ("output", "configured-account-shell-usable"),
+    fixture="usage-configured-login",
+    behavior_ids=("accounts",),
+)
+
+for index, mode in enumerate(("complete", "timeout"), 1):
+    case(
+        f"RENDER-{index:03}",
+        "Synchronized output hides partial redraws" if mode == "complete"
+        else "An unterminated synchronized redraw releases its frame after the deadline",
+        ("remember_pids",),
+        ("synchronized_frames", mode),
+        ("run", "printf input-after-synchronized-output"),
+        ("output", "input-after-synchronized-output"),
+        ("same_pids",),
+        behavior_ids=("rendering",),
+    )
+
+for index, interrupted in enumerate((False, True), 4):
+    case(
+        f"CREATE-{index:03}",
+        "An interrupted creation resumes its existing operation after Retry" if interrupted
+        else "A pending worktree becomes one selected workspace with a usable terminal",
+        ("hold_worktree_checkout",),
+        ("command", "New Worktree"),
+        ("fill", "Branch name", "pending-creation"),
+        ("fill", "Base revision", "HEAD"),
+        ("click", "Create", "button"),
+        ("checkout_pending",),
+        ("visible", "Opening workspace"),
+        *((("suspend_daemon",), ("visible", "Retry", 35), ("resume_daemon",))
+          if interrupted else ()),
+        ("release_worktree_checkout",),
+        *((("click", "Retry", "button"),) if interrupted else ()),
+        ("created_workspace", "wt/Project ü with spaces/pending-creation", False),
+        ("absent", "Opening workspace"),
+        ("run", "printf pending-worktree-ready > creation-result.txt"),
+        ("home_file_text", "wt/Project ü with spaces/pending-creation/creation-result.txt",
+         "pending-worktree-ready"),
+        ("settle_count", "workspaces", 2),
+        behavior_ids=("creation", "creation-recovery") if interrupted else ("creation",),
+    )
+
+case(
+    "CLOSE-001",
+    "A workspace with no live terminals closes without a confirmation",
+    ("write_config", "close_empty_tabs = false\nclose_empty_workspaces = false\n"),
+    ("relaunch",),
+    ("type_terminal", "exit"),
+    ("key", "ENTER"),
+    ("visible", "No terminals"),
+    ("count", "workspaces", 1),
+    ("command", "Close Workspace"),
+    ("settle_count", "workspaces", 0),
+    ("file_text", "tracked.txt", "first\nsecond\n"),
+    behavior_ids=("focus-close",),
+)

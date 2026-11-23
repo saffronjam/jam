@@ -36,6 +36,7 @@ HTTPS = (
     "usage-weekly",
     "usage-unknown-account",
     "usage-no-sessions",
+    "usage-configured-login",
     "usage-auth-error",
     "usage-rate-limited",
     "update-available",
@@ -55,11 +56,14 @@ REMOTE = (
 )
 
 
-def recipes(ssh_image=None, engine=None, vm=None, previous=False, newer=False, incompatible=False):
+def recipes(ssh_image=None, engine=None, vm=None, previous=False, newer=False,
+            incompatible=False, legacy=False, limited=False):
     values = {}
     remote_worlds = REMOTE + (("remote-update-available",) if previous else ())
     remote_worlds += (("update-required",) if newer else ())
     remote_worlds += (("remote-incompatible",) if incompatible else ())
+    remote_worlds += (("remote-legacy",) if legacy else ())
+    remote_worlds += (("remote-limited",) if limited else ())
     for recipe in LOCAL + HTTPS + (remote_worlds if ssh_image or vm else ()):
         values[recipe] = spec = {
             "setup": [["{python}", "{bundle}/provision_world.py", "{root}", recipe, "--repo", "{repo}"]],
@@ -95,6 +99,10 @@ def recipes(ssh_image=None, engine=None, vm=None, previous=False, newer=False, i
                 if recipe == "update-required"
                 else "{bundle}/remote/incompatible.tar.gz"
                 if recipe == "remote-incompatible"
+                else "{bundle}/remote/legacy.tar.gz"
+                if recipe == "remote-legacy"
+                else "{bundle}/remote/limited.tar.gz"
+                if recipe == "remote-limited"
                 else "{bundle}/remote/server.tar.gz"
             )
             if vm:
@@ -191,10 +199,15 @@ def build(
     remote_previous_archive=None,
     remote_next_archive=None,
     remote_incompatible_archive=None,
+    remote_legacy_archive=None,
+    remote_limited_archive=None,
 ):
     if ssh_image and vm:
         raise ValueError("Choose exactly one owned SSH host backend")
-    if (remote_previous_archive or remote_next_archive or remote_incompatible_archive) and not (ssh_image or vm):
+    variants = dict(previous=remote_previous_archive, newer=remote_next_archive,
+                    incompatible=remote_incompatible_archive, legacy=remote_legacy_archive,
+                    limited=remote_limited_archive)
+    if any(variants.values()) and not (ssh_image or vm):
         raise ValueError("Additional remote archives require an owned SSH host backend")
     output.mkdir(parents=True, exist_ok=True)
     for source in Path(__file__).parent.iterdir():
@@ -221,7 +234,7 @@ def build(
             fetch(Path(vm["image"]))
         (output / "remote").mkdir(exist_ok=True)
         shutil.copy2(remote_archive, output / "remote/server.tar.gz")
-        if remote_previous_archive or remote_next_archive or remote_incompatible_archive:
+        if any(variants.values()):
             import tarfile
 
             def build_info(archive):
@@ -236,26 +249,36 @@ def build(
 
             current = build_info(remote_archive)
             builds = {"current": current["server_build"]}
-            for name, archive in (("previous", remote_previous_archive), ("newer", remote_next_archive),
-                                  ("incompatible", remote_incompatible_archive)):
+            receipts = {"current": current}
+            for name, archive in variants.items():
                 if archive is None:
                     continue
                 other = build_info(archive)
                 assert current["server_build"] != other["server_build"], "Remote builds must differ"
                 assert current["arch"] == other["arch"], "Remote archive architectures must match"
-                if name == "newer":
-                    numeric = lambda value: tuple(map(int, value.split(".")))
-                    assert numeric(other["release_version"]) > numeric(current["release_version"])
-                    builds["newer_version"] = other["release_version"]
-                if name == "incompatible":
+                if name in {"previous", "newer", "limited"}:
+                    assert other["protocol"] == current["protocol"], f"{name} must use the current protocol"
+                if name in {"newer", "previous"}:
+                    version = tuple(map(int, other["release_version"].split(".")))
+                    current_version = tuple(map(int, current["release_version"].split(".")))
+                    if name == "newer":
+                        assert version > current_version, "Newer server must require a client upgrade"
+                        builds["newer_version"] = other["release_version"]
+                    else:
+                        assert version < current_version, "Previous server must be an older release"
+                if name in {"incompatible", "legacy"}:
                     assert other["protocol"] != current["protocol"], "Wire protocols must differ"
-                    builds["incompatible_protocol"] = other["protocol"]
+                    if name == "legacy":
+                        assert other["protocol"].startswith("jam/7:"), "Expected a published protocol-v7 server"
+                    builds[f"{name}_protocol"] = other["protocol"]
                 builds[name] = other["server_build"]
+                receipts[name] = other
                 shutil.copy2(archive, output / f"remote/{name}.tar.gz")
+            builds["archives"] = receipts
             (output / "remote/builds.json").write_text(json.dumps(builds) + "\n")
     (output / "manifest.json").write_text(
-        json.dumps(recipes(ssh_image, engine, vm, bool(remote_previous_archive), bool(remote_next_archive),
-                           bool(remote_incompatible_archive)), indent=2) + "\n"
+        json.dumps(recipes(ssh_image, engine, vm, **{name: bool(path) for name, path in variants.items()}),
+                   indent=2) + "\n"
     )
 
 
@@ -270,6 +293,8 @@ def main():
     parser.add_argument("--remote-previous-archive", type=Path)
     parser.add_argument("--remote-next-archive", type=Path)
     parser.add_argument("--remote-incompatible-archive", type=Path)
+    parser.add_argument("--remote-legacy-archive", type=Path)
+    parser.add_argument("--remote-limited-archive", type=Path)
     parser.add_argument("--vm-image", type=Path)
     parser.add_argument("--qemu", type=Path)
     parser.add_argument("--qemu-img", type=Path)
@@ -297,6 +322,8 @@ def main():
         args.remote_previous_archive,
         args.remote_next_archive,
         args.remote_incompatible_archive,
+        args.remote_legacy_archive,
+        args.remote_limited_archive,
     )
 
 

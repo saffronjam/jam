@@ -12,7 +12,7 @@ from pathlib import Path
 
 
 def prepare(source, output, version, cargo_target, revision="HEAD", wire_protocol=None,
-            failing_daemon=False):
+            failing_daemon=False, limited_capabilities=False):
     if not re.fullmatch(r"\d+\.\d+\.\d+", version):
         raise ValueError("Fixture version must be a stable numeric version")
     if output.exists():
@@ -62,6 +62,15 @@ def prepare(source, output, version, cargo_target, revision="HEAD", wire_protoco
         daemon.write_text(daemon_source.replace(
             entry, '    anyhow::bail!("E2E candidate daemon startup failure")',
         ))
+    if limited_capabilities:
+        server = output / "crates/jam-core/src/server.rs"
+        server_source = server.read_text()
+        for name in ("clipboard_images", "workspace_creation_v1"):
+            capability = f'                "{name}".into(),\n'
+            if server_source.count(capability) != 1:
+                raise ValueError(f"Cannot uniquely locate {name} capability")
+            server_source = server_source.replace(capability, "")
+        server.write_text(server_source)
     manifest = output / "Cargo.toml"
     text = manifest.read_text()
     data = tomllib.loads(text)
@@ -89,6 +98,7 @@ def prepare(source, output, version, cargo_target, revision="HEAD", wire_protoco
         "version": version,
         "wire_protocol": wire_protocol or original_protocol,
         "failing_daemon": failing_daemon,
+        "limited_capabilities": limited_capabilities,
     }
     (output / "fixture-variant.json").write_text(json.dumps(metadata, indent=2) + "\n")
     return metadata
@@ -104,6 +114,8 @@ def main():
     parser.add_argument("--wire-protocol", help="Compile a real incompatible fixture variant")
     parser.add_argument("--failing-daemon", action="store_true",
                         help="Compile a broken candidate to exercise installed rollback")
+    parser.add_argument("--limited-capabilities", action="store_true",
+                        help="Compile a compatible server without the new client capabilities")
     args = parser.parse_args()
     print(
         json.dumps(
@@ -115,6 +127,7 @@ def main():
                 args.revision,
                 args.wire_protocol,
                 args.failing_daemon,
+                args.limited_capabilities,
             ),
             indent=2,
         )

@@ -43,10 +43,10 @@ def server_changed(profile, kind):
     """Observe a UI-requested daemon transition; the peer CLI never starts it."""
     ids = json.loads((profile.root / "fixture-ids.json").read_text())
     builds = json.loads((Path(profile.env["JAM_E2E_REMOTE_ARCHIVE"]).parent / "builds.json").read_text())
-    expected = builds["current"] if kind == "update" else ids["remote_build"]
-    assert kind in {"update", "restart"}
-    if kind == "update":
-        assert expected != ids["remote_build"], "Fixture must start with a genuinely older server"
+    expected = builds["current"] if kind in {"update", "takeover"} else ids["remote_build"]
+    assert kind in {"update", "restart", "takeover"}
+    if kind in {"update", "takeover"}:
+        assert expected != ids["remote_build"], "Fixture must start with a different server build"
 
     def changed():
         try:

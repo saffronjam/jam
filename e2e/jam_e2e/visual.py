@@ -73,3 +73,67 @@ def terminal_text(ui, expected, appearance=None):
         return expected in text and theme_matches
 
     wait(rendered, f"actual terminal pixels show {expected!r} in {appearance or 'current'} appearance")
+
+
+def synchronized_frames(jam, mode):
+    """Sample real terminal images while an independent PTY program holds output."""
+    import shlex
+    import sys
+    import time
+    from pathlib import Path
+
+    ui, root = jam.ui, jam.profile.repo
+    path = root / "render-probe.json"
+    probe = Path(__file__).with_name("render_probe.py")
+    jam.terminal()
+    ui.type(shlex.join([sys.executable, str(probe), str(path), mode]))
+    ui.key("ENTER")
+    wait(path.exists, "synchronized output program startup")
+    colors = {"before": (24, 169, 78), "partial": (236, 18, 174), "after": (28, 108, 232)}
+
+    def capture():
+        start = time.monotonic_ns()
+        png, _ = terminal_pixels(ui)
+        end = time.monotonic_ns()
+        image = Image.open(io.BytesIO(png)).convert("RGB")
+        counts = image.getcolors(image.width * image.height)
+        labels = [name for name, expected in colors.items()
+                  if any(count >= 150 and all(abs(a - b) <= 5 for a, b in zip(rgb, expected))
+                         for count, rgb in counts)]
+        return dict(start=start, end=end, colors=labels), png
+
+    def initial():
+        sample, png = capture()
+        if "before" in sample["colors"]:
+            (root / "visual-sync-before.png").write_bytes(png)
+            return True
+        return False
+
+    wait(initial, "initial frame appears in native terminal pixels", timeout=10)
+    path.with_suffix(".go").touch()
+    samples = []
+    final_color = "after" if mode == "complete" else "partial"
+
+    def finished():
+        sample, png = capture()
+        samples.append(sample)
+        state = json.loads(path.read_text())
+        if state["phase"] != "finished" or final_color not in sample["colors"]:
+            return False
+        (root / "visual-sync-after.png").write_bytes(png)
+        return state["intervals"]
+
+    intervals = wait(finished, "completed redraw appears in native pixels", timeout=12)
+    inside = [s for s in samples if any(start <= s["start"] <= s["end"] <= end
+                                       for start, end in intervals)]
+    (root / "visual-sync-timing.json").write_text(json.dumps({
+        "mode": mode, "intervals": intervals, "samples": samples,
+    }, indent=2))
+    assert inside, "No native screenshot was captured entirely within the synchronized update"
+    assert all("partial" not in sample["colors"] for sample in inside), (
+        "A partial synchronized frame was presented"
+    )
+    assert any(set(sample["colors"]) & {"before", "after"} for sample in inside)
+    ui.type("exit")
+    ui.key("ENTER")
+    wait(path.with_suffix(".exited").exists, "render program leaves the terminal")

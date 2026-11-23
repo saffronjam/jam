@@ -54,7 +54,7 @@ jobs:
         id: cache
         with:
           path: build/fixture-release-bundle.tar.gz
-          key: managed-fixture-v1-${{ steps.day.outputs.value }}-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'crates/**', 'apps/macos/**', 'scripts/**', 'assets/**', 'skills/jam/**', 'LICENSE*', 'e2e/fixtures/prepare_trust.py', 'e2e/fixtures/sign_releases.py', '.github/workflows/e2e-release-fixtures.yml') }}
+          key: managed-fixture-v2-${{ steps.day.outputs.value }}-${{ inputs.ref || github.sha }}-${{ hashFiles('Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'crates/**', 'apps/macos/**', 'scripts/**', 'assets/**', 'skills/jam/**', 'LICENSE*', 'e2e/fixtures/prepare_trust.py', 'e2e/fixtures/sign_releases.py', '.github/workflows/e2e-release-fixtures.yml') }}
       - if: steps.import.outputs.cached == 'true' || steps.cache.outputs.cache-hit == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
@@ -84,7 +84,7 @@ jobs:
           - runner: ubuntu-24.04-arm
             arch: aarch64
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 45
+    timeout-minutes: 75
     env:
       FIXTURE_ARCH: ${{ matrix.arch }}
     steps:
@@ -103,15 +103,17 @@ jobs:
         run: |
           cargo fetch --locked
           docker build -t jam-fixture-builder -f scripts/Remote.Dockerfile .
-      - name: Build both releases and the real incompatible server
+      - name: Build compatible releases and server variants
         run: |
-          for variant in "$BASELINE_VERSION" "$TARGET_VERSION" incompatible; do
+          for variant in "$BASELINE_VERSION" "$TARGET_VERSION" previous incompatible limited failing; do
             version="$variant"
             extra=()
-            if [[ "$variant" == incompatible ]]; then
-              version="$BASELINE_VERSION"
-              extra=(--wire-protocol jam/6:e2e-incompatible)
-            fi
+            case "$variant" in
+              previous) version=0.0.3 ;;
+              incompatible) version="$BASELINE_VERSION"; extra=(--wire-protocol jam/6:e2e-incompatible) ;;
+              limited) version="$BASELINE_VERSION"; extra=(--limited-capabilities) ;;
+              failing) version="$TARGET_VERSION"; extra=(--failing-daemon) ;;
+            esac
             python3 scripts/e2e/prepare_variant.py --source "$PWD" --output "$PWD/.cache/variants/$variant" \
               --version "$version" --cargo-target "$PWD/.cache/fixture-target" "${extra[@]}"
             docker run --rm -v "$PWD:/work" -w "/work/.cache/variants/$variant" \
@@ -122,15 +124,18 @@ jobs:
               jam-fixture-builder python3 scripts/remote-build.py --fixture-services
             output="build/e2e-input/v$version"
             asset="jam-v$version-linux-$FIXTURE_ARCH.tar.gz"
-            if [[ "$variant" == incompatible ]]; then
-              output=build/e2e-input/incompatible
-              asset="jam-incompatible-linux-$FIXTURE_ARCH.tar.gz"
-            fi
+            case "$variant" in
+              previous|incompatible|limited|failing)
+                output="build/e2e-input/$variant"
+                asset="jam-$variant-linux-$FIXTURE_ARCH.tar.gz"
+                ;;
+            esac
             mkdir -p "$output/remote"
             cp ".cache/variants/$variant/build/remote/$FIXTURE_ARCH.tar.gz" "$output/remote/"
             cp ".cache/variants/$variant/build/remote/$FIXTURE_ARCH.json" "$output/remote/"
             cp ".cache/variants/$variant/build/remote/$FIXTURE_ARCH.snapshot" "$output/remote/"
             cp "$output/remote/$FIXTURE_ARCH.tar.gz" "$output/$asset"
+            cp ".cache/variants/$variant/fixture-variant.json" "$output/fixture-variant-$FIXTURE_ARCH.json"
           done
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
@@ -179,6 +184,7 @@ jobs:
             (cd "$variant" && scripts/release/build-macos.sh --fixture-services)
             python3 scripts/e2e/verify_remote_builds.py "$variant/build/packaging/Jam.app"
             cp "$variant/build/release/Jam-v$version-macos-arm64.zip" "build/e2e-input/v$version/"
+            cp "$variant/fixture-variant.json" "build/e2e-input/v$version/fixture-variant-macos-arm64.json"
           done
       - name: Check signed rollback and early refusal with the real fixture CLI
         run: |
@@ -207,6 +213,7 @@ jobs:
             --rollback-version "$TARGET_VERSION" \
             --daemon ".cache/variants/$TARGET_VERSION/build/packaging/Jam.app/Contents/MacOS/jamd"
           python3 e2e/fixtures/build_bundle.py build/fixture-bundle --trust build/e2e-trust --releases build/e2e-input
+          git rev-parse HEAD > build/fixture-bundle/source-revision
           mkdir -p build/fixture-bundle/installation
           ditto ".cache/variants/$BASELINE_VERSION/build/packaging/Jam.app" build/fixture-bundle/installation/Jam.app
           codesign --verify --deep --strict build/fixture-bundle/installation/Jam.app

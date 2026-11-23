@@ -30,6 +30,10 @@ def pytest_addoption(parser):
     group.addoption("--webdriver-url", default="http://127.0.0.1:4723")
     group.addoption("--fixture-bundle", help="External service/SSH/release fixture manifest")
     group.addoption("--artifacts-dir", default=str(Path(__file__).parent / "artifacts"))
+    group.addoption("--shard-index", type=int)
+    group.addoption("--shard-count", type=int)
+    group.addoption("--source-revision")
+    group.addoption("--fixture-producer")
     group.addoption(
         "--allow-subset",
         action="store_true",
@@ -37,12 +41,38 @@ def pytest_addoption(parser):
     )
 
 
+@pytest.hookimpl(trylast=True)
 def pytest_collection_modifyitems(config, items):
     config._jam_forbidden = []
     for item in items:
         if any(mark.name in {"skip", "skipif", "xfail"} for mark in item.iter_markers()):
             raise pytest.UsageError(f"Acceptance policy forbids skip/xfail: {item.nodeid}")
         item.add_marker("harness" if "harness" in item.path.parts else "acceptance")
+    index, count = config.getoption("--shard-index"), config.getoption("--shard-count")
+    if index is None and count is None:
+        return
+    if index is None or count is None:
+        raise pytest.UsageError("Both shard index and count are required")
+    if config.getoption("--allow-subset") or config.option.keyword or config.option.markexpr:
+        raise pytest.UsageError("Shards forbid --allow-subset, -k and -m")
+    from jam_e2e.cases import CASES
+    from jam_e2e.sharding import manifest
+
+    ids = [case.id for case in CASES]
+    collected = [getattr(getattr(item, "callspec", None), "params", {}).get("case")
+                 for item in items]
+    if [getattr(case, "id", None) for case in collected] != ids:
+        raise pytest.UsageError("Sharding requires the complete shared catalog")
+    try:
+        receipt = manifest(ids, index, count, config.getoption("--platform"),
+                           config.getoption("--source-revision"),
+                           config.getoption("--fixture-producer"))
+    except ValueError as error:
+        raise pytest.UsageError(str(error)) from error
+    folder = Path(config.getoption("--artifacts-dir"))
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "shard.json").write_text(json.dumps(receipt, indent=2) + "\n")
+    items[:] = items[index::count]
 
 
 def pytest_deselected(items):
@@ -345,8 +375,9 @@ def jam(request, case):
                             shutil.copy2(source, evidence / source.name)
             except Exception:
                 failures.append("Native evidence retention:\n" + traceback.format_exc())
-            callbacks = [client.close_clients, ui.restore_display_scale, ui.restore_input_source,
-                         ui.restore_clipboard, ui.quit, profile.stop]
+            callbacks = [profile.release_checkout, profile.resume_daemon, client.close_clients,
+                         ui.restore_display_scale, ui.restore_input_source, ui.restore_clipboard,
+                         ui.quit, profile.stop]
             if resources:
                 callbacks.append(resources.stop)
             for cleanup in callbacks:
