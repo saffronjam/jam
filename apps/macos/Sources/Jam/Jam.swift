@@ -371,6 +371,7 @@ final class Store: ObservableObject {
         home: FileManager.default.homeDirectoryForCurrentUser,
         fromTerminal: isatty(STDIN_FILENO) == 1 || isatty(STDOUT_FILENO) == 1
           || isatty(STDERR_FILENO) == 1)
+      openedLaunchDirectory = launchDirectory == nil
     } catch { self.error = "\(error)" }
     appUpgrade.onServerActionRequired = { [weak self] endpoint in
       self?.showServerAction(endpoint, kind: .takeover)
@@ -378,7 +379,7 @@ final class Store: ObservableObject {
     reloadRemotes()
     reloadConfig()
     installShortcuts()
-    if launchDirectory != nil { start() }
+    if launchDirectory != nil || openedLaunchDirectory { start() }
     timer = Timer.scheduledTimer(withTimeInterval: 0.6, repeats: true) { [weak self] _ in
       self?.refresh()
       self?.refreshRemotes()
@@ -432,7 +433,7 @@ final class Store: ObservableObject {
       {
         let existing = entries.first {
           ($0["path"] as? String).map {
-            URL(fileURLWithPath: $0).standardizedFileURL.resolvingSymlinksInPath() == directory
+            LaunchDirectory.matches($0, directory: directory)
           } ?? false
         }
         if let existing, let id = existing["id"] as? String {
@@ -445,7 +446,10 @@ final class Store: ObservableObject {
             let ws = next["workspaces"] as? [[String: Any]]
           {
             targetID =
-              ws.first(where: { $0["path"] as? String == directory.path })?["id"] as? String
+              ws.first(where: {
+                ($0["path"] as? String).map { LaunchDirectory.matches($0, directory: directory) }
+                  ?? false
+              })?["id"] as? String
           }
         }
       }
