@@ -2575,6 +2575,30 @@ case(
 )
 
 case(
+    "CREATE-015",
+    "A pending worktree protects the previous terminal from input during handoff",
+    ("probe",),
+    ("hold_worktree_checkout",),
+    ("command", "New Worktree"),
+    ("fill", "Branch name", "isolated-handoff"),
+    ("fill", "Base revision", "HEAD"),
+    ("click", "Create", "button"),
+    ("checkout_pending",),
+    ("visible", "Opening workspace"),
+    ("key", "ESCAPE"),
+    ("probe_no_input",),
+    ("release_worktree_checkout",),
+    ("created_workspace", "wt/Project ü with spaces/isolated-handoff", False),
+    ("run", "printf handed-off > creation-focus.txt"),
+    ("home_file_text", "wt/Project ü with spaces/isolated-handoff/creation-focus.txt", "handed-off"),
+    ("probe_no_input",),
+    ("click", "Project ü with spaces", "row"),
+    ("probe_key", "x"),
+    ("probe_hex", "78"),
+    behavior_ids=("creation", "focus-close"),
+)
+
+case(
     "UPDATE-SETTINGS-002",
     "A slow Settings download shows one progress sheet and can be cancelled",
     ("remember_layout",),
