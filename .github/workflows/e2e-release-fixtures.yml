@@ -105,14 +105,13 @@ jobs:
           docker build -t jam-fixture-builder -f scripts/Remote.Dockerfile .
       - name: Build compatible releases and server variants
         run: |
-          for variant in "$BASELINE_VERSION" "$TARGET_VERSION" previous incompatible limited failing; do
+          for variant in "$BASELINE_VERSION" "$TARGET_VERSION" previous incompatible limited; do
             version="$variant"
             extra=()
             case "$variant" in
               previous) version=0.0.3 ;;
               incompatible) version="$BASELINE_VERSION"; extra=(--wire-protocol jam/6:e2e-incompatible) ;;
               limited) version="$BASELINE_VERSION"; extra=(--limited-capabilities) ;;
-              failing) version="$TARGET_VERSION"; extra=(--failing-daemon) ;;
             esac
             python3 scripts/e2e/prepare_variant.py --source "$PWD" --output "$PWD/.cache/variants/$variant" \
               --version "$version" --cargo-target "$PWD/.cache/fixture-target" "${extra[@]}"
@@ -125,7 +124,7 @@ jobs:
             output="build/e2e-input/v$version"
             asset="jam-v$version-linux-$FIXTURE_ARCH.tar.gz"
             case "$variant" in
-              previous|incompatible|limited|failing)
+              previous|incompatible|limited)
                 output="build/e2e-input/$variant"
                 asset="jam-$variant-linux-$FIXTURE_ARCH.tar.gz"
                 ;;
@@ -206,20 +205,6 @@ jobs:
           mkdir -p "$output"
           cp "$variant/build/release/Jam-v$TARGET_VERSION-macos-arm64.zip" "$output/"
           cp "$variant/fixture-variant.json" "$output/fixture-variant.json"
-      - name: Package an installation with a failing remote replacement candidate
-        run: |
-          export JAM_FIXTURE_ORIGIN=https://localhost:49651
-          export JAM_FIXTURE_CA_FILE="$PWD/build/e2e-trust/ca.pem"
-          export JAM_FIXTURE_UPDATE_KEY_FILE="$PWD/build/e2e-trust/update-public-key.hex"
-          variant="$PWD/.cache/variants/takeover-failure"
-          python3 scripts/e2e/prepare_variant.py --source "$PWD" --output "$variant" \
-            --version "$BASELINE_VERSION" --cargo-target "$PWD/.cache/fixture-target"
-          mkdir -p "$variant/build/remote" build/e2e-input/takeover-failure
-          cp build/e2e-input/failing/remote/* "$variant/build/remote/"
-          (cd "$variant" && scripts/release/build-macos.sh --fixture-services)
-          codesign --verify --deep --strict "$variant/build/packaging/Jam.app"
-          cp "$variant/build/release/Jam-v$BASELINE_VERSION-macos-arm64.zip" \
-            build/e2e-input/takeover-failure/Jam-macos-arm64.zip
       - name: Seal an unmanaged installation of the same application
         run: |
           source=".cache/variants/$BASELINE_VERSION/build/packaging/Jam.app"

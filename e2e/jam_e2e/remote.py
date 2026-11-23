@@ -86,11 +86,12 @@ def interrupted_install_receipt(profile):
 
 def takeover_rolled_back(profile):
     ids = json.loads((profile.root / "fixture-ids.json").read_text())
-    bundle = Path(profile.env["JAM_E2E_REMOTE_ARCHIVE"]).parents[1]
-    candidate = json.loads((bundle / "releases/failing/remote/aarch64.json").read_text())
-    [attempt] = [tx for tx in server_transactions(profile) if tx.get("phase") == "rolled_back"
-                 and tx.get("new_build") == candidate["build"]]
-    assert attempt["old_build"] != attempt["new_build"]
+    builds = Path(profile.env["JAM_E2E_REMOTE_ARCHIVE"]).parent / "builds.json"
+    archives = json.loads(builds.read_text())["archives"]
+    candidate = archives["current"]
+    [attempt] = [tx for tx in server_transactions(profile) if tx.get("new_build") == candidate["build"]]
+    assert attempt["phase"] == "rolled_back", attempt
+    assert attempt["old_build"] == archives["legacy"]["build"] != attempt["new_build"]
     journal = peer_command(profile, "journalctl --user -u jamd.service --no-pager -n 100")
     assert "E2E candidate daemon startup failure" in journal
     info = peer_call(profile, "daemon", "info")["HostInfo"]
@@ -101,7 +102,7 @@ def takeover_rolled_back(profile):
     assert {p["id"] for p in state["panes"]} == set(ids["remote_sessions"])
     evidence = profile.root / "fixture-takeover-rollback.json"
     evidence.write_text(json.dumps({"candidate": candidate, "transaction": attempt,
-                                    "restored": info}, indent=2))
+                                    "restored": info, "service_journal": journal}, indent=2))
 
 
 def server_changed(profile, kind):

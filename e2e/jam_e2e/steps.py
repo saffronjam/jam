@@ -218,6 +218,12 @@ done
         ui.restore_input_source()
     elif op == "visible":
         ui.expect(*args)
+    elif op == "server_unresponsive":
+        def unresponsive():
+            texts = ui.texts()
+            return "Not responding" in texts or "Server unavailable" in texts
+
+        wait(unresponsive, "unresponsive owned server status", timeout=60)
     elif op == "single_sheet":
         ui.expect_single_sheet(*args)
     elif op == "stable_visible":
@@ -378,10 +384,12 @@ done
         marker = profile.temporary / f"jam-clipboard-{os.geteuid()}"
         assert marker.read_text() == "Keep this existing file"
         assert list(profile.temporary.glob("jam-clipboard-*/*.png")) == []
+    elif op == "open_workspace":
+        jam.open_workspace()
     elif op == "open_directory":
         path = profile.home / args[0]
         path.mkdir(exist_ok=True)
-        jam.command("Open Workspace")
+        jam.open_workspace()
         ui.choose_directory(path)
     elif op == "usage_requests_from_both_hosts":
         events = profile.root / "https.events"

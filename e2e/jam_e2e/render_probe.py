@@ -53,7 +53,8 @@ def main(path, mode):
             time.sleep(0.01)
             send("26h")
             frame((236, 18, 174))
-            time.sleep(0.72)
+            receipt({"phase": "holding", "intervals": intervals})
+            time.sleep(0.80)
             if mode == "complete":
                 frame((28, 108, 232))
                 send("\x1b[?2026l")

@@ -796,22 +796,21 @@ final class WorkspaceOutline: NSOutlineView {
       if let endpoint = item.machine { coordinator?.store.reconnectMachine(endpoint) }
       return
     }
-    if item.isCoordinator {
-      dragOrigin = nil
-      draggedItem = nil
-      selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
-      return
-    }
-    if event.clickCount == 2 {
+    if !item.isCoordinator && event.clickCount == 2 {
       dragOrigin = nil
       draggedItem = nil
       coordinator?.beginRename(item, outline: self)
       return
     }
     reorderSession = nil
-    dragOrigin = event
-    draggedItem = item
-    selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+    dragOrigin = item.isCoordinator ? nil : event
+    draggedItem = item.isCoordinator ? nil : item
+    if selectedRow == row, let workspace = item.workspace {
+      coordinator?.store.select(
+        workspace.id, surface: item.isCoordinator ? .coordinator : .terminals)
+    } else {
+      selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+    }
   }
   override func mouseDragged(with event: NSEvent) {
     guard let coordinator, let origin = dragOrigin, let source = draggedItem else { return }

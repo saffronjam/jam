@@ -3,6 +3,7 @@ import os
 import re
 import signal
 import subprocess
+import sys
 import time
 import uuid
 from pathlib import Path
@@ -41,6 +42,8 @@ class Profile:
             SHELL="/bin/bash",
             JAM_E2E_CLI=str(cli),
         )
+        if sys.platform == "darwin":
+            self.env["CFFIXED_USER_HOME"] = str(self.home)
         # Never inherit agent credentials into a fixture shell.
         for key in list(self.env):
             if any(token in key for token in ("TOKEN", "API_KEY", "SECRET", "AUTHORIZATION")):

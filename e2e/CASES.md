@@ -3109,22 +3109,25 @@ Behaviors: `diagnostics`.
 1. `('remember_layout',)`
 2. `('remember_pids',)`
 3. `('suspend_daemon',)`
-4. `('visible', 'Not responding', 60)`
+4. `('server_unresponsive',)`
 5. `('context', 'Local', 'machine')`
-6. `('click', 'Server Details…', 'menu')`
-7. `('visible', 'Server — Local')`
-8. `('visible', 'without stopping running sessions')`
-9. `('visible', 'Local server is not responding')`
-10. `('enabled', 'Retry', 'button')`
-11. `('click', 'Retry', 'button')`
-12. `('enabled', 'Retry', 'button')`
-13. `('visible', 'without stopping running sessions')`
-14. `('resume_daemon',)`
-15. `('absent', 'Server — Local')`
-16. `('same_layout',)`
-17. `('same_pids',)`
-18. `('run', 'printf daemon-recovered-without-restart')`
-19. `('output', 'daemon-recovered-without-restart')`
+6. `('absent', 'Take Over Server…')`
+7. `('absent', 'Server update required')`
+8. `('disabled', 'Restart Server…', 'menu')`
+9. `('click', 'Server Details…', 'menu')`
+10. `('visible', 'Server — Local')`
+11. `('visible', 'without stopping running sessions')`
+12. `('visible', 'Local server is not responding')`
+13. `('enabled', 'Retry', 'button')`
+14. `('click', 'Retry', 'button')`
+15. `('enabled', 'Retry', 'button')`
+16. `('visible', 'without stopping running sessions')`
+17. `('resume_daemon',)`
+18. `('absent', 'Server — Local')`
+19. `('same_layout',)`
+20. `('same_pids',)`
+21. `('run', 'printf daemon-recovered-without-restart')`
+22. `('output', 'daemon-recovered-without-restart')`
 
 ## DIAG-002: A broken SSH path exposes inspection and Retry without enabling destructive actions
 
@@ -3296,11 +3299,12 @@ Behaviors: `focus-close`.
 2. `('relaunch',)`
 3. `('type_terminal', 'exit')`
 4. `('key', 'ENTER')`
-5. `('visible', 'No terminals')`
-6. `('count', 'workspaces', 1)`
-7. `('command', 'Close Workspace')`
-8. `('settle_count', 'workspaces', 0)`
-9. `('file_text', 'tracked.txt', 'first\nsecond\n')`
+5. `('live_panes', 0)`
+6. `('visible', 'Start Shell')`
+7. `('count', 'workspaces', 1)`
+8. `('command', 'Close Workspace')`
+9. `('settle_count', 'workspaces', 0)`
+10. `('file_text', 'tracked.txt', 'first\nsecond\n')`
 
 ## CLOSE-002: A live worktree requires confirmation before closing an empty project
 
@@ -3313,7 +3317,7 @@ Behaviors: `focus-close`.
 3. `('click', 'Fixture', 'row')`
 4. `('type_terminal', 'exit')`
 5. `('key', 'ENTER')`
-6. `('visible', 'No terminals')`
+6. `('visible', 'Start Shell')`
 7. `('remember_pids',)`
 8. `('live_panes', 1)`
 9. `('context', 'Fixture', 'row')`
@@ -3342,7 +3346,7 @@ Behaviors: `focus-close`.
 3. `('click', 'Fixture', 'row')`
 4. `('type_terminal', 'exit')`
 5. `('key', 'ENTER')`
-6. `('visible', 'No terminals')`
+6. `('visible', 'Start Shell')`
 7. `('remember_pids',)`
 8. `('live_panes', 1)`
 9. `('context', 'Fixture', 'row')`
@@ -3433,14 +3437,14 @@ Fixture: `remote-connected`.
 Behaviors: `creation`.
 
 1. `('remote_shell', 'mkdir -p /home/fixture/opened-directory')`
-2. `('command', 'Open Workspace')`
+2. `('open_workspace',)`
 3. `('visible', 'Open Remote Workspace')`
 4. `('fill', 'Path', '/home/fixture/opened-directory')`
 5. `('click', 'Go', 'button')`
 6. `('enabled', 'Open', 'button')`
 7. `('click', 'Open', 'button')`
 8. `('created_workspace', '/home/fixture/opened-directory', True)`
-9. `('command', 'Open Workspace')`
+9. `('open_workspace',)`
 10. `('fill', 'Path', '/home/fixture/opened-directory')`
 11. `('click', 'Go', 'button')`
 12. `('enabled', 'Open', 'button')`
@@ -3633,7 +3637,7 @@ Behaviors: `accounts`.
 12. `('key', 'ESCAPE')`
 13. `('remote_workspace_preserved',)`
 
-## TAKEOVER-004: A compiled replacement that cannot start rolls back the remote server
+## TAKEOVER-004: A replacement refused by the remote service rolls back to the previous server
 
 Fixture: `remote-takeover-failure`.
 

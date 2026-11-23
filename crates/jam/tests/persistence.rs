@@ -102,6 +102,56 @@ impl Drop for Daemon {
 }
 
 #[test]
+fn unresponsive_local_server_reports_inspection_failure_without_takeover() {
+    let daemon = Daemon::start();
+    let state = daemon.create();
+    let Message::HostInfo { incarnation, .. } = daemon.request(Request::HostInfo) else {
+        panic!("expected the initial daemon identity");
+    };
+    let pid = daemon.child.id().to_string();
+    let signal = |name| {
+        assert!(
+            Command::new("/bin/kill")
+                .args([name, &pid])
+                .status()
+                .unwrap()
+                .success()
+        );
+    };
+    signal("-STOP");
+    let request = serde_json::json!({"action":"status", "daemon":env!("CARGO_BIN_EXE_jamd")});
+    let result =
+        server_control::manage_at(&request, &daemon.socket, &daemon.dir.path().join("state"));
+    signal("-CONT");
+    let status = result.unwrap();
+    assert_eq!(status["state"], "inspection_failed", "{status}");
+    assert_eq!(status["management_available"], false, "{status}");
+    assert_eq!(status["failure"]["retryable"], true, "{status}");
+    assert_ne!(status["can_takeover"], true, "{status}");
+    assert!(
+        status["error"]
+            .as_str()
+            .unwrap()
+            .contains("server is not responding")
+    );
+    let Message::HostInfo {
+        incarnation: resumed,
+        ..
+    } = daemon.request(Request::HostInfo)
+    else {
+        panic!("expected the resumed daemon identity");
+    };
+    assert_eq!(resumed, incarnation);
+    let resumed = daemon.state();
+    assert_eq!(resumed.panes[0].id, state.panes[0].id);
+    assert_eq!(
+        resumed.panes[0].session_generation,
+        state.panes[0].session_generation
+    );
+    assert!(!resumed.panes[0].exited);
+}
+
+#[test]
 fn a_blocked_coordination_write_does_not_block_health_or_terminal_input() {
     assert!(rusqlite::version_number() >= 3_051_003);
     let daemon = Daemon::start();
