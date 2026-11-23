@@ -125,7 +125,11 @@ fn ssh(destination: &str) -> Result<Command> {
     ]);
     ASKPASS.with(|helper| {
         if let Some(helper) = helper.borrow().as_ref() {
-            cmd.args(["-oBatchMode=no", "-oStrictHostKeyChecking=ask"]);
+            cmd.args([
+                "-oBatchMode=no",
+                "-oStrictHostKeyChecking=ask",
+                "-oNumberOfPasswordPrompts=1",
+            ]);
             cmd.env("SSH_ASKPASS", helper)
                 .env("SSH_ASKPASS_REQUIRE", "force")
                 .env("DISPLAY", ":0");
@@ -260,19 +264,33 @@ pub fn connect(id: &str) -> Result<PathBuf> {
             socket: path.clone(),
         },
     );
-    for _ in 0..100 {
-        if path.exists() {
-            return Ok(path);
-        }
-        if active.get_mut(id).unwrap().process.try_wait()?.is_some() {
+    drop(active);
+    let interactive = ASKPASS.with(|helper| helper.borrow().is_some());
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        let mut active = tunnels().lock().unwrap();
+        let Some(tunnel) = active.get_mut(id) else {
+            bail!("SSH forwarding cancelled");
+        };
+        if tunnel.process.try_wait()?.is_some() {
             let error = fs::read_to_string(&log_path).unwrap_or_default();
             active.remove(id);
             bail!("SSH forwarding failed: {}", error.trim());
         }
+        if path.exists() {
+            return Ok(path);
+        }
+        // OpenSSH owns the authentication exchange, including time spent in
+        // the native prompt. A forwarding deadline must not expire while the
+        // user is answering it. Batch connections retain their bounded wait.
+        if !interactive && std::time::Instant::now() >= deadline {
+            active.remove(id);
+            bail!("SSH forwarding timed out");
+        }
+        // Disconnect and other endpoints must remain usable during a prompt.
+        drop(active);
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
-    active.remove(id);
-    bail!("SSH forwarding timed out")
 }
 fn lifecycle_lock(id: &str) -> std::sync::Arc<Mutex<()>> {
     static LOCKS: OnceLock<Mutex<HashMap<String, std::sync::Arc<Mutex<()>>>>> = OnceLock::new();
@@ -457,6 +475,101 @@ mod tests {
         let endpoint = std::env::var("JAM_TUNNEL_TEST_ENDPOINT").unwrap();
         let role = std::env::var("JAM_TUNNEL_TEST_ROLE").unwrap();
         TEST_SSH.with(|command| *command.borrow_mut() = Some(directory.join("ssh-fixture")));
+        if role == "cancel-password" {
+            let socket = local_socket(&endpoint).unwrap();
+            let waiting_endpoint = endpoint.clone();
+            let executable = directory.join("ssh-fixture");
+            let waiting = std::thread::spawn(move || {
+                with_test_ssh(executable, || {
+                    interactive(Some("native-askpass".into()), || connect(&waiting_endpoint))
+                })
+            });
+            let marker = directory.join("cancel-forward-started");
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+            while !marker.exists() || !tunnels().lock().unwrap().contains_key(&endpoint) {
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "SSH fixture did not start"
+                );
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            let started = std::time::Instant::now();
+            disconnect(&endpoint);
+            assert!(
+                started.elapsed() < std::time::Duration::from_secs(2),
+                "A pending authentication must not hold the tunnel registry lock"
+            );
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            while !waiting.is_finished() {
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "Cancelled SSH wait did not finish"
+                );
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            assert!(
+                waiting
+                    .join()
+                    .unwrap()
+                    .unwrap_err()
+                    .to_string()
+                    .contains("cancelled")
+            );
+            assert!(!socket.exists());
+            return;
+        }
+        if role == "password" {
+            let artifacts = directory.join("artifacts");
+            let (socket, persistent) = interactive(Some("native-askpass".into()), || {
+                ensure(&endpoint, &artifacts)
+            })
+            .unwrap();
+            assert!(persistent);
+            assert_eq!(
+                ensure(&endpoint, &artifacts).unwrap(),
+                (socket.clone(), true)
+            );
+            assert_eq!(
+                fs::read_to_string(directory.join("ssh-calls"))
+                    .unwrap()
+                    .lines()
+                    .count(),
+                3
+            );
+
+            fs::copy(
+                directory.join("newer-host-frame"),
+                directory.join("host-frame"),
+            )
+            .unwrap();
+            let error = ensure(&endpoint, &artifacts).unwrap_err();
+            assert!(
+                error
+                    .downcast_ref::<crate::release_version::UpgradeRequired>()
+                    .is_some()
+            );
+            assert_eq!(
+                fs::read_to_string(directory.join("ssh-calls"))
+                    .unwrap()
+                    .lines()
+                    .count(),
+                3
+            );
+
+            fs::write(directory.join("drop-host-reply"), "drop").unwrap();
+            let error = ensure(&endpoint, &artifacts).unwrap_err();
+            assert!(error.to_string().contains("Permission denied"), "{error:#}");
+            assert!(
+                !socket.exists(),
+                "A failed cached RPC must discard the stale tunnel"
+            );
+
+            disconnect(&endpoint);
+            assert!(!socket.exists());
+            let error = ensure(&endpoint, &artifacts).unwrap_err();
+            assert!(error.to_string().contains("Permission denied"), "{error:#}");
+            return;
+        }
         let socket = connect(&endpoint).unwrap();
         let report = directory.join(format!("{role}.path"));
         let staging = report.with_extension("tmp");
@@ -618,6 +731,120 @@ finally:
         assert!(!gui_socket.parent().unwrap().exists());
     }
     #[test]
+    fn background_refresh_reuses_password_authenticated_tunnel() {
+        use std::os::unix::fs::PermissionsExt;
+        let fixture = tempfile::tempdir().unwrap();
+        let directory = fixture.path();
+        let state = directory.join("state");
+        server::private_dir(&state).unwrap();
+        let endpoint = crate::id();
+        fs::write(
+            state.join("remotes.json"),
+            serde_json::to_vec(&vec![Remote {
+                id: endpoint.clone(),
+                name: "fixture".into(),
+                destination: "fixture-host".into(),
+            }])
+            .unwrap(),
+        )
+        .unwrap();
+        let mut hello = Vec::new();
+        crate::protocol::write_frame(&mut hello, &Message::Hello(crate::VERSION.into())).unwrap();
+        fs::write(directory.join("hello-frame"), hello).unwrap();
+        for (file, version) in [
+            ("host-frame", crate::RELEASE_VERSION),
+            ("newer-host-frame", "99999.0.0"),
+        ] {
+            let mut host = Vec::new();
+            crate::protocol::write_frame(
+                &mut host,
+                &Message::HostInfo {
+                    release_version: Some(version.into()),
+                    home: "/fixture".into(),
+                    protocol: crate::VERSION.into(),
+                    build: "fixture".into(),
+                    engine: "fixture".into(),
+                    incarnation: "fixture".into(),
+                },
+            )
+            .unwrap();
+            fs::write(directory.join(file), host).unwrap();
+        }
+        let executable = directory.join("ssh-fixture");
+        fs::write(
+            &executable,
+            r#"#!/usr/bin/env python3
+import json, os, pathlib, select, socket, sys, time
+root = pathlib.Path(__file__).parent
+with (root / 'ssh-calls').open('a') as log:
+    log.write('ssh\n')
+if os.environ.get('SSH_ASKPASS_REQUIRE') != 'force':
+    print('Permission denied', file=sys.stderr)
+    sys.exit(255)
+if '-L' not in sys.argv:
+    if 'uname -s' in sys.argv[-1]:
+        release = json.dumps({'release_version': os.environ['JAM_TUNNEL_TEST_RELEASE']})
+        print('Linux\naarch64\ninstalled\nyes\n' + release + '\n' + release)
+    else:
+        print('/tmp/jam-transport-fixture-target.sock')
+    sys.exit(0)
+path = sys.argv[sys.argv.index('-L') + 1].split(':', 1)[0]
+if os.environ['JAM_TUNNEL_TEST_ROLE'] == 'cancel-password':
+    (root / 'cancel-forward-started').write_text('waiting')
+    while True:
+        ready, _, _ = select.select([sys.stdin], [], [], .1)
+        if sys.stdin in ready and not sys.stdin.read(1):
+            sys.exit(0)
+# Model a user spending longer than the former five-second forwarding budget
+# in the native authentication prompt before SSH creates its listener.
+time.sleep(8)
+listener = socket.socket(socket.AF_UNIX)
+listener.bind(path)
+listener.listen(10)
+while True:
+    ready, _, _ = select.select([listener, sys.stdin], [], [], 1)
+    if sys.stdin in ready and not sys.stdin.read(1):
+        break
+    if listener in ready:
+        connection, _ = listener.accept()
+        with connection:
+            try:
+                connection.sendall((root / 'hello-frame').read_bytes())
+                length = connection.recv(4, socket.MSG_WAITALL)
+                if len(length) == 4:
+                    payload = connection.recv(int.from_bytes(length, 'big'), socket.MSG_WAITALL)
+                    if payload and not (root / 'drop-host-reply').exists():
+                        connection.sendall((root / 'host-frame').read_bytes())
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+"#,
+        )
+        .unwrap();
+        fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
+        for role in ["password", "cancel-password"] {
+            let output = Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "remote::tests::tunnel_process_fixture",
+                    "--ignored",
+                    "--nocapture",
+                ])
+                .env("JAM_STATE_DIR", &state)
+                .env("JAM_TUNNEL_TEST_DIR", directory)
+                .env("JAM_TUNNEL_TEST_ENDPOINT", &endpoint)
+                .env("JAM_TUNNEL_TEST_ROLE", role)
+                .env("JAM_TUNNEL_TEST_RELEASE", crate::RELEASE_VERSION)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+    }
+    #[test]
     fn identifiers_cannot_escape_socket_directory() {
         assert!(local_socket("../../somewhere").is_err());
         assert!(local_socket(&crate::id()).unwrap().as_os_str().len() < 100);
@@ -713,11 +940,42 @@ static PERSISTENCE: std::sync::LazyLock<Mutex<HashMap<String, bool>>> =
 pub fn ensure(id: &str, artifacts: &std::path::Path) -> Result<(PathBuf, bool)> {
     let lock = lifecycle_lock(id);
     let _guard = lock.lock().unwrap();
-
     let remote = list()?
         .into_iter()
         .find(|r| r.id == id)
         .context("Unknown remote")?;
+
+    // A password-authenticated tunnel is already usable by background refresh.
+    // Repeating the SSH setup inspection in batch mode would reject that host.
+    let persistent = PERSISTENCE.lock().unwrap().get(id).copied();
+    if let Some(persistent) = persistent {
+        let path = {
+            let mut active = tunnels().lock().unwrap();
+            if let Some(tunnel) = active.get_mut(id)
+                && tunnel.is_alive()?
+            {
+                Some(tunnel.socket.clone())
+            } else {
+                None
+            }
+        };
+        if let Some(path) = path {
+            match call_at(&path, Request::HostInfo) {
+                Ok(Message::HostInfo {
+                    release_version, ..
+                }) => {
+                    crate::release_version::require_client_at_least(
+                        release_version.as_deref(),
+                        crate::RELEASE_VERSION,
+                    )?;
+                    return Ok((path, persistent));
+                }
+                Ok(_) => bail!("Unexpected remote host information"),
+                Err(_) => disconnect(id),
+            }
+        }
+    }
+
     let script = "set -eu; uname -s; uname -m; s=\"${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/jam-$(id -u)/jamd.sock\"; if test -S \"$s\"; then echo installed; else echo missing; fi; loginctl show-user \"$(id -u)\" -p Linger --value; p=\"${XDG_DATA_HOME:-$HOME/.local/share}/jam/servers/current/jamd\"; if test -x \"$p\"; then \"$p\" --build-info; else echo null; fi; m=\"${s%/*}/release.json\"; if test -f \"$m\"; then cat \"$m\"; echo; else echo null; fi";
     let output = ssh(&remote.destination)?
         .arg(&remote.destination)
