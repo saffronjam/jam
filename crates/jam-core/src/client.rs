@@ -71,7 +71,50 @@ pub struct Display {
     pub revision: u64,
     pub generation: u64,
     pub error: Option<String>,
+    pub resize_error: Option<String>,
     pub selection: Option<(usize, usize)>,
+    clipboard_gesture: Option<Instant>,
+    pub clipboard_text: Option<String>,
+}
+
+impl Display {
+    pub fn clipboard_gesture(&mut self, active: bool) {
+        self.clipboard_gesture = active.then(Instant::now);
+        if !active {
+            self.clipboard_text = None;
+        }
+    }
+}
+
+fn observe_clipboard_writes(
+    term: &mut Terminal<'static, 'static>,
+    display: Arc<Mutex<Display>>,
+) -> Result<()> {
+    use libghostty_vt::effect::ClipboardWriteError;
+    term.set_clipboard_write_max_bytes(Some(1024 * 1024))?;
+    term.on_clipboard_write(move |_, write| {
+        let mut display = display.lock().unwrap();
+        if !display
+            .clipboard_gesture
+            .is_some_and(|time| time.elapsed() < Duration::from_secs(5))
+        {
+            write.reply(Err(ClipboardWriteError::Denied), false);
+            return;
+        }
+        let text = write
+            .contents()
+            .find(|item| item.mime == b"text/plain")
+            .and_then(|item| std::str::from_utf8(item.data).ok())
+            .filter(|text| !text.is_empty());
+        if let Some(text) = text {
+            display.clipboard_gesture = None;
+            display.clipboard_text = Some(text.to_owned());
+            write.reply(Ok(()), false);
+        } else {
+            write.reply(Err(ClipboardWriteError::Unsupported), false);
+        }
+    })?;
+    Ok(())
 }
 pub struct Mirror {
     tx: Sender<Event>,
@@ -92,12 +135,14 @@ impl Mirror {
         let drop_old = resize_rx.clone();
         let shared_resize = resize.clone();
         let resize_path = path.clone();
-        let resize_errors = tx.clone();
+        let display = Arc::new(Mutex::new(Display::default()));
+        let resize_display = display.clone();
         thread::spawn(move || {
             while let Ok(mut r) = resize_rx.recv() {
                 while let Ok(new) = resize_rx.try_recv() {
                     r = new;
                 }
+                let generation = resize_display.lock().unwrap().generation;
                 let result = (|| -> Result<()> {
                     let mut socket = connect_to(&resize_path)?;
                     write_request(&mut socket, &r)?;
@@ -106,13 +151,13 @@ impl Mirror {
                     }
                     Ok(())
                 })();
-                if let Err(e) = result {
-                    let _ = resize_errors.send(Event::Network(Message::Error(e.to_string())));
+                let mut display = resize_display.lock().unwrap();
+                if display.generation == generation {
+                    display.resize_error = result.err().map(|e| e.to_string());
                 }
             }
         });
 
-        let display = Arc::new(Mutex::new(Display::default()));
         let cancel = Arc::new(AtomicBool::new(false));
         let socket = Arc::new(Mutex::new(None));
         let request_path = path.clone();
@@ -280,6 +325,7 @@ impl Mirror {
                                 Event::Network(Message::Snapshot { seq: n, bytes, .. }) => {
                                     let mut snapshot = Decoder::new_buf(&bytes)?.decode()?;
                                     hold = observe_render_hold(&mut snapshot)?;
+                                    observe_clipboard_writes(&mut snapshot, shared.clone())?;
                                     term = Some(snapshot);
                                     seq = n;
                                     finder.revision(seq);
@@ -287,6 +333,7 @@ impl Mirror {
                                     {
                                         let mut d = shared.lock().unwrap();
                                         d.error = None;
+                                        d.resize_error = None;
                                         d.generation += 1;
                                     }
                                     dirty = true;
@@ -309,6 +356,7 @@ impl Mirror {
                                     }
                                     if let Some(t) = &mut term {
                                         t.resize(cols, rows, 0, 0)?;
+                                        shared.lock().unwrap().resize_error = None;
                                     }
                                     seq = n;
                                     finder.revision(seq);
@@ -436,8 +484,12 @@ impl Mirror {
         let (mut text, mut line) = (String::new(), String::new());
         for i in a.min(b)..=a.max(b).min(f.cells.len().saturating_sub(1)) {
             if i > a.min(b) && i % f.cols.max(1) as usize == 0 {
-                text.push_str(line.trim_end());
-                text.push('\n');
+                if f.wrapped_rows.get(i / usize::from(f.cols) - 1) == Some(&true) {
+                    text.push_str(&line);
+                } else {
+                    text.push_str(line.trim_end());
+                    text.push('\n');
+                }
                 line.clear();
             }
             if let Some(c) = f.cells.get(i)
@@ -464,6 +516,31 @@ impl Drop for Mirror {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn client_accepts_text_clipboard_writes_from_a_recent_selection() {
+        let display = Arc::new(Mutex::new(Display::default()));
+        let mut term = vt::terminal(30, 4).unwrap();
+        observe_clipboard_writes(&mut term, display.clone()).unwrap();
+        let write = b"\x1b]52;c;aHR0cHM6Ly9leGFtcGxlLmNvbQ==\x07";
+        term.vt_write(write);
+        assert!(display.lock().unwrap().clipboard_text.is_none());
+        display.lock().unwrap().clipboard_gesture(true);
+        for chunk in write.chunks(3) {
+            term.vt_write(chunk);
+        }
+        assert_eq!(
+            display.lock().unwrap().clipboard_text.take().as_deref(),
+            Some("https://example.com")
+        );
+        term.vt_write(write);
+        assert!(display.lock().unwrap().clipboard_text.is_none());
+        display.lock().unwrap().clipboard_gesture(true);
+        term.vt_write(b"\x1b]52;c;?\x07");
+        assert!(display.lock().unwrap().clipboard_text.is_none());
+        display.lock().unwrap().clipboard_gesture(false);
+        term.vt_write(write);
+        assert!(display.lock().unwrap().clipboard_text.is_none());
+    }
     #[test]
     fn fragmented_synchronized_redraws_only_publish_complete_frames() {
         let mut term = vt::terminal(12, 2).unwrap();
@@ -577,6 +654,87 @@ mod tests {
         assert!(!mirror.search.status().busy);
         drop(mirror);
         server.join().unwrap();
+    }
+    #[test]
+    fn delayed_resize_reply_cannot_mark_a_resumed_terminal_disconnected() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("mirror.sock");
+        let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let accept = || {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            let mut socket = loop {
+                match listener.accept() {
+                    Ok((socket, _)) => break socket,
+                    Err(error)
+                        if error.kind() == std::io::ErrorKind::WouldBlock
+                            && Instant::now() < deadline =>
+                    {
+                        thread::sleep(Duration::from_millis(5));
+                    }
+                    Err(error) => panic!("missing mirror connection: {error}"),
+                }
+            };
+            socket.set_nonblocking(false).unwrap();
+            socket
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            write_frame(&mut socket, &Message::Hello(VERSION.into())).unwrap();
+            let Request::Client { request, .. } = read_frame(&mut socket).unwrap() else {
+                panic!("missing client");
+            };
+            (socket, *request)
+        };
+        let frame = Message::Snapshot {
+            seq: 0,
+            cols: 20,
+            rows: 4,
+            bytes: vt::terminal(20, 4)
+                .unwrap()
+                .encode_snapshot_alloc(None)
+                .unwrap()
+                .unwrap()
+                .to_vec(),
+        };
+        let mirror = Mirror::at("test".into(), path);
+        let attach = |generation| {
+            let (mut socket, request) = accept();
+            assert!(matches!(request, Request::Attach { .. }));
+            write_frame(&mut socket, &frame).unwrap();
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while mirror.display.lock().unwrap().generation != generation {
+                assert!(
+                    Instant::now() < deadline,
+                    "no snapshot for generation {generation}"
+                );
+                thread::sleep(Duration::from_millis(5));
+            }
+            socket
+        };
+        let resize = || {
+            assert!(mirror.request(Request::Resize {
+                pane: "test".into(),
+                cols: 20,
+                rows: 4
+            }));
+            let (socket, request) = accept();
+            assert!(matches!(request, Request::Resize { .. }));
+            socket
+        };
+        let first = attach(1);
+        let mut delayed = resize();
+        drop(first);
+        let _resumed = attach(2);
+        write_frame(
+            &mut delayed,
+            &Message::Error("sending on a disconnected channel".into()),
+        )
+        .unwrap();
+        // Receiving the next resize proves the previous reply was processed.
+        let mut next = resize();
+        assert!(mirror.display.lock().unwrap().resize_error.is_none());
+        assert!(mirror.display.lock().unwrap().error.is_none());
+        write_frame(&mut next, &Message::Ok).unwrap();
     }
     #[test]
     fn sequence_gap_forces_fresh_snapshot_and_continues() {

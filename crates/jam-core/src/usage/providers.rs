@@ -1,5 +1,6 @@
-use super::{Extra, Profile, Provider, Report, Window, credentials, digest, unix_now};
+use super::{Extra, Profile, Provider, Report, Window, cache, credentials, digest, unix_now};
 use serde_json::Value;
+use std::sync::Mutex;
 
 fn percent(value: &Value) -> Option<f64> {
     value.as_f64().filter(|n| n.is_finite() && *n >= 0.0)
@@ -148,12 +149,31 @@ pub(super) fn parse(provider: Provider, value: &Value) -> (Vec<Window>, Option<E
     (windows, extra)
 }
 
+#[derive(Debug)]
+enum RequestError {
+    RateLimited(Option<i64>),
+    Other(&'static str),
+}
+
+fn retry_at(value: &str, now: i64) -> Option<i64> {
+    if let Ok(seconds) = value.parse::<u64>() {
+        return Some(now.saturating_add(seconds.min(i64::MAX as u64) as i64));
+    }
+    let format = time::format_description::parse_borrowed::<2>(
+        "[weekday repr:short], [day] [month repr:short] [year] [hour]:[minute]:[second] GMT",
+    )
+    .ok()?;
+    time::PrimitiveDateTime::parse(value, &format)
+        .ok()
+        .map(|date| date.assume_utc().unix_timestamp())
+}
+
 fn get(
     agent: &ureq::Agent,
     url: &str,
     auth: &credentials::Credentials,
     provider: Provider,
-) -> Result<Value, String> {
+) -> Result<Value, RequestError> {
     let mut request = agent
         .get(url)
         .header("Authorization", &format!("Bearer {}", auth.token))
@@ -169,44 +189,88 @@ fn get(
             }
         }
     }
-    let mut response = request.call().map_err(|error| -> String {
-        match error {
-            ureq::Error::StatusCode(401 | 403) => "Sign in again to read usage".into(),
-            ureq::Error::StatusCode(429) => "Usage service rate limited. Retrying later".into(),
-            _ => "Usage service is temporarily unavailable".into(),
+    let mut response = request
+        .call()
+        .map_err(|_| RequestError::Other("Usage service is temporarily unavailable"))?;
+    match response.status().as_u16() {
+        200 => (),
+        401 | 403 => return Err(RequestError::Other("Sign in again to read usage")),
+        429 => {
+            let retry = response
+                .headers()
+                .get("retry-after")
+                .and_then(|value| value.to_str().ok())
+                .and_then(|value| retry_at(value, unix_now()));
+            return Err(RequestError::RateLimited(retry));
         }
-    })?;
+        _ => {
+            return Err(RequestError::Other(
+                "Usage service is temporarily unavailable",
+            ));
+        }
+    }
     let bytes = response
         .body_mut()
         .with_config()
         .limit(1024 * 1024)
         .read_to_vec()
-        .map_err(|_| "Could not read usage response".to_string())?;
-    serde_json::from_slice(&bytes).map_err(|_| "Could not read usage response".into())
+        .map_err(|_| RequestError::Other("Could not read usage response"))?;
+    serde_json::from_slice(&bytes).map_err(|_| RequestError::Other("Could not read usage response"))
 }
 
-pub(super) fn fetch(profile: &Profile, allow_prompt: bool) -> Report {
+pub(super) fn fetch(profile: &Profile, allow_prompt: bool, cache: &Mutex<cache::Cache>) -> Report {
     let mut report = Report::new(profile, 0);
-    let result = (|| {
-        let auth = credentials::load(profile, allow_prompt)?;
-        report.account_key = auth.account_key.clone();
-        report.account_label = auth.label.clone();
-        let agent: ureq::Agent = ureq::Agent::config_builder()
-            .https_only(true)
-            .max_redirects(0)
-            .timeout_global(Some(std::time::Duration::from_secs(10)))
-            .build()
-            .into();
-        let url = match profile.provider {
-            Provider::Codex => "https://chatgpt.com/backend-api/codex/usage",
-            Provider::Claude => "https://api.anthropic.com/api/oauth/usage",
-        };
-        let value = get(&agent, url, &auth, profile.provider)?;
-        (report.windows, report.extra) = parse(profile.provider, &value);
-        if !report.windows.iter().any(|w| w.percent.is_some()) {
-            return Err("Usage response contained no limits".into());
+    let auth = match credentials::load(profile, allow_prompt) {
+        Ok(auth) => auth,
+        Err(error) => {
+            report.checked_at = Some(unix_now());
+            report.error = Some(error);
+            return report;
         }
+    };
+    // Prefer an account and subject key when credentials supply one. Opaque
+    // Claude tokens use a digest so changing logins never displays the old quota.
+    let credential = auth
+        .account_key
+        .clone()
+        .unwrap_or_else(|| digest(&format!("usage:{}", auth.token)));
+    let now = unix_now();
+    let previous = cache.lock().unwrap().get(&profile.key, &credential, now);
+    if let Some(entry) = &previous
+        && entry.retry_at > now
+    {
+        let mut report = entry.report.clone();
+        entry.expire_success(&mut report, now);
+        return report;
+    }
+    report.account_key = auth
+        .account_key
+        .clone()
+        .or_else(|| previous.as_ref()?.report.account_key.clone());
+    report.account_label = auth
+        .label
+        .clone()
+        .or_else(|| previous.as_ref()?.report.account_label.clone());
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .https_only(true)
+        .max_redirects(0)
+        .http_status_as_error(false)
+        .timeout_global(Some(std::time::Duration::from_secs(10)))
+        .build()
+        .into();
+    let url = match profile.provider {
+        Provider::Codex => "https://chatgpt.com/backend-api/codex/usage",
+        Provider::Claude => "https://api.anthropic.com/api/oauth/usage",
+    };
+    let result = get(&agent, url, &auth, profile.provider).and_then(|value| {
+        let (windows, extra) = parse(profile.provider, &value);
+        if !windows.iter().any(|window| window.percent.is_some()) {
+            return Err(RequestError::Other("Usage response contained no limits"));
+        }
+        report.windows = windows;
+        report.extra = extra;
         if profile.provider == Provider::Claude
+            && report.account_key.is_none()
             && let Ok(identity) = get(
                 &agent,
                 "https://api.anthropic.com/api/oauth/profile",
@@ -225,10 +289,49 @@ pub(super) fn fetch(profile: &Profile, allow_prompt: bool) -> Report {
                 .map(str::to_owned);
         }
         Ok(())
-    })();
-    report.checked_at = Some(unix_now());
-    report.error = result.err();
+    });
+    let now = unix_now();
+    let entry = record_reading(credential, report, previous.as_ref(), result, now);
+    let report = entry.report.clone();
+    let _ = cache.lock().unwrap().store(entry, now);
     report
+}
+
+fn record_reading(
+    credential: String,
+    mut report: Report,
+    previous: Option<&cache::Reading>,
+    result: Result<(), RequestError>,
+    now: i64,
+) -> cache::Reading {
+    report.checked_at = Some(now);
+    report.checking = false;
+    let mut retry_at = now + cache::REFRESH_INTERVAL;
+    let mut rate_limits = 0;
+    match result {
+        Ok(()) => report.last_success_at = Some(now),
+        Err(error) => {
+            let message = match error {
+                RequestError::RateLimited(server_retry) => {
+                    rate_limits = previous.map_or(1, |entry| entry.rate_limits.saturating_add(1));
+                    let delay = cache::REFRESH_INTERVAL * (1 << (rate_limits - 1).min(4));
+                    retry_at = (now + delay.min(3600)).max(server_retry.unwrap_or(now));
+                    "Usage service rate limited. Retrying later"
+                }
+                RequestError::Other(message) => message,
+            };
+            if let Some(previous) = previous {
+                previous.keep_last_success(&mut report, now);
+            }
+            report.error = Some(message.into());
+        }
+    }
+    cache::Reading {
+        credential,
+        report,
+        retry_at,
+        rate_limits,
+    }
 }
 
 #[cfg(test)]
@@ -258,6 +361,7 @@ mod tests {
             socket.write_all(b"HTTP/1.1 401 Unauthorized\r\nContent-Length: 13\r\nConnection: close\r\n\r\nprivate-error").unwrap();
         });
         let agent: ureq::Agent = ureq::Agent::config_builder()
+            .http_status_as_error(false)
             .timeout_global(Some(std::time::Duration::from_secs(2)))
             .build()
             .into();
@@ -274,10 +378,79 @@ mod tests {
             Provider::Codex,
         )
         .unwrap_err();
-        assert_eq!(error, "Sign in again to read usage");
-        assert!(!error.contains("fixture-token") && !error.contains("private-error"));
+        assert!(matches!(
+            error,
+            RequestError::Other("Sign in again to read usage")
+        ));
         server.join().unwrap();
     }
+    #[test]
+    fn rate_limited_usage_survives_daemon_restart_for_the_same_login() {
+        let directory = tempfile::tempdir().unwrap();
+        let profile = Profile::new(
+            Provider::Claude,
+            directory.path().into(),
+            directory.path().into(),
+            Some("fixture-token".into()),
+            false,
+        );
+        let path = directory.path().join("state/usage-cache.json");
+        let mut cache = cache::Cache::open(path.clone());
+        let now = unix_now();
+        let mut report = Report::new(&profile, 1);
+        report
+            .windows
+            .push(window("five_hour", "5h", &json!(42), &Value::Null));
+        let credential = digest("usage:fixture-token");
+        let success = record_reading(credential.clone(), report, None, Ok(()), now - 301);
+        let next = retry_at("1800", now).unwrap();
+        assert_eq!(next, now + 1800);
+        assert_eq!(
+            retry_at("Fri, 20 Nov 2026 12:00:00 GMT", now),
+            Some(1795176000)
+        );
+        let throttled = record_reading(
+            credential.clone(),
+            Report::new(&profile, 1),
+            Some(&success),
+            Err(RequestError::RateLimited(Some(next))),
+            now,
+        );
+        assert_eq!(throttled.retry_at, next);
+        assert_eq!(throttled.report.last_success_at, Some(now - 301));
+        assert_eq!(throttled.report.windows[0].percent, Some(42.0));
+        let retry = record_reading(
+            credential.clone(),
+            Report::new(&profile, 1),
+            Some(&throttled),
+            Err(RequestError::RateLimited(None)),
+            next,
+        );
+        assert_eq!(retry.retry_at, next + 600);
+        cache.store(throttled, now).unwrap();
+        assert!(
+            !std::fs::read_to_string(&path)
+                .unwrap()
+                .contains("fixture-token")
+        );
+        let restarted = Mutex::new(cache::Cache::open(path));
+        // No network request should occur while the persisted cooldown is active.
+        let displayed = fetch(&profile, false, &restarted);
+        assert_eq!(
+            displayed.error.as_deref(),
+            Some("Usage service rate limited. Retrying later")
+        );
+        assert_eq!(displayed.windows[0].percent, Some(42.0));
+        assert_eq!(displayed.last_success_at, Some(now - 301));
+        assert!(
+            restarted
+                .lock()
+                .unwrap()
+                .get(&profile.key, "new-login", now)
+                .is_none()
+        );
+    }
+
     #[test]
     fn handles_provider_windows_scopes_unknowns_and_resets() {
         let (windows, _) = parse(

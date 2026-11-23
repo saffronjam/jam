@@ -101,13 +101,24 @@ struct WarningDetails: NSViewRepresentable {
 
 /// An overlay never participates in pane layout or claims keyboard focus.
 struct WarningToast: View {
+  private enum Action: Hashable { case dismiss, retry, details, copy }
+  private struct Timeout: Equatable {
+    let message: String
+    let paused: Bool
+  }
   let message: String
   let retry: (() -> Void)?
   let dismiss: () -> Void
+  var duration: Duration = .seconds(8)
   @State private var expanded = false
+  @State private var hovered = false
+  @FocusState private var focusedAction: Action?
+  @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
 
   var body: some View {
     let content = WarningContent(message)
+    let timeout = Timeout(
+      message: message, paused: expanded || hovered || focusedAction != nil || voiceOver)
     VStack(alignment: .leading, spacing: 12) {
       HStack(alignment: .top, spacing: 10) {
         Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
@@ -115,6 +126,7 @@ struct WarningToast: View {
         Text(content.summary).font(.callout).fixedSize(horizontal: false, vertical: true)
         Spacer(minLength: 0)
         Button(action: dismiss) { Image(systemName: "xmark") }
+          .focused($focusedAction, equals: .dismiss)
           .buttonStyle(.plain).help("Dismiss warning").accessibilityLabel("Dismiss warning")
       }
       if expanded, let details = content.details {
@@ -123,13 +135,14 @@ struct WarningToast: View {
       if retry != nil || content.details != nil {
         HStack(spacing: 8) {
           Spacer()
-          if let retry { Button("Retry", action: retry) }
+          if let retry { Button("Retry", action: retry).focused($focusedAction, equals: .retry) }
           if content.details != nil {
             Button(expanded ? "Less" : "Details") { expanded.toggle() }
+              .focused($focusedAction, equals: .details)
             Button("Copy") {
               NSPasteboard.general.clearContents()
               NSPasteboard.general.setString(message, forType: .string)
-            }
+            }.focused($focusedAction, equals: .copy)
           }
         }.buttonStyle(.bordered).controlSize(.small)
       }
@@ -141,6 +154,12 @@ struct WarningToast: View {
       }
       .shadow(color: .black.opacity(0.18), radius: 12, y: 4)
       .accessibilityElement(children: .contain).accessibilityLabel("Warning")
+      .onHover { hovered = $0 }
+      .task(id: timeout) {
+        guard !timeout.paused else { return }
+        do { try await Task.sleep(for: duration) } catch { return }
+        if !Task.isCancelled { dismiss() }
+      }
       .onChange(of: message) { _, _ in
         expanded = false
       }
@@ -170,5 +189,32 @@ struct ErrorNotice: View {
         }.font(.caption)
       }
     }.onChange(of: message) { _, _ in expanded = false }
+  }
+}
+
+struct QuickToastMessage: Identifiable {
+  let id = UUID()
+  let text: String
+}
+
+struct QuickToast: View {
+  @Binding var message: QuickToastMessage?
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+  var body: some View {
+    if let current = message {
+      Label(current.text, systemImage: "checkmark.circle.fill")
+        .font(.caption.weight(.medium))
+        .padding(.horizontal, 10).padding(.vertical, 6)
+        .background(.regularMaterial, in: Capsule())
+        .overlay(Capsule().strokeBorder(.primary.opacity(0.10)))
+        .fixedSize()
+        .transition(.opacity)
+        .task(id: current.id) {
+          do { try await Task.sleep(for: .seconds(1.25)) } catch { return }
+          guard message?.id == current.id else { return }
+          withAnimation(reduceMotion ? nil : .easeOut(duration: 0.12)) { message = nil }
+        }
+    }
   }
 }

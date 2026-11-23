@@ -231,6 +231,81 @@ extension Store {
       endpoint: WorkspaceSelection.endpoint(of: w.id), provider: pane.agentProvider ?? "codex")
   }
 }
+enum StoppedAgentResume: Equatable {
+  case managed(String)
+  case manual(String?)
+  case unavailable(String)
+
+  init?(_ record: [String: Any]?, provider: String?) {
+    guard let record, let id = record["id"] as? String else { return nil }
+    if record["verified_launch"] as? Bool == true {
+      self = .managed(id)
+      return
+    }
+    let command: String
+    switch provider {
+    case "claude": command = "claude --resume"
+    case "codex": command = "codex resume"
+    default:
+      self = .manual(nil)
+      return
+    }
+    let session = record["session"] as? String
+    self = .manual(
+      session.flatMap { UUID(uuidString: $0) == nil ? nil : command + " " + $0 } ?? command)
+  }
+  var canResume: Bool {
+    if case .managed = self { return true }
+    return false
+  }
+}
+
+extension Store {
+  func resumeState(for pane: Pane) -> StoppedAgentResume? {
+    pane.agentResume ?? legacyAgentResumes[pane.id]
+  }
+
+  // Older daemons expose the permission record only through the coordination
+  // list. Read it once per machine for all stopped panes before offering Resume.
+  func refreshLegacyAgentResumes(endpoint: String) {
+    let stopped = Set(
+      panes.values.filter {
+        WorkspaceSelection.endpoint(of: $0.id) == endpoint && $0.agentRole != nil
+          && $0.needsResume && $0.agentResume == nil
+      }.map(\.id))
+    for id in Array(legacyAgentResumes.keys)
+    where WorkspaceSelection.endpoint(of: id) == endpoint && !stopped.contains(id) {
+      legacyAgentResumes.removeValue(forKey: id)
+    }
+    guard !stopped.isEmpty, !loadingLegacyAgentResumes.contains(endpoint) else { return }
+    let hasNewPane = stopped.contains { legacyAgentResumes[$0] == nil }
+    guard
+      hasNewPane || Date().timeIntervalSince(legacyResumeLastRead[endpoint] ?? .distantPast) >= 30
+    else { return }
+    loadingLegacyAgentResumes.insert(endpoint)
+    let generation = serverGenerations[endpoint, default: 0]
+    DispatchQueue.global(qos: .utility).async {
+      let reply = rpc(
+        ["Coordination": ["action": "list", "include_archived": true]], endpoint: endpoint)
+      let records = (reply["Coordination"] as? [String: Any])?["agents"] as? [[String: Any]] ?? []
+      DispatchQueue.main.async {
+        self.loadingLegacyAgentResumes.remove(endpoint)
+        guard generation == self.serverGenerations[endpoint, default: 0] else { return }
+        self.legacyResumeLastRead[endpoint] = Date()
+        for id in stopped {
+          guard let pane = self.panes[id], pane.needsResume, pane.agentRole != nil,
+            pane.agentResume == nil
+          else { continue }
+          self.legacyAgentResumes[id] =
+            StoppedAgentResume(
+              records.first { $0["pane"] as? String == id }, provider: pane.agentProvider)
+            ?? .unavailable(
+              reply["error"] as? String ?? "Could not find this agent’s saved session.")
+        }
+      }
+    }
+  }
+}
 struct AgentStoppedView: View {
   @EnvironmentObject var store: Store
   let pane: Pane
@@ -239,16 +314,34 @@ struct AgentStoppedView: View {
       Image(systemName: "pause.circle").font(.system(size: 32)).foregroundStyle(.secondary)
       Text(pane.agentRole == "coordinator" ? "Coordinator stopped" : "Agent stopped").font(
         .title2.bold())
-      if let error = pane.launchError {
+      let resume = store.resumeState(for: pane)
+      switch resume {
+      case .manual(let command):
+        Text(
+          "Jam didn’t record this agent’s launch permissions. Resume it in a new terminal in this folder."
+        )
+        .foregroundStyle(.secondary).multilineTextAlignment(.center)
+        if let command {
+          Text(command).font(.body.monospaced()).textSelection(.enabled)
+        }
+      case .unavailable(let error):
         ErrorNotice(message: error)
-      } else {
-        Text("Resume the saved conversation to continue.").foregroundStyle(.secondary)
+      case .managed:
+        if let error = pane.launchError {
+          ErrorNotice(message: error)
+        } else {
+          Text("Resume the saved conversation to continue.").foregroundStyle(.secondary)
+        }
+      case nil:
+        ProgressView("Checking saved conversation…").controlSize(.small)
       }
       HStack {
-        if pane.agentRole == "coordinator" {
+        if pane.agentRole == "coordinator", resume?.canResume == true {
           Button("Recover Conversation…") { store.recoverCoordinator(pane) }
         }
-        Button("Resume") { store.restartPane(pane.id) }
+        if resume?.canResume == true {
+          Button("Resume") { store.restartPane(pane.id) }
+        }
       }
     }.padding(24).frame(maxWidth: 520).frame(maxWidth: .infinity, maxHeight: .infinity)
   }

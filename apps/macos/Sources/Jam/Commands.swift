@@ -39,7 +39,7 @@ struct JamConfig: Codable, Equatable {
   }
   var worktreesDirectory: String
   var bindings: [String: [String]]
-  var copyOnSelect: Bool = false
+  var copyOnSelect: Bool = true
   var automaticCheckUpdates = true
   var enabledAgents = ["claude", "codex"]
   var agentModels: [String: AgentModelSettings] = [:]
@@ -131,6 +131,7 @@ extension Store {
       guard let self, self.editingWorkspace == nil, self.editingTab == nil,
         !TerminalInputGate.blocked,
         self.visiblePaneIDs.contains(self.focus),
+        self.panes[self.focus]?.exited != true,
         let terminal = self.terminalViews.existing(self.focus),
         let window = terminal.window, !terminal.isHiddenOrHasHiddenAncestor,
         NSApp.keyWindow == nil || NSApp.keyWindow === window

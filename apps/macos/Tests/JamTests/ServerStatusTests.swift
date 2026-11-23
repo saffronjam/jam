@@ -52,12 +52,16 @@ struct ServerStatusTests {
     let live = MachineActions(
       connected: true, connecting: false, busy: false, checking: false, status: unlinked)
     assert(live.canCheck && !live.canTakeover && !live.canRestart && !live.canUpdate)
-    var failed = status()
+    var failed = ServerStatus(
+      running: true, compatible: false, build: "same", availableBuild: "same",
+      updateAvailable: false, terminals: nil, error: "Timed out")
     failed.state = "inspection_failed"
     failed.managementAvailable = false
     let retryable = MachineActions(
       connected: false, connecting: false, busy: false, checking: false, status: failed)
-    assert(retryable.canCheck && !retryable.canTakeover && !retryable.canRestart)
+    assert(
+      retryable.canCheck && retryable.canReconnect && !retryable.canTakeover
+        && !retryable.canRestart)
     assert(!failed.blocked && failed.label == "Server unavailable")
     for value in [
       "unsupported", "takeover_required", "recovery_required", "client_update_required",
@@ -69,6 +73,9 @@ struct ServerStatusTests {
       let actions = MachineActions(
         connected: false, connecting: false, busy: false, checking: false, status: blocked)
       assert(blocked.blocked && !actions.canReconnect && !actions.canUpdate && !actions.canRestart)
+      let duringProbe = MachineActions(
+        connected: false, connecting: false, busy: false, checking: true, status: blocked)
+      assert(duringProbe.canTakeover, "A background probe must not disable the recovery dialog")
       assert(blocked.label != nil)
       for connection in [RemoteConnectionState.disconnected, .retryWaiting, .connecting] {
         let presentation = MachinePresentation(

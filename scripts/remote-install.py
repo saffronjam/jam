@@ -466,7 +466,15 @@ with (base / '.install.lock').open('w') as lock:
             save_checkpoint()
         if (old is None or upgrading) and not stopped_mode:
             private_directory(state)
-            atomic_json(state / '.upgrade-boot.json', {'token': transaction_id})
+            boot_hold = {'token': transaction_id}
+            if takeover is not None:
+                layout = state / 'layout.json'
+                if layout.is_file():
+                    boot_hold['resume_panes'] = [
+                        pane['id'] for pane in json.loads(layout.read_text()).get('panes', [])
+                        if pane.get('exited') is False
+                    ]
+            atomic_json(state / '.upgrade-boot.json', boot_hold)
         if old is None or upgrading:
             phase('activation_requested')
             next_link = base / ('next-' + uuid.uuid4().hex)

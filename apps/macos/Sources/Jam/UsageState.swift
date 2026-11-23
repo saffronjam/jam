@@ -87,7 +87,9 @@ struct AgentUsagePage: Identifiable, Equatable {
     var accounts: [String: Account] = [:]
     for (endpoint, _) in machines {
       for report in reports[endpoint] ?? []
-      where report.activeSessions > 0 || report.accountKey != nil || report.accountLabel != nil {
+      where report.activeSessions > 0 || report.accountKey != nil || report.accountLabel != nil
+        || report.lastSuccessAt != nil
+      {
         let email = report.normalizedEmail
         let key: String
         if report.accountKey != nil {

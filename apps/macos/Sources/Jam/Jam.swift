@@ -33,6 +33,8 @@ struct Pane: Identifiable {
   var launchError: String? = nil
   var agentProvider: String? = nil
   var agentRole: String? = nil
+  var agentResume: StoppedAgentResume?
+  var needsResume: Bool { exited || status == "recovery_failed" }
   var isAIPane: Bool { agentProvider != nil || agentRole != nil }
   var activityStatus: ActivityStatus { exited ? .stopped : ActivityStatus(status) }
 }
@@ -124,9 +126,12 @@ final class Store: ObservableObject {
   @Published var serverActionErrors: [String: String] = [:]
   @Published var serverPhases: [String: String] = [:]
   var serverTokens: [String: String] = [:]
-  @Published var serverStatuses: [String: ServerStatus] = [:]
+  @Published var serverStatuses: [String: ServerStatus] = [:] {
+    didSet { clearUnavailableRestoredWorkspace() }
+  }
   @Published var agentUsage: [String: [AgentUsageReport]] = [:]
   @Published var usageErrors: [String: String] = [:]
+  @Published var quickToast: QuickToastMessage?
   var usageLoading = Set<String>()
   var usagePolled: [String: Date] = [:]
   @Published var serverBusy = Set<String>() { didSet { updateInputGate() } }
@@ -177,6 +182,20 @@ final class Store: ObservableObject {
     }
   }
   var currentEndpoint: String { selectedMachine }
+  var unavailableRestoredRemote: Bool {
+    let endpoint = currentEndpoint
+    guard !endpoint.isEmpty, !loadedRemotes.contains(endpoint),
+      let status = serverStatuses[endpoint]
+    else { return false }
+    return status.blocked || status.state == "inspection_failed"
+  }
+  func clearUnavailableRestoredWorkspace() {
+    guard unavailableRestoredRemote, !isCreatingWorkspace(selected) else { return }
+    if !selected.isEmpty { selected = "" }
+    if !tab.isEmpty { tab = "" }
+    if !focus.isEmpty { focus = "" }
+    if surface != .terminals { surface = .terminals }
+  }
   var isLoadingSelectedRemote: Bool {
     let endpoint = currentEndpoint
     guard !endpoint.isEmpty else { return false }
@@ -210,6 +229,9 @@ final class Store: ObservableObject {
     workspaceCreations[id] != nil
   }
   @Published var panes: [String: Pane] = [:]
+  @Published var legacyAgentResumes: [String: StoppedAgentResume] = [:]
+  var loadingLegacyAgentResumes = Set<String>()
+  var legacyResumeLastRead: [String: Date] = [:]
   @Published var selected = JamDefaults.shared.string(forKey: "workspace") ?? "" {
     didSet {
       if !selected.isEmpty {
@@ -346,7 +368,8 @@ final class Store: ObservableObject {
   var timer: Timer?
   var loading = false
   var current: Workspace? {
-    displayedWorkspaces.first { $0.id == selected }
+    guard !unavailableRestoredRemote else { return nil }
+    return displayedWorkspaces.first { $0.id == selected }
       ?? workspaces.first { w in
         selectedMachine.isEmpty ? !w.id.contains("|") : w.id.hasPrefix(selectedMachine + "|")
       }
@@ -625,7 +648,9 @@ final class Store: ObservableObject {
             status: p["status"] as? String ?? "unknown", exited: p["exited"] as? Bool ?? false,
             reports: p["reports"] as? [[String: Any]] ?? [],
             launchError: p["launch_error"] as? String,
-            agentProvider: p["agent_provider"] as? String, agentRole: p["agent_role"] as? String)
+            agentProvider: p["agent_provider"] as? String, agentRole: p["agent_role"] as? String,
+            agentResume: StoppedAgentResume(
+              p["agent_resume"] as? [String: Any], provider: p["agent_provider"] as? String))
         )
       })
     panes.merge(keptPanes) { current, _ in current }
@@ -702,7 +727,11 @@ final class Store: ObservableObject {
       : WorkspaceSelection.reconcile(
         selected: selected, machine: currentEndpoint, refreshed: endpoint,
         workspaces: displayedWorkspaces.map(\.id))
-    if next != selected { selected = next }
+    if unavailableRestoredRemote {
+      clearUnavailableRestoredWorkspace()
+    } else if next != selected {
+      selected = next
+    }
     if surface == .coordinator && current?.hasCoordinator != true {
       surface = .terminals
       if let saved = selections[selected] {
@@ -717,6 +746,7 @@ final class Store: ObservableObject {
       focus = visiblePaneIDs.first ?? ""
     }
     if !awaitingCreatedFrames.isEmpty { awaitingCreatedFrames.formIntersection(panes.keys) }
+    refreshLegacyAgentResumes(endpoint: endpoint)
     recoverVisiblePanes(endpoint: endpoint)
   }
   func openFolder() {
@@ -741,28 +771,18 @@ final class Store: ObservableObject {
     endpointQueue(currentEndpoint).async { _ = rpc(["FocusPane": ["pane": pane]]) }
   }
   func restartPane(_ id: String, automatic: Bool = false) {
-    if automatic && panes[id]?.agentRole != nil { return }
+    guard let pane = panes[id], pane.needsResume else { return }
+    var request: [String: Any] = ["Restart": ["pane": id]]
+    if pane.agentRole != nil {
+      guard !automatic, case .managed(let agent) = resumeState(for: pane) else { return }
+      request = ["Coordination": ["action": "resume", "agent": agent]]
+    }
     guard !serverBusy.contains(WorkspaceSelection.endpoint(of: id)) else { return }
-    guard panes[id]?.exited == true || panes[id]?.status == "recovery_failed",
-      restartingPanes.insert(id).inserted
-    else { return }
+    guard restartingPanes.insert(id).inserted else { return }
     let endpoint = WorkspaceSelection.endpoint(of: id)
-    let managed = panes[id]?.agentRole != nil
     let generation = serverGenerations[endpoint, default: 0]
     paneErrors.removeValue(forKey: id)
-    endpointQueue(endpoint).async {
-      var request: [String: Any] = ["Restart": ["pane": id]]
-      if managed,
-        let data = rpc(
-          ["Coordination": ["action": "list", "include_archived": true]], endpoint: endpoint)[
-            "Coordination"]
-          as? [String: Any],
-        let agents = data["agents"] as? [[String: Any]],
-        let agent = agents.first(where: { $0["pane"] as? String == id }),
-        let agentID = agent["id"] as? String
-      {
-        request = ["Coordination": ["action": "resume", "agent": agentID]]
-      }
+    endpointQueue(endpoint).async { [request] in
       let reply = rpc(request, endpoint: endpoint)
       DispatchQueue.main.async {
         self.restartingPanes.remove(id)
@@ -1128,18 +1148,24 @@ struct ContentView: View {
                 }
               } else {
                 VStack(spacing: 12) {
-                  Text(store.current == nil ? "No workspaces" : "No terminals")
-                    .font(.title2).fontWeight(.semibold)
-                  if store.current == nil && !store.currentEndpoint.isEmpty {
+                  Text(
+                    store.unavailableRestoredRemote
+                      ? "No workspace selected"
+                      : store.current == nil ? "No workspaces" : "No terminals"
+                  )
+                  .font(.title2).fontWeight(.semibold)
+                  if store.current == nil && !store.currentEndpoint.isEmpty
+                    && !store.unavailableRestoredRemote
+                  {
                     Text(store.remoteMessages[store.currentEndpoint] ?? "Connecting…")
                       .foregroundStyle(.secondary).multilineTextAlignment(.center)
                   }
-                  if store.current == nil {
+                  if store.current == nil && !store.unavailableRestoredRemote {
                     Button("New Workspace") { store.newWorkspace() }
                       .disabled(
                         !store.currentEndpoint.isEmpty
                           && store.remoteMessages[store.currentEndpoint] != "Connected")
-                  } else {
+                  } else if store.current != nil {
                     Button("New Tab") { store.execute("new_tab") }
                   }
                 }.frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1157,6 +1183,11 @@ struct ContentView: View {
       )
       .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
       .background(Color(nsColor: .windowBackgroundColor))
+      .overlay(alignment: .bottom) {
+        QuickToast(message: $store.quickToast)
+          .padding(.bottom, 14)
+          .allowsHitTesting(false)
+      }
       .overlay(alignment: .bottomTrailing) {
         AppStatusOverlay(store: store, controller: store.appUpgrade)
       }
@@ -1269,7 +1300,10 @@ struct PaneCard: View {
         )
         .foregroundStyle(.secondary)
         Spacer()
-        if pane?.status == "recovery_failed" {
+        if let pane,
+          pane.status == "recovery_failed" && !pane.exited
+            && (pane.agentRole == nil || store.resumeState(for: pane)?.canResume == true)
+        {
           Button("Resume") { store.restartPane(id) }
         }
         if pane?.status == "recovery_failed" {
@@ -1318,24 +1352,30 @@ struct PaneCard: View {
           .padding(16).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
           .background(Color(nsColor: TerminalAppearance.background))
       } else if pane?.exited == true {
-        if store.restartingPanes.contains(id) {
-          ProgressView("Starting shell…").frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else {
-          if pane?.agentRole != nil {
-            AgentStoppedView(pane: pane!).environmentObject(store)
+        Group {
+          if store.restartingPanes.contains(id) {
+            ProgressView("Starting shell…").frame(maxWidth: .infinity, maxHeight: .infinity)
           } else {
-            VStack(spacing: 12) {
-              ContentUnavailableView(
-                "Session stopped", systemImage: "pause.circle",
-                description: Text("Start a new shell to continue in this folder."))
-              Button("Start Shell") { store.restartPane(id) }
-            }.frame(maxWidth: .infinity, maxHeight: .infinity)
+            if pane?.agentRole != nil {
+              AgentStoppedView(pane: pane!).environmentObject(store)
+            } else {
+              VStack(spacing: 12) {
+                ContentUnavailableView(
+                  "Session stopped", systemImage: "pause.circle",
+                  description: Text("Start a new shell to continue in this folder."))
+                Button("Start Shell") { store.restartPane(id) }
+              }.frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
           }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background {
+          StoppedPaneFocusSurface(selected: store.focus == id) { store.focus = id }
         }
       } else {
         TerminalSurface(
           pool: store.terminalViews, pane: id, fontScale: store.fontScale,
-          copyOnSelect: store.config?.copyOnSelect ?? false,
+          copyOnSelect: store.config?.copyOnSelect ?? true,
           isAIPane: pane?.isAIPane ?? false,
           focused: store.focus == id,
           onFocus: {
@@ -1343,6 +1383,9 @@ struct PaneCard: View {
             if store.focus != id { store.focus = id }
             store.request(["Acknowledge": ["pane": id]])
           }, onError: { store.paneErrors[id] = $0 },
+          onSelectionCopy: {
+            store.quickToast = QuickToastMessage(text: "Copied to clipboard")
+          },
           onReady: store.awaitingCreatedFrames.contains(id)
             ? { store.awaitingCreatedFrames.remove(id) } : nil
         ).id(
@@ -1378,6 +1421,34 @@ struct PaneCard: View {
       .onTapGesture { store.focus = id }
   }
 }
+private struct StoppedPaneFocusSurface: NSViewRepresentable {
+  let selected: Bool
+  let select: () -> Void
+
+  final class FocusView: NSView {
+    var select: (() -> Void)?
+    var selected = false
+    override var acceptsFirstResponder: Bool { true }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override func mouseDown(with event: NSEvent) {
+      select?()
+      window?.makeFirstResponder(self)
+    }
+    override func viewDidMoveToWindow() {
+      super.viewDidMoveToWindow()
+      if selected && !TerminalInputGate.blocked { window?.makeFirstResponder(self) }
+    }
+  }
+
+  func makeNSView(context: Context) -> FocusView { FocusView() }
+  func updateNSView(_ view: FocusView, context: Context) {
+    view.select = select
+    if view.selected != selected {
+      view.selected = selected
+      if selected && !TerminalInputGate.blocked { view.window?.makeFirstResponder(view) }
+    }
+  }
+}
 struct TerminalSurface: NSViewRepresentable {
   let pool: TerminalViewPool
   let pane: String
@@ -1387,6 +1458,7 @@ struct TerminalSurface: NSViewRepresentable {
   let focused: Bool
   let onFocus: () -> Void
   let onError: (String?) -> Void
+  let onSelectionCopy: () -> Void
   var onReady: (() -> Void)? = nil
   func makeNSView(context: Context) -> TerminalSurfaceHost {
     TerminalSurfaceHost(terminal: pool.view(for: pane))
@@ -1399,6 +1471,7 @@ struct TerminalSurface: NSViewRepresentable {
     v.onFocus = onFocus
     v.onReady = onReady
     v.onError = onError
+    v.onSelectionCopy = onSelectionCopy
     if v.focused != focused {
       v.focused = focused
       if focused && !TerminalInputGate.blocked { v.window?.makeFirstResponder(v) }
@@ -1418,17 +1491,25 @@ final class TerminalNSView: NSView, NSTextInputClient, NSMenuItemValidation {
   var onFocus: (() -> Void)?
   var marked = NSAttributedString(string: "")
   var onError: ((String?) -> Void)?
+  var onSelectionCopy: (() -> Void)?
   var meta: [String: Any] = [:]
   var onReady: (() -> Void)?
-  var lastError = ""
+  var lastError: String?
+  var receivedErrorState = false
   var fontScale: Double = 1
   var focused = false
   var tracking: NSTrackingArea?
-  var copyOnSelect = false
+  var copyOnSelect = true
   var isAIPane = false
   var selectionOrigin: NSEvent?
   var selecting = false
   var applicationDrag = false
+  private var linkClick = false
+  private var selectionCopyReported = false
+  var openWebURL: (URL) -> Bool = { NSWorkspace.shared.open($0) }
+  var copyPasteboard: NSPasteboard = .general
+  private static let linkDetector = try? NSDataDetector(
+    types: NSTextCheckingResult.CheckingType.link.rawValue)
   var scrollRemainder: Double = 0
   let composition = NSTextField(labelWithString: "")
   var cellSize: NSSize {
@@ -1563,17 +1644,22 @@ final class TerminalNSView: NSView, NSTextInputClient, NSMenuItemValidation {
         handle, UInt32(bounds.width * s), UInt32(bounds.height * s), Float(s * fontScale)))
     if let values = try? JSONSerialization.jsonObject(with: Data(result.utf8)) as? [String: Any] {
       meta = values
+      if let text = values["clipboard_text"] as? String, copyOnSelect, window.isKeyWindow,
+        window.firstResponder === self, !TerminalInputGate.blocked
+      {
+        copyText(text, automatically: true)
+      }
       if values["ready"] as? Bool == true, let notify = onReady {
         onReady = nil
         DispatchQueue.main.async(execute: notify)
       }
-      if let e = values["error"] as? String, e != lastError {
-        lastError = e
-        onError?(e)
-      }
-      if values["error"] is NSNull && !lastError.isEmpty {
-        lastError = ""
-        onError?(nil)
+      let error = values["error"] as? String
+      if error != nil || values["ready"] as? Bool == true {
+        if !receivedErrorState || lastError != error {
+          receivedErrorState = true
+          lastError = error
+          onError?(error)
+        }
       }
       if let text = values["text"] as? String { setAccessibilityValue(text) }
       updateComposition()
@@ -1590,6 +1676,9 @@ final class TerminalNSView: NSView, NSTextInputClient, NSMenuItemValidation {
       | (event.modifierFlags.contains(.command) ? Int(JAM_MOD_SUPER) : 0)
   }
   func mouse(_ event: NSEvent, _ action: Int, _ button: Int) {
+    if applicationDrag && selecting && button == 0 && copyOnSelect {
+      _ = self.action("clipboard_gesture", 1)
+    }
     let p = convert(event.locationInWindow, from: nil)
     let s = window?.backingScaleFactor ?? 1
     let value: [String: Any] = [
@@ -1607,35 +1696,76 @@ final class TerminalNSView: NSView, NSTextInputClient, NSMenuItemValidation {
       extend ? "extend" : "select", Int32(max(0, p.x / cellSize.width)),
       Int32(max(0, (bounds.height - p.y) / cellSize.height)))
   }
+  static func webLink(_ context: [String: Any]) -> URL? {
+    let url: URL?
+    if let target = context["url"] as? String {
+      url = URL(string: target)
+    } else if let line = context["line"] as? String, let offset = context["offset"] as? Int {
+      let range = NSRange(line.startIndex..., in: line)
+      url =
+        linkDetector?.matches(in: line, range: range)
+        .first { NSLocationInRange(offset, $0.range) }?.url
+    } else {
+      return nil
+    }
+    guard let url, ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
+      url.host?.isEmpty == false
+    else { return nil }
+    return url
+  }
+
+  private func openLink(at event: NSEvent) -> Bool {
+    guard event.modifierFlags.contains(.control) else { return false }
+    let point = convert(event.locationInWindow, from: nil)
+    guard bounds.contains(point) else { return false }
+    let response = action(
+      "link", Int32(point.x / cellSize.width),
+      Int32((bounds.height - point.y) / cellSize.height))
+    guard
+      let context = try? JSONSerialization.jsonObject(with: Data(response.utf8)) as? [String: Any],
+      let url = Self.webLink(context)
+    else { return false }
+    _ = openWebURL(url)
+    return true
+  }
+
   override func mouseDown(with event: NSEvent) {
     focusFromInteraction()
+    linkClick = openLink(at: event)
+    guard !linkClick else { return }
+    selectionCopyReported = false
     applicationDrag = meta["mouse"] as? Bool == true && !event.modifierFlags.contains(.shift)
-    if applicationDrag {
-      mouse(event, 0, 0)
-    } else {
-      _ = action("clear_selection")
-      selectionOrigin = event
-      selecting = false
-    }
+    selectionOrigin = event
+    selecting = false
+    _ = action("clear_selection")
+    if applicationDrag { mouse(event, 0, 0) }
   }
   override func mouseDragged(with event: NSEvent) {
-    if applicationDrag {
-      mouse(event, 2, 0)
-    } else {
-      guard let origin = selectionOrigin else { return }
+    guard !linkClick else { return }
+    if let origin = selectionOrigin, !applicationDrag || copyOnSelect {
       if !selecting {
         let delta = hypot(
           event.locationInWindow.x - origin.locationInWindow.x,
           event.locationInWindow.y - origin.locationInWindow.y)
-        guard delta >= 3 else { return }
-        localSelect(origin, false)
-        selecting = true
+        if delta >= 3 {
+          localSelect(origin, false)
+          selecting = true
+        }
       }
-      localSelect(event, true)
+      if selecting { localSelect(event, true) }
     }
+    if applicationDrag { mouse(event, 2, 0) }
   }
   override func mouseUp(with event: NSEvent) {
-    if applicationDrag { mouse(event, 1, 0) } else if selecting && copyOnSelect { copy(nil) }
+    if linkClick {
+      linkClick = false
+      return
+    }
+    if selecting && copyOnSelect { copyText(selectedText(), automatically: true) }
+    if applicationDrag {
+      mouse(event, 1, 0)
+      _ = action("clear_selection")
+    }
     selectionOrigin = nil
     selecting = false
     applicationDrag = false
@@ -1654,9 +1784,12 @@ final class TerminalNSView: NSView, NSTextInputClient, NSMenuItemValidation {
     if meta["mouse"] as? Bool == true { mouse(event, 2, 255) }
   }
   override func rightMouseDragged(with event: NSEvent) {
+    guard !linkClick else { return }
     if meta["mouse"] as? Bool == true { mouse(event, 2, 1) }
   }
   override func rightMouseDown(with event: NSEvent) {
+    linkClick = openLink(at: event)
+    guard !linkClick else { return }
     if meta["mouse"] as? Bool == true && !event.modifierFlags.contains(.shift) {
       mouse(event, 0, 1)
     } else {
@@ -1672,6 +1805,10 @@ final class TerminalNSView: NSView, NSTextInputClient, NSMenuItemValidation {
     }
   }
   override func rightMouseUp(with event: NSEvent) {
+    if linkClick {
+      linkClick = false
+      return
+    }
     if meta["mouse"] as? Bool == true && !event.modifierFlags.contains(.shift) {
       mouse(event, 1, 1)
     }
@@ -1703,10 +1840,20 @@ final class TerminalNSView: NSView, NSTextInputClient, NSMenuItemValidation {
       as? String ?? ""
   }
   @objc func copy(_ sender: Any?) {
-    let text = selectedText()
+    copyText(selectedText())
+  }
+  private func copyText(_ text: String, automatically: Bool = false) {
     guard !text.isEmpty else { return }
-    NSPasteboard.general.clearContents()
-    NSPasteboard.general.setString(text, forType: .string)
+    copyPasteboard.clearContents()
+    if copyPasteboard.setString(text, forType: .string), automatically, !selectionCopyReported {
+      selectionCopyReported = true
+      onSelectionCopy?()
+    }
+  }
+  override func resignFirstResponder() -> Bool {
+    let resigned = super.resignFirstResponder()
+    if resigned { _ = action("clipboard_gesture", 0) }
+    return resigned
   }
 
   func send(_ text: String) {

@@ -32,6 +32,13 @@ pub struct Cell {
     pub strike: bool,
     pub wide: u8,
 }
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
+pub struct Hyperlink {
+    start: usize,
+    end: usize,
+    uri: String,
+}
+
 #[derive(Clone, Default, Serialize, Deserialize, Debug, PartialEq)]
 pub struct TerminalFrame {
     pub background: [u8; 3],
@@ -40,6 +47,10 @@ pub struct TerminalFrame {
     pub cols: u16,
     pub rows: u16,
     pub cells: Vec<Cell>,
+    #[serde(default)]
+    pub wrapped_rows: Vec<bool>,
+    #[serde(default)]
+    hyperlinks: Vec<Hyperlink>,
     pub cursor: (u16, u16),
     pub cursor_visible: bool,
     pub cursor_blink: bool,
@@ -47,6 +58,52 @@ pub struct TerminalFrame {
     pub mouse_tracking: bool,
     pub alternate: bool,
     pub selection: Option<(usize, usize)>,
+}
+impl TerminalFrame {
+    /// AppKit's link detector uses UTF-16 offsets into the visible logical line.
+    pub fn link_at(&self, x: usize, y: usize) -> Option<serde_json::Value> {
+        let cols = usize::from(self.cols);
+        if x >= cols || y >= self.rows.into() {
+            return None;
+        }
+        let mut index = y * cols + x;
+        if self.cells.get(index)?.wide == 2 && x > 0 {
+            index -= 1;
+        }
+        if let Some(link) = self
+            .hyperlinks
+            .iter()
+            .find(|l| (l.start..l.end).contains(&index))
+        {
+            return Some(serde_json::json!({"url":link.uri}));
+        }
+        let mut first = y;
+        while first > 0 && self.wrapped_rows.get(first - 1) == Some(&true) {
+            first -= 1;
+        }
+        let mut last = y;
+        while last + 1 < self.rows.into() && self.wrapped_rows.get(last) == Some(&true) {
+            last += 1;
+        }
+        let mut line = String::new();
+        let mut offset = 0;
+        for i in first * cols..(last + 1) * cols {
+            let cell = self.cells.get(i)?;
+            if cell.wide >= 2 {
+                continue;
+            }
+            let text = if cell.text.is_empty() {
+                " "
+            } else {
+                &cell.text
+            };
+            if i < index {
+                offset += text.encode_utf16().count();
+            }
+            line.push_str(text);
+        }
+        Some(serde_json::json!({"line":line,"offset":offset}))
+    }
 }
 pub fn terminal(cols: u16, rows: u16) -> Result<Terminal<'static, 'static>> {
     let mut t = Terminal::new(cols, rows)?;
@@ -77,7 +134,14 @@ pub fn frame(t: &Terminal<'_, '_>) -> Result<TerminalFrame> {
     let mut rows = ri.update(&snap)?;
     let mut cells = Vec::new();
     let mut ci = CellIterator::new()?;
+    let cols = snap.cols()?;
+    let mut hyperlinks: Vec<Hyperlink> = Vec::new();
+    let mut uri_buf = Vec::new();
+    let mut wrapped_rows = Vec::new();
     while rows.next().is_some() {
+        let row = rows.raw_row()?;
+        let linked = row.has_hyperlink()?;
+        wrapped_rows.push(row.is_wrapped()?);
         let mut c = ci.update(&rows)?;
         while c.next().is_some() {
             let foreground = c.fg_color()?;
@@ -104,7 +168,41 @@ pub fn frame(t: &Terminal<'_, '_>) -> Result<TerminalFrame> {
             if style.faint {
                 fg = fg.map(|v| v / 2);
             }
-            let wide = c.raw_cell()?.wide()? as u8;
+            let raw = c.raw_cell()?;
+            let wide = raw.wide()? as u8;
+            if linked && raw.has_hyperlink()? {
+                use libghostty_vt::point::{Coordinate, Point};
+                let index = cells.len();
+                let grid = t.grid_ref(Point::Viewport(Coordinate {
+                    x: (index % usize::from(cols)) as u16,
+                    y: (index / usize::from(cols)) as u32,
+                }))?;
+                let length = match grid.hyperlink_uri(&mut uri_buf) {
+                    Ok(n) => n,
+                    Err(libghostty_vt::Error::OutOfSpace { required }) if required <= 32768 => {
+                        uri_buf.resize(required, 0);
+                        grid.hyperlink_uri(&mut uri_buf)?
+                    }
+                    Err(libghostty_vt::Error::OutOfSpace { .. }) => 0,
+                    Err(e) => return Err(e.into()),
+                };
+                if let Ok(uri) = std::str::from_utf8(&uri_buf[..length])
+                    && !uri.is_empty()
+                {
+                    if let Some(link) = hyperlinks.last_mut()
+                        && link.end == index
+                        && link.uri == uri
+                    {
+                        link.end += 1;
+                    } else {
+                        hyperlinks.push(Hyperlink {
+                            start: index,
+                            end: index + 1,
+                            uri: uri.to_owned(),
+                        });
+                    }
+                }
+            }
             cells.push(Cell {
                 text: if style.invisible {
                     String::new()
@@ -135,7 +233,9 @@ pub fn frame(t: &Terminal<'_, '_>) -> Result<TerminalFrame> {
             colors.background.g,
             colors.background.b,
         ],
-        cols: snap.cols()?,
+        cols,
+        hyperlinks,
+        wrapped_rows,
         rows: snap.rows()?,
         cells,
         cursor: snap
@@ -178,6 +278,24 @@ mod tests {
         assert_eq!(f.cells[2].fg_source, ColorSource::Background);
         assert_eq!(f.cells[2].bg_source, ColorSource::Foreground);
         assert!(f.cells[3].faint);
+    }
+    #[test]
+    fn hyperlink_hit_test_preserves_labels_wraps_and_unicode_offsets() {
+        let mut t = terminal(9, 4).unwrap();
+        t.vt_write("界 https://example.org".as_bytes());
+        let f = frame(&t).unwrap();
+        let target = f.link_at(1, 1).unwrap();
+        assert!(
+            target["line"]
+                .as_str()
+                .unwrap()
+                .starts_with("界 https://example.org")
+        );
+        assert_eq!(target["offset"], 9);
+        t.vt_write(b"\r\n\x1b]8;;https://example.org/page\x1b\\Label\x1b]8;;\x1b\\");
+        let f = frame(&t).unwrap();
+        assert_eq!(f.link_at(2, 3).unwrap()["url"], "https://example.org/page");
+        assert!(f.link_at(9, 0).is_none());
     }
     #[test]
     fn snapshot_preserves_partial_parser() {

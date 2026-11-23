@@ -200,7 +200,7 @@ struct Handle {
 enum Op {
     Output(Vec<u8>),
     Exit,
-    Request(Request, Sender<Message>),
+    Request(Box<Request>, Sender<Message>),
     Attach(Sender<Message>),
 }
 struct Server {
@@ -209,7 +209,7 @@ struct Server {
     owners: HashMap<String, String>,
     draining: bool,
     upgrade_lease: Option<UpgradeLease>,
-    upgrade_boot: Option<String>,
+    upgrade_boot: Option<UpgradeBoot>,
     coordination_inflight: usize,
     state: State,
     panes: Arc<HashMap<String, Handle>>,
@@ -244,7 +244,13 @@ struct UpgradeLease {
     expires: std::time::Instant,
 }
 pub const UPGRADE_BOOT_FILE: &str = ".upgrade-boot.json";
-fn upgrade_boot_token(path: &std::path::Path) -> Result<Option<String>> {
+#[derive(serde::Deserialize)]
+struct UpgradeBoot {
+    token: String,
+    #[serde(default)]
+    resume_panes: Vec<String>,
+}
+fn upgrade_boot_hold(path: &std::path::Path) -> Result<Option<UpgradeBoot>> {
     use std::os::unix::fs::MetadataExt;
     let file = match OpenOptions::new()
         .read(true)
@@ -259,25 +265,28 @@ fn upgrade_boot_token(path: &std::path::Path) -> Result<Option<String>> {
     if !metadata.is_file()
         || metadata.uid() != unsafe { libc::geteuid() }
         || metadata.mode() & 0o077 != 0
-        || metadata.len() > 4096
+        || metadata.len() > 1024 * 1024
     {
         bail!("Invalid upgrade boot hold ownership or permissions");
     }
-    let value: serde_json::Value = serde_json::from_reader(file)?;
-    let token = value["token"]
-        .as_str()
-        .context("Missing upgrade boot ownership token")?;
-    uuid::Uuid::parse_str(token).context("Invalid upgrade boot ownership token")?;
-    Ok(Some(token.into()))
+    let hold: UpgradeBoot = serde_json::from_reader(file)?;
+    uuid::Uuid::parse_str(&hold.token).context("Invalid upgrade boot ownership token")?;
+    for pane in &hold.resume_panes {
+        uuid::Uuid::parse_str(pane).context("Invalid takeover pane ID")?;
+    }
+    Ok(Some(hold))
 }
-fn restart_saved_agents(server: &mut Server) -> Result<()> {
+fn restart_saved_agents(server: &mut Server, resume_panes: Option<&[String]>) -> Result<()> {
     let board = crate::coordination::Board::open()?;
     let ids: Vec<String> = board.snapshot()?["agents"]
         .as_array()
         .context("Invalid saved agent list")?
         .iter()
         .filter(|a| a["paused"] != true && a["closed"] != true && a["verified_launch"] == true)
-        .filter_map(|a| a["pane"].as_str().map(str::to_owned))
+        .filter(|a| resume_panes.is_none() || a["session"].is_string())
+        .filter_map(|a| a["pane"].as_str())
+        .filter(|pane| resume_panes.is_none_or(|panes| panes.iter().any(|id| id == pane)))
+        .map(str::to_owned)
         .collect();
     for pane in ids {
         let _ = request(server, Request::Restart { pane });
@@ -314,9 +323,9 @@ fn upgrade_control(request: &Request) -> bool {
 }
 fn claim_upgrade_stop(server: &mut Server, token: &str) -> Result<()> {
     refresh_upgrade_lease(server);
-    if server.upgrade_boot.as_deref() == Some(token) {
+    if server.upgrade_boot.as_ref().map(|hold| hold.token.as_str()) == Some(token) {
         let path = state_dir().join(UPGRADE_BOOT_FILE);
-        if upgrade_boot_token(&path)?.as_deref() != Some(token) {
+        if upgrade_boot_hold(&path)?.is_none_or(|hold| hold.token != token) {
             bail!("Upgrade boot ownership changed. Server was left running");
         }
         server.upgrade_lease = None;
@@ -588,6 +597,7 @@ fn spawn(mut pane: Pane) -> Result<Handle> {
                         }
                     },
                     Op::Request(req, res) => {
+                        let req = *req;
                         let closing = matches!(req, Request::Close { .. });
                         let result = (|| -> Result<Message> {
                             match req {
@@ -799,10 +809,30 @@ fn spawn(mut pane: Pane) -> Result<Handle> {
     wait.recv()?.map_err(anyhow::Error::msg)?;
     Ok(Handle { tx, info, root_pid })
 }
+fn pane_send_error<T>(error: crossbeam_channel::SendTimeoutError<T>) -> anyhow::Error {
+    match error {
+        crossbeam_channel::SendTimeoutError::Disconnected(_) => {
+            anyhow::anyhow!("Terminal has stopped")
+        }
+        crossbeam_channel::SendTimeoutError::Timeout(_) => anyhow::anyhow!("Terminal is busy"),
+    }
+}
 fn ask(h: &Handle, r: Request) -> Result<Message> {
     let (tx, rx) = bounded(1);
-    h.tx.send_timeout(Op::Request(r, tx), std::time::Duration::from_secs(2))?;
-    Ok(rx.recv_timeout(std::time::Duration::from_secs(10))?)
+    h.tx.send_timeout(
+        Op::Request(Box::new(r), tx),
+        std::time::Duration::from_secs(2),
+    )
+    .map_err(pane_send_error)?;
+    rx.recv_timeout(std::time::Duration::from_secs(10))
+        .map_err(|error| match error {
+            crossbeam_channel::RecvTimeoutError::Disconnected => {
+                anyhow::anyhow!("Terminal has stopped")
+            }
+            crossbeam_channel::RecvTimeoutError::Timeout => {
+                anyhow::anyhow!("Terminal did not respond")
+            }
+        })
 }
 fn stop_pane(s: &Server, pane: &str) -> Result<()> {
     let Some(handle) = s.panes.get(pane) else {
@@ -841,6 +871,7 @@ fn new_pane(s: &mut Server, path: String, workspace: String) -> Result<String> {
         launch_error: None,
         agent_provider: None,
         agent_source: None,
+        agent_resume: None,
         agent_role: None,
         id: id.clone(),
         title: "Terminal".into(),
@@ -1018,7 +1049,13 @@ fn refresh_pane_metadata(s: &mut Server) {
         if let Some(handle) = s.panes.get(&pane.id) {
             *pane = handle.info.lock().unwrap().clone();
         }
+        pane.agent_resume = None;
         if let Some(agent) = agents.iter().find(|a| a["pane"] == pane.id) {
+            pane.agent_resume = agent["id"].as_str().map(|id| AgentResume {
+                id: id.to_owned(),
+                verified_launch: agent["verified_launch"] == true,
+                session: agent["session"].as_str().map(str::to_owned),
+            });
             let reported = if pane.agent_source == Some(crate::AgentSource::Reported) {
                 pane.agent_provider
                     .as_deref()
@@ -1136,12 +1173,16 @@ fn request(s: &mut Server, r: Request) -> Result<Message> {
             return Ok(Message::Ok);
         }
         Request::CommitUpgrade { token } => {
-            if s.upgrade_boot.as_deref() != Some(token.as_str()) {
+            let hold = s
+                .upgrade_boot
+                .as_ref()
+                .context("Missing upgrade boot hold")?;
+            if hold.token != token {
                 bail!("This client does not own the upgrade boot hold");
             }
             let path = state_dir().join(UPGRADE_BOOT_FILE);
-            if let Some(on_disk) = upgrade_boot_token(&path)? {
-                if on_disk != token {
+            if let Some(on_disk) = upgrade_boot_hold(&path)? {
+                if on_disk.token != token {
                     bail!("Upgrade boot hold changed. Automatic recovery is required");
                 }
                 fs::remove_file(&path)?;
@@ -1149,10 +1190,13 @@ fn request(s: &mut Server, r: Request) -> Result<Message> {
             // Retain the in-memory hold until removal is durable. The owning
             // token may retry if a previous directory fsync failed after unlink.
             fs::File::open(state_dir())?.sync_all()?;
-            s.upgrade_boot = None;
+            let hold = s.upgrade_boot.take().unwrap();
             s.set_draining(false);
-            // Only the verified updater may restore its approved live pane IDs.
-            // Starting all saved agents here could revive intentionally exited work.
+            // A takeover of an unresponsive server uses its saved layout.
+            // A regular upgrade restores live pane IDs from its approved plan.
+            if !hold.resume_panes.is_empty() {
+                restart_saved_agents(s, Some(&hold.resume_panes))?;
+            }
             return Ok(Message::Ok);
         }
         Request::AbortUpgrade { token } => {
@@ -1536,6 +1580,7 @@ fn request(s: &mut Server, r: Request) -> Result<Message> {
                         launch_error: None,
                         agent_provider: None,
                         agent_source: None,
+                        agent_resume: None,
                         agent_role: None,
                         id: pane_id.clone(),
                         title: "Coordinator".into(),
@@ -1584,6 +1629,7 @@ fn request(s: &mut Server, r: Request) -> Result<Message> {
                 launch_error: None,
                 agent_provider: None,
                 agent_source: None,
+                agent_resume: None,
                 agent_role: None,
                 id: pane_id.clone(),
                 title: role.into(),
@@ -1917,6 +1963,7 @@ fn create_with_initial_tab(
             workspace,
             branch,
             base,
+            name,
             path,
         } => {
             let (source, owner) = {
@@ -1939,7 +1986,7 @@ fn create_with_initial_tab(
                 base,
                 path.as_deref(),
             )?;
-            (path, String::new(), Some(owner))
+            (path, name.trim().to_owned(), Some(owner))
         }
     };
     if !path.is_dir() {
@@ -2075,6 +2122,7 @@ static GIT_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 fn open_checkout(
     server: &Arc<Mutex<Server>>,
     path: &str,
+    name: &str,
     owner: Option<&str>,
     proposed: Option<&str>,
 ) -> Result<String> {
@@ -2109,7 +2157,7 @@ fn open_checkout(
     {
         return Ok(existing.id.clone());
     }
-    create_workspace(&mut s, path, String::new(), false, proposed)?;
+    create_workspace(&mut s, path, name.trim().to_owned(), false, proposed)?;
     let child = s.state.workspaces.last_mut().unwrap();
     child.parent = Some(owner);
     let id = child.id.clone();
@@ -2192,6 +2240,7 @@ pub fn serve() -> Result<()> {
         p.reports.clear();
         p.agent_provider = None;
         p.agent_source = None;
+        p.agent_resume = None;
         p.agent_role = None;
         if let Some(path) = cwd_path(&p.cwd) {
             p.cwd = path;
@@ -2224,7 +2273,7 @@ pub fn serve() -> Result<()> {
     }
     update_workspace_names(&mut state);
     crate::workspaces::migrate(&mut state);
-    let upgrade_boot = upgrade_boot_token(&state_dir().join(UPGRADE_BOOT_FILE))?;
+    let upgrade_boot = upgrade_boot_hold(&state_dir().join(UPGRADE_BOOT_FILE))?;
     private_dir(&state_dir())?;
     let monitor_board = crate::coordination::Board::open()?;
     let mut agents = monitor_board.agents()?;
@@ -2277,7 +2326,7 @@ pub fn serve() -> Result<()> {
     {
         let mut s = server.lock().unwrap();
         if s.upgrade_boot.is_none() {
-            restart_saved_agents(&mut s)?;
+            restart_saved_agents(&mut s, None)?;
         }
     }
     let monitor = server.clone();
@@ -2414,7 +2463,8 @@ pub fn serve() -> Result<()> {
                 if let Request::Attach { pane } = r {
                     let h = live_handle(&routes, &pane)?;
                     let (tx, rx) = bounded(128);
-                    h.tx.send_timeout(Op::Attach(tx), std::time::Duration::from_secs(2))?;
+                    h.tx.send_timeout(Op::Attach(tx), std::time::Duration::from_secs(2))
+                        .map_err(pane_send_error)?;
                     stream.set_write_timeout(Some(std::time::Duration::from_secs(30)))?;
                     drop(slot);
                     let (gone, disconnected) = bounded(1);
@@ -2621,7 +2671,15 @@ pub fn serve() -> Result<()> {
                             if value["action"] == "pause"
                                 && let Some(pane) = result["pane"].as_str()
                             {
-                                stop_pane(&server.lock().unwrap(), pane)?;
+                                let mut state = server.lock().unwrap();
+                                stop_pane(&state, pane)?;
+                                if let Some(handle) = state.change_handle(pane.into(), None)
+                                    && let Some(saved) =
+                                        state.state.panes.iter_mut().find(|p| p.id == pane)
+                                {
+                                    *saved = handle.info.lock().unwrap().clone();
+                                    saved.exited = true;
+                                }
                             }
                             if value["action"] == "resume"
                                 && let Some(pane) = result["pane"].as_str()
@@ -2824,6 +2882,7 @@ pub fn serve() -> Result<()> {
                                     workspace: _,
                                     branch,
                                     base,
+                                    name,
                                     path,
                                 } => {
                                     let (source, owner) =
@@ -2837,6 +2896,7 @@ pub fn serve() -> Result<()> {
                                     open_checkout(
                                         &shared,
                                         &target.to_string_lossy(),
+                                        &name,
                                         Some(&owner),
                                         creation_id.as_deref(),
                                     )
@@ -2844,6 +2904,7 @@ pub fn serve() -> Result<()> {
                                 Request::WorktreeOpen { path, workspace } => open_checkout(
                                     &shared,
                                     &path,
+                                    "",
                                     workspace.as_deref(),
                                     creation_id.as_deref(),
                                 ),

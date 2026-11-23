@@ -1,4 +1,5 @@
 //! Host-local account usage for agents descending from Jam-owned shells.
+mod cache;
 mod credentials;
 mod process;
 mod providers;
@@ -187,27 +188,6 @@ impl State {
         };
         report.checking = false;
         report.active_sessions = entry.report.active_sessions;
-        if report.error.is_none() {
-            report.last_success_at = report.checked_at;
-        } else {
-            let changed_account = report.account_key.is_some()
-                && entry.report.account_key.is_some()
-                && report.account_key != entry.report.account_key;
-            if !changed_account {
-                // Keep the last known values stale, never relabel another account's quota.
-                report.windows = entry.report.windows.clone();
-                report.extra = entry.report.extra.clone();
-                report.last_success_at = entry.report.last_success_at;
-                report.account_label = entry.report.account_label.clone().or(report.account_label);
-                report.account_key = report
-                    .account_key
-                    .or_else(|| entry.report.account_key.clone());
-            } else {
-                report.windows.clear();
-                report.extra = None;
-                report.last_success_at = None;
-            }
-        }
         entry.report = report;
         entry.pending = false;
     }
@@ -225,8 +205,13 @@ impl Monitor {
         let roots = Arc::new(Mutex::new(Vec::new()));
         let state = Arc::new(Mutex::new(State::default()));
         let (jobs, queue) = crossbeam_channel::bounded::<Job>(64);
+        let cache = Arc::new(LazyLock::new(|| {
+            Mutex::new(cache::Cache::open(
+                crate::state_dir().join("usage-cache.json"),
+            ))
+        }));
         for _ in 0..2 {
-            let (queue, state) = (queue.clone(), state.clone());
+            let (queue, state, cache) = (queue.clone(), state.clone(), cache.clone());
             std::thread::spawn(move || {
                 for job in queue {
                     if job.cancelled.load(Ordering::Relaxed)
@@ -234,7 +219,7 @@ impl Monitor {
                     {
                         continue;
                     }
-                    let report = providers::fetch(&job.profile, job.allow_prompt);
+                    let report = providers::fetch(&job.profile, job.allow_prompt, &cache);
                     state.lock().unwrap().apply(&job, report);
                 }
             });
@@ -357,26 +342,6 @@ mod tests {
         });
         state.apply(&job, report);
         assert_eq!(state.entries[&profile.key].report.active_sessions, 5);
-        assert_eq!(
-            state.entries[&profile.key].report.last_success_at,
-            Some(100)
-        );
-        let mut failed = Report::new(&profile, 0);
-        failed.error = Some("Unavailable".into());
-        state.apply(&job, failed);
-        assert_eq!(
-            state.entries[&profile.key].report.windows[0].percent,
-            Some(25.0)
-        );
-        let mut switched = Report::new(&profile, 0);
-        switched.account_key = Some("second-account".into());
-        switched.account_label = Some("new@example.invalid".into());
-        switched.error = Some("Sign in again".into());
-        state.apply(&job, switched);
-        let current = &state.entries[&profile.key].report;
-        assert!(current.windows.is_empty());
-        assert!(current.last_success_at.is_none());
-        assert_eq!(current.account_key.as_deref(), Some("second-account"));
         state.reconcile(Vec::new(), &tx);
         state.apply(&job, Report::new(&profile, 0));
         assert!(state.entries.is_empty());

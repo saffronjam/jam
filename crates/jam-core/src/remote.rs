@@ -798,6 +798,7 @@ mod routing_tests {
         let agent = crate::id();
         let request = Request::CreateWorkspaceWithTab {
             location: WorkspaceLocation::Worktree {
+                name: "EDGE-7400 Fix link flap".into(),
                 workspace: workspace.clone(),
                 branch: "feature/test".into(),
                 base: "HEAD".into(),

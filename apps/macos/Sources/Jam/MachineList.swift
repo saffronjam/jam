@@ -77,7 +77,7 @@ struct MachineList: View {
       Button("Update Jam…") { store.appUpgrade.check() }.disabled(state.busy)
     }
     if state.status?.blocked == true && state.status?.state != "client_update_required" {
-      Button("Take Over Server…") { store.showServerAction(endpoint, kind: .takeover) }
+      Button("Take Over Server…") { store.reconnectMachine(endpoint) }
         .disabled(!state.canTakeover)
     }
     if state.status?.state == "inspection_failed" || (endpoint.isEmpty && store.localTimeout != nil)

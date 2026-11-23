@@ -189,6 +189,58 @@ impl Drop for Fixture {
     }
 }
 #[test]
+fn takeover_commit_resumes_saved_managed_panes_only() {
+    let mut f = Fixture::new();
+    let Message::State(state) = f.rpc(Request::CreateWorkspace {
+        path: f.dir.path().to_string_lossy().into(),
+        name: "test".into(),
+    }) else {
+        panic!("missing workspace");
+    };
+    let shell = state.panes[0].id.clone();
+    let workspace = &state.workspaces[0].id;
+    let start = |role| {
+        f.coord(json!({"action":"start","workspace":workspace,"provider":"claude","role":role}))["agent"]["pane"].as_str().unwrap().to_owned()
+    };
+    let running = start("coordinator");
+    let not_in_checkpoint = start("worker");
+    f.wait(|| {
+        f.coord(json!({"action":"list"}))["agents"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|a| a["ready"] == true && a["session"].is_string())
+    });
+    f.rpc(Request::Stop);
+    f.child.wait().unwrap();
+
+    let token = jam_core::id();
+    let marker = f.dir.path().join("state/.upgrade-boot.json");
+    std::fs::write(
+        &marker,
+        serde_json::to_vec(&json!({"token":token,"resume_panes":[running,shell]})).unwrap(),
+    )
+    .unwrap();
+    std::fs::set_permissions(&marker, std::fs::Permissions::from_mode(0o600)).unwrap();
+    f.child = Fixture::launch(f.dir.path());
+    f.wait(|| connect_to(&f.socket).is_ok());
+    assert!(
+        matches!(f.rpc(Request::State), Message::State(state) if state.panes.iter().all(|p| p.exited))
+    );
+    assert!(matches!(
+        f.rpc(Request::CommitUpgrade { token }),
+        Message::Ok
+    ));
+    f.wait(|| matches!(f.rpc(Request::Capture { pane: running.clone() }), Message::Capture(text) if text.contains("READY")));
+    assert!(
+        matches!(f.rpc(Request::State), Message::State(state) if state.panes.iter().filter(|p| !p.exited).map(|p| &p.id).eq([&running]))
+    );
+    assert!(
+        matches!(f.rpc(Request::State), Message::State(state) if state.panes.iter().any(|p| p.id == not_in_checkpoint && p.exited))
+    );
+}
+
+#[test]
 fn coordinator_launch_registration_and_permission_preserving_restart() {
     let mut f = Fixture::new();
     let Message::State(s) = f.rpc(Request::CreateWorkspace {
@@ -208,6 +260,7 @@ fn coordinator_launch_registration_and_permission_preserving_restart() {
         .unwrap();
     assert_eq!(metadata["agent_provider"], "claude");
     assert_eq!(metadata["agent_role"], "coordinator");
+    assert_eq!(metadata["agent_resume"]["verified_launch"], true);
     f.wait(|| f.coord(json!({"action":"list"}))["agents"][0]["ready"] == true);
     assert_eq!(
         f.coord(json!({"action":"list"}))["agents"][0]["bypass"],
@@ -919,6 +972,7 @@ fn create_with_initial_agent_never_starts_a_placeholder_shell() {
             &f.socket,
             Request::CreateWorkspaceWithTab {
                 location: WorkspaceLocation::Worktree {
+                    name: String::new(),
                     workspace: root_id.clone(),
                     branch: "must-not-exist".into(),
                     base: "HEAD".into(),
@@ -1447,6 +1501,7 @@ fn worktree_removal_accepts_already_paused_agents() {
     let checkout = f.dir.path().join("checkout");
     let Message::Operation { id, .. } = f.rpc(Request::CreateWorkspaceWithTab {
         location: WorkspaceLocation::Worktree {
+            name: "EDGE-7400 Fix link flap".into(),
             workspace: root.clone(),
             branch: "removal-test".into(),
             base: "main".into(),
@@ -1477,8 +1532,26 @@ fn worktree_removal_accepts_already_paused_agents() {
     else {
         panic!()
     };
+    let Message::State(state) = f.rpc(Request::State) else {
+        panic!()
+    };
+    let child = state
+        .workspaces
+        .iter()
+        .find(|item| item.id == workspace)
+        .unwrap();
+    assert_eq!(child.name, "EDGE-7400 Fix link flap");
+    assert_eq!(child.auto_name, Some(false));
+    assert_eq!(
+        std::path::Path::new(&child.path),
+        checkout.canonicalize().unwrap()
+    );
     f.wait(|| matches!(f.rpc(Request::Capture {pane:pane.clone()}),Message::Capture(text) if text.contains("READY")));
     f.coord(json!({"action":"pause","agent":agent}));
+    assert!(matches!(f.rpc(Request::State), Message::State(s)
+        if s.panes.iter().any(|p| p.id == pane && p.exited)));
+    let error = call_at(&f.socket, Request::Capture { pane: pane.clone() }).unwrap_err();
+    assert_eq!(error.to_string(), "pane is stopped or missing");
     // Pausing twice is idempotent too; neither path may send on a dead actor.
     f.coord(json!({"action":"pause","agent":agent}));
     let Message::Operation { id, .. } = f.rpc(Request::WorktreeRemove {

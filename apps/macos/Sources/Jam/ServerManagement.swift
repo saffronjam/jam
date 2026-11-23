@@ -36,7 +36,7 @@ extension Store {
     if let status = serverStatuses[endpoint], status.blocked {
       if status.state == "client_update_required" {
         appUpgrade.check()
-      } else {
+      } else if machineActions(endpoint).canTakeover {
         showServerAction(endpoint, kind: .takeover)
       }
       return
@@ -346,9 +346,8 @@ struct ServerActionSheet: View {
               store.performServerAction(action.endpoint, kind: .takeover, force: true)
             }
           }.disabled(
-            checking
-              || (store.serverTokens[action.endpoint] == nil
-                && store.serverActionErrors[action.endpoint] == nil)
+            (store.serverTokens[action.endpoint] == nil
+              && store.serverActionErrors[action.endpoint] == nil)
               || store.serverBusy.contains(action.endpoint))
         } else if action.kind == .update {
           if status?.compatible == true && (status?.terminals ?? 0) > 0 {

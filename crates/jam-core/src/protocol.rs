@@ -25,6 +25,12 @@ pub enum AgentSource {
     Reported,
 }
 #[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct AgentResume {
+    pub id: String,
+    pub verified_launch: bool,
+    pub session: Option<String>,
+}
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Pane {
     /// Identity of this live PTY, changed on every successful restart.
     #[serde(default)]
@@ -35,6 +41,8 @@ pub struct Pane {
     pub agent_provider: Option<String>,
     #[serde(default)]
     pub agent_source: Option<AgentSource>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_resume: Option<AgentResume>,
     #[serde(default)]
     pub agent_role: Option<String>,
     pub id: String,
@@ -161,6 +169,8 @@ pub enum WorkspaceLocation {
         workspace: String,
         branch: String,
         base: String,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        name: String,
         path: Option<String>,
     },
 }
@@ -247,6 +257,8 @@ pub enum Request {
         workspace: String,
         branch: String,
         base: String,
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        name: String,
         path: Option<String>,
     },
     WorktreeOpen {

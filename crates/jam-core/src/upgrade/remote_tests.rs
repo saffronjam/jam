@@ -218,6 +218,7 @@ fn managed_planner_and_helpers_connect_independently_before_probing() {
                             launch_error: None,
                             agent_provider: None,
                             agent_source: None,
+                            agent_resume: None,
                             agent_role: None,
                         }],
                     }),

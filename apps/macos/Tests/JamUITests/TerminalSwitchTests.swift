@@ -57,6 +57,10 @@ struct WorktreeListFixture: View {
   static func main() throws {
     setbuf(stdout, nil)
     _ = NSApplication.shared
+    if CommandLine.arguments.contains("--mouse-gestures") {
+      try checkTerminalMouseGestures()
+      return
+    }
     for provider in ["claude", "codex"] {
       assert(AgentBrand.image(provider) != nil, "Provider vector asset is missing")
       assert(
@@ -85,7 +89,9 @@ struct WorktreeListFixture: View {
     try checkWorktreeNavigation()
     _ = nativeString(jam_start(""))
     defer { _ = rpc("Stop") }
+    try checkTerminalMouseGestures()
     let store = Store()
+    try checkWarningTimeout()
     try checkUpgradeNotifications(store: store)
     try checkUpdateSettingsControls(store: store)
     try checkSettings(store: store)
@@ -194,6 +200,169 @@ struct WorktreeListFixture: View {
       details.fittingSize.height > 30 && details.fittingSize.height <= 180,
       "Warning details were clipped to height \(details.fittingSize.height)")
     details.removeFromSuperview()
+    try checkStoppedPaneFocusAndResume()
+  }
+
+  static func checkTerminalMouseGestures() throws {
+    let response = rpc(["CreateWorkspace": ["path": "/tmp", "name": "Mouse gestures"]])
+    guard let state = response["State"] as? [String: Any],
+      let workspaces = state["workspaces"] as? [[String: Any]],
+      let workspace = workspaces.last?["id"] as? String,
+      let panes = state["panes"] as? [[String: Any]],
+      let pane = panes.first(where: { $0["workspace"] as? String == workspace })?["id"] as? String
+    else { throw NSError(domain: "Could not create gesture fixture: \(response)", code: 1) }
+    defer { _ = rpc(["WorkspaceClose": ["workspace": workspace, "group": false]]) }
+    let rect = NSRect(x: 0, y: 0, width: 640, height: 220)
+    let window = FocusTestWindow(
+      contentRect: rect, styleMask: [.borderless],
+      backing: .buffered, defer: false)
+    window.keyStatus = true
+    window.isReleasedWhenClosed = false
+    let view = TerminalNSView(pane: pane)
+    view.frame = rect
+    let board = NSPasteboard.withUniqueName()
+    defer {
+      board.releaseGlobally()
+      window.close()
+    }
+    view.copyPasteboard = board
+    var selectionCopies = 0
+    view.onSelectionCopy = { selectionCopies += 1 }
+    var opened: [URL] = []
+    view.openWebURL = {
+      opened.append($0)
+      return true
+    }
+    window.contentView = view
+    window.makeFirstResponder(view)
+    func event(
+      _ type: NSEvent.EventType, _ col: Int, _ row: Int = 0,
+      _ flags: NSEvent.ModifierFlags = []
+    ) -> NSEvent {
+      let point = NSPoint(
+        x: (CGFloat(col) + 0.5) * view.cellSize.width,
+        y: rect.height - (CGFloat(row) + 0.5) * view.cellSize.height)
+      return NSEvent.mouseEvent(
+        with: type, location: view.convert(point, to: nil),
+        modifierFlags: flags, timestamp: 0, windowNumber: window.windowNumber, context: nil,
+        eventNumber: 0, clickCount: 1, pressure: 1)!
+    }
+    func send(_ command: String) {
+      _ = rpc(["Send": ["pane": pane, "data": Array((command + "\r").utf8)]])
+    }
+    let link = "https://example.org/jam"
+    send(
+      #"printf '\033[2J\033[Hhttps://example.org/jam\r\n\033]8;;https://example.org/review\033\\Review\033]8;;\033\\\r\n'"#
+    )
+    try wait("gesture fixture rendered") {
+      view.prepareForDisplay()
+      let bytes = Data(view.action("link", 1, 1).utf8)
+      let context = try? JSONSerialization.jsonObject(with: bytes) as? [String: Any]
+      return context?["url"] as? String == "https://example.org/review"
+    }
+    view.mouseDown(with: event(.leftMouseDown, 0))
+    view.mouseDragged(with: event(.leftMouseDragged, link.count - 1))
+    view.mouseUp(with: event(.leftMouseUp, link.count - 1))
+    assert(
+      board.string(forType: .string) == link,
+      "Unexpected drag selection: \(String(describing: board.string(forType: .string)))")
+    assert(selectionCopies == 1, "Automatic copy should show one confirmation")
+    view.copy(nil)
+    assert(selectionCopies == 1, "Manual Copy should not show a confirmation")
+    view.mouseDown(with: event(.leftMouseDown, 4, 0, .control))
+    view.mouseUp(with: event(.leftMouseUp, 4, 0, .control))
+    view.rightMouseDown(with: event(.rightMouseDown, 1, 1, .control))
+    view.rightMouseUp(with: event(.rightMouseUp, 1, 1, .control))
+    assert(opened.map(\.absoluteString) == [link, "https://example.org/review"])
+    assert(TerminalNSView.webLink(["url": "file:///etc/hosts"]) == nil)
+    // A mouse-reporting app supplies different clipboard text on button release.
+    send(
+      #"python3 -c 'import os,tty; tty.setraw(0); os.write(1,b"\x1b[2J\x1b[HDrag here\x1b[?1002h\x1b[?1006h"); exec("while os.read(0,1) != b\"m\": pass"); os.write(1,b"\x1b]52;c;ZnJvbSBhcHA=\x07\x1b[?1002l\x1b[?1006l")'; stty sane"#
+    )
+    try wait("mouse reporting enabled") {
+      view.render()
+      return view.meta["mouse"] as? Bool == true
+    }
+    view.mouseDown(with: event(.leftMouseDown, 0))
+    view.mouseDragged(with: event(.leftMouseDragged, 3))
+    view.mouseUp(with: event(.leftMouseUp, 3))
+    try wait("application selection reached the client pasteboard") {
+      view.render()
+      return board.string(forType: .string) == "from app"
+    }
+    assert(selectionCopies == 2, "An app clipboard reply must not repeat the same confirmation")
+    print("Client drag-copy, quick toast events, OSC 52 and hyperlink gestures passed")
+  }
+
+  static func checkStoppedPaneFocusAndResume() throws {
+    let store = Store()
+    let directory = ProcessInfo.processInfo.environment["JAM_STATE_DIR"]!
+    apply(rpc(["NewWorkspace": ["path": directory]]), to: store)
+    let workspace = store.workspaces.last!
+    let stopped = workspace.tabs[0].root.ids[0]
+    apply(rpc(["Split": ["pane": stopped, "vertical": false]]), to: store)
+    let live = store.panes.values.first {
+      $0.id != stopped && store.workspaces.last!.tabs[0].root.ids.contains($0.id)
+    }!.id
+    let session = UUID().uuidString.lowercased()
+    let record =
+      rpc([
+        "Coordination": [
+          "action": "register", "pane": stopped, "provider": "claude", "session": session,
+          "launch_flags": [],
+        ]
+      ])["Coordination"] as! [String: Any]
+    assert(record["verified_launch"] as? Bool == false)
+    let agent = record["id"] as! String
+    assert(rpc(["Coordination": ["action": "pause", "agent": agent]])["error"] == nil)
+    try wait("stopped agent record") {
+      apply(rpc("State"), to: store)
+      return store.panes[stopped]?.exited == true
+    }
+    assert(store.resumeState(for: store.panes[stopped]!) == .manual("claude --resume " + session))
+    assert(
+      StoppedAgentResume(["id": agent, "session": "--invalid"], provider: "claude")
+        == .manual("claude --resume"))
+    store.restartPane(stopped)
+    assert(store.restartingPanes.isEmpty && store.error.isEmpty)
+    store.select(workspace.id, pane: live)
+    let window = FocusTestWindow(
+      contentRect: NSRect(x: -3200, y: -3200, width: 800, height: 400),
+      styleMask: [.titled], backing: .buffered, defer: false)
+    window.keyStatus = true
+    window.contentView = NSHostingView(
+      rootView: HStack(spacing: 0) {
+        PaneCard(id: stopped)
+        PaneCard(id: live)
+      }.environmentObject(store))
+    window.orderFront(nil)
+    defer { window.orderOut(nil) }
+    try wait("live sibling attached") { store.terminalViews.existing(live)?.window === window }
+    let liveView = store.terminalViews.existing(live)!
+    assert(window.makeFirstResponder(liveView) && window.firstResponder === liveView)
+    // Click empty space well outside the label and controls on the stopped pane.
+    let click = NSPoint(x: 24, y: 45)
+    assert(store.focus == live)
+    let hit = window.contentView!.hitTest(window.contentView!.convert(click, from: nil))
+    assert(hit != nil)
+    for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+      window.sendEvent(
+        NSEvent.mouseEvent(
+          with: type, location: click, modifierFlags: [],
+          timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+          context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!)
+    }
+    try wait("stopped pane receives click and keyboard focus") {
+      store.focus == stopped && window.firstResponder === hit
+    }
+    assert(store.enabled("close_pane"))
+    store.execute("close_pane")
+    try wait("close shortcut removes only the stopped pane") {
+      store.panes[stopped] == nil && store.panes[live]?.exited == false
+    }
+    print(
+      "Stopped split pane accepts focus and closes independently. Unknown launch permissions show manual resume."
+    )
   }
 
   static func checkAutomaticFocusAcknowledgement(store: Store, window: NSWindow) throws {
@@ -859,6 +1028,32 @@ struct WorktreeListFixture: View {
     print(
       "Review badges passed: GitHub/GitLab labels, row updates, tooltips, click targets, and removal."
     )
+  }
+
+  static func checkWarningTimeout() throws {
+    var dismissed: [String] = []
+    func toast(_ message: String) -> WarningToast {
+      WarningToast(
+        message: message, retry: nil, dismiss: { dismissed.append(message) },
+        duration: .milliseconds(500))
+    }
+    let window = NSWindow(
+      contentRect: NSRect(x: -3000, y: -3000, width: 400, height: 180),
+      styleMask: [.titled], backing: .buffered, defer: false)
+    let host = NSHostingView(rootView: toast("First warning"))
+    window.contentView = host
+    window.orderFront(nil)
+    defer { window.orderOut(nil) }
+    RunLoop.current.run(until: Date().addingTimeInterval(0.30))
+    host.rootView = toast("Second warning")
+    RunLoop.current.run(until: Date().addingTimeInterval(0.30))
+    assert(dismissed.isEmpty, "An earlier timer dismissed a newer warning")
+    try wait("warning automatically dismissed") { dismissed == ["Second warning"] }
+
+    var copied: QuickToastMessage? = QuickToastMessage(text: "Copied to clipboard")
+    let quick = QuickToast(message: Binding(get: { copied }, set: { copied = $0 }))
+    window.contentView = NSHostingView(rootView: quick)
+    try wait("quick toast automatically dismissed") { copied == nil }
   }
 
   static func checkUpgradeNotifications(store: Store) throws {
@@ -1688,6 +1883,20 @@ struct WorktreeListFixture: View {
         WorkspaceSidebar.Coordinator(store).update(NSOutlineView())
       }
     }
+    let restored = Store()
+    restored.apply(
+      snapshot(endpoint: "remote-context", ids: ["a"], coordinator: false, revision: 1),
+      endpoint: "remote-context")
+    restored.select("remote-context|a")
+    assert(restored.current != nil, "Fixture must restore the cached remote workspace")
+    var unavailable = ServerStatus(
+      running: true, compatible: false, build: nil, availableBuild: nil,
+      updateAvailable: false, terminals: nil, error: nil)
+    unavailable.state = "takeover_required"
+    restored.serverStatuses["remote-context"] = unavailable
+    assert(restored.selected.isEmpty && restored.current == nil && restored.visiblePaneIDs.isEmpty)
+    assert(!restored.isLoadingSelectedRemote)
+
     let closing = Store()
     let empty = Workspace(id: "empty", name: "Empty", path: "/tmp", tabs: [])
     closing.workspaces = [empty]

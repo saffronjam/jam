@@ -620,7 +620,9 @@ struct WorkspaceSidebar: NSViewRepresentable {
         if let pane = w.coordinator?.pane {
           let resume = SidebarMenuItem(title: "Resume") { self.store.restartPane(pane) }
           resume.isEnabled =
-            store.panes[pane]?.exited == true || store.panes[pane]?.status == "recovery_failed"
+            store.panes[pane].map {
+              $0.needsResume && store.resumeState(for: $0)?.canResume == true
+            } ?? false
           menu.addItem(resume)
           if let id = item.tintID { menu.addItem(tintEntry(id)) }
           menu.addItem(.separator())

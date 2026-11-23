@@ -448,15 +448,12 @@ final class AppUpgradeController: ObservableObject {
               self.releaseNotesVersion = value?["version"] as? String ?? self.currentVersion
               self.notice =
                 "Jam was upgraded to \(value?["version"] as? String ?? self.currentVersion)."
+            } else if phase == "complete_with_pending" {
+              self.available = nil
+              self.schedule.release = nil
+              self.notice = ""
             } else {
-              if phase == "complete_with_pending" {
-                self.available = nil
-                self.schedule.release = nil
-              }
-              self.error =
-                (phase == "complete_with_pending"
-                  ? "Jam was upgraded. Some machines still need attention."
-                  : "The Jam upgrade did not complete.") + (details.map { "\n" + $0 } ?? "")
+              self.error = "The Jam upgrade did not complete." + (details.map { "\n" + $0 } ?? "")
             }
             self.persist()
             if phase == "failed" || phase == "rolled_back" {

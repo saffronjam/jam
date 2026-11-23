@@ -242,6 +242,9 @@ enum WorktreeCmd {
         branch: String,
         #[arg(long, default_value = "HEAD")]
         base: String,
+        /// Display name in the workspace sidebar.
+        #[arg(long, default_value = "")]
+        name: String,
         #[arg(long)]
         path: Option<String>,
         #[command(flatten)]
@@ -599,6 +602,7 @@ fn main() -> Result<()> {
                 workspace,
                 branch,
                 base,
+                name,
                 path,
                 initial,
             } => match initial.into_tab() {
@@ -607,6 +611,7 @@ fn main() -> Result<()> {
                         workspace,
                         branch,
                         base,
+                        name,
                         path,
                     },
                     tab,
@@ -615,6 +620,7 @@ fn main() -> Result<()> {
                     workspace,
                     branch,
                     base,
+                    name,
                     path,
                 },
             },

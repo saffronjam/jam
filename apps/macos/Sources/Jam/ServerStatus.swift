@@ -85,9 +85,10 @@ struct MachineActions {
   private var manageable: Bool {
     (connected || incompatibleServer) && status?.managementAvailable != false
   }
-  var canTakeover: Bool { status?.canTakeover == true && !busy && !checking }
+  var canTakeover: Bool { status?.canTakeover == true && !busy }
   var canReconnect: Bool {
-    status?.blocked != true && !connected && !incompatibleServer && !connecting && !busy
+    status?.blocked != true && !connecting && !busy
+      && (status?.state == "inspection_failed" || (!connected && !incompatibleServer))
   }
   var canDisconnect: Bool { (connected || connecting) && !busy }
   var canCheck: Bool {

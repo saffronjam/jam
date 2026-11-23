@@ -200,7 +200,7 @@ private struct UsageCard: View {
             }
             if let success = report.lastSuccessAt {
               Text(
-                "Updated \(Date(timeIntervalSince1970: Double(success)).formatted(date: .omitted, time: .shortened)) · \(report.activeSessions) active sessions"
+                "Updated \(Date(timeIntervalSince1970: Double(success)).formatted(date: .abbreviated, time: .shortened)) · \(report.activeSessions) active sessions"
               )
               .font(.caption).foregroundStyle(.secondary)
             }

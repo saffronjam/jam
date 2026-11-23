@@ -44,7 +44,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             worktrees_directory: crate::worktree_template::DEFAULT.into(),
-            copy_on_select: false,
+            copy_on_select: true,
             automatic_check_updates: true,
             enabled_agents: vec!["claude".into(), "codex".into()],
             agent_models: BTreeMap::new(),
@@ -488,7 +488,7 @@ mod tests {
         assert!(c.bindings["new_tab"].is_empty());
         assert!(c.bindings["close_pane"].is_empty());
         assert_eq!(c.bindings["new_worktree"], ["ctrl+shift+m"]);
-        assert!(!c.copy_on_select);
+        assert!(c.copy_on_select);
         c.validate().unwrap();
     }
     #[test]

@@ -448,6 +448,7 @@ fn worktree_membership_survives_directory_changes_and_is_container_scoped() {
         cd(repo);
         let target = d.dir.path().join(format!("checkout-{index}"));
         let (child, error) = operation(Request::WorktreeCreate {
+            name: String::new(),
             workspace: root.clone(),
             branch: "feature".into(),
             base: "HEAD".into(),
@@ -774,6 +775,7 @@ fn worktree_operations_are_async_and_close_preserves_checkout() {
     let root = state.workspaces[0].id.clone();
     let target = d.dir.path().join("linked checkout");
     let Message::Operation { id, .. } = d.request(Request::WorktreeCreate {
+        name: "Fix link flap".into(),
         workspace: root.clone(),
         branch: "feature/test".into(),
         base: "HEAD".into(),
@@ -798,6 +800,8 @@ fn worktree_operations_are_async_and_close_preserves_checkout() {
     let child = child.unwrap();
     let state = d.state();
     assert_eq!(state.workspaces.len(), 2);
+    assert_eq!(state.workspaces[1].name, "Fix link flap");
+    assert_eq!(state.workspaces[1].branch.as_deref(), Some("feature/test"));
     assert_eq!(
         state.workspaces[0].repository,
         state.workspaces[1].repository
@@ -1383,6 +1387,7 @@ fn configured_worktree_template_controls_checkout_creation() {
         panic!()
     };
     let Message::Operation { id, .. } = d.request(Request::WorktreeCreate {
+        name: String::new(),
         workspace: state.workspaces[0].id.clone(),
         branch: "feature/login".into(),
         base: "HEAD".into(),

@@ -55,6 +55,24 @@ fn belongs_to_installation(executable: &Path, daemon: &Path) -> Result<bool> {
     Ok(generation.to_string_lossy().starts_with("bundle-")
         && components.as_path() == Path::new(name).join("Contents/MacOS/jamd"))
 }
+fn running_server_state(info: &Value, status: &Value, foreign: bool) -> &'static str {
+    if info["protocol"] != crate::VERSION
+        || info["release_version"]
+            .as_str()
+            .and_then(|v| semver::Version::parse(v).ok())
+            .is_none()
+    {
+        "unsupported"
+    } else if foreign {
+        "takeover_required"
+    } else if status["compatible"] != true {
+        "inspection_failed"
+    } else if status["update_available"] == true {
+        "update_available"
+    } else {
+        "connected"
+    }
+}
 fn inspect(
     endpoint: &str,
     daemon: &Path,
@@ -134,12 +152,14 @@ fn inspect(
                 .unwrap_or(Value::Null);
         }
         // A wire connection is only attempted for a supported protocol.
-        if info["protocol"] == crate::VERSION
-            && value["running"] == true
-            && let Ok(socket) = remote::connect(endpoint)
-            && let Ok(current) = super::status(endpoint, daemon, artifacts, &socket)
-        {
-            value = current;
+        if info["protocol"] == crate::VERSION && value["running"] == true {
+            match remote::connect(endpoint)
+                .and_then(|socket| super::status(endpoint, daemon, artifacts, &socket))
+            {
+                Ok(current) if current["running"] == true => value = current,
+                Ok(_) => value["error"] = json!("Could not reach the running server"),
+                Err(error) => value["error"] = json!(format!("{error:#}")),
+            }
         }
     }
     versions.push(info["release_version"].clone());
@@ -155,20 +175,13 @@ fn inspect(
         "client_update_required"
     } else if value["running"] != true {
         "offline"
-    } else if value["compatible"] != true
-        || info["release_version"]
-            .as_str()
-            .and_then(|v| semver::Version::parse(v).ok())
-            .is_none()
-    {
-        "unsupported"
-    } else if foreign {
-        "takeover_required"
-    } else if value["update_available"] == true {
-        "update_available"
     } else {
-        "connected"
+        running_server_state(&info, &value, foreign)
     };
+    if state == "inspection_failed" {
+        value["management_available"] = json!(false);
+        value["update_available"] = json!(false);
+    }
     value["state"] = json!(state);
     value["identity"] = identity;
     value["build"] = info
@@ -369,6 +382,16 @@ fn run(id: &str, request: &Value, approval: Approval, socket: &Path, state: &Pat
         let previous_build = approval.identity["build"]
             .as_str()
             .context("Missing previous build")?;
+        let resume_panes = match fs::read(state.join("layout.json")) {
+            Ok(bytes) => serde_json::from_slice::<crate::State>(&bytes)?
+                .panes
+                .into_iter()
+                .filter(|pane| !pane.exited)
+                .map(|pane| pane.id)
+                .collect::<Vec<_>>(),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+            Err(error) => return Err(error.into()),
+        };
         let directory = state.join("server-actions").join(id);
         server::private_dir(&directory)?;
         let journal = directory.join("transaction.json");
@@ -401,7 +424,10 @@ fn run(id: &str, request: &Value, approval: Approval, socket: &Path, state: &Pat
                 .context("Checkpoint failed and the previous server could not restart")?;
             return Err(error);
         }
-        write_journal(&state.join(".upgrade-boot.json"), &json!({"token":id}))?;
+        write_journal(
+            &state.join(".upgrade-boot.json"),
+            &json!({"token":id,"resume_panes":resume_panes}),
+        )?;
         write_journal(
             &journal,
             &json!({"phase":"installing","previous":previous,"replacement":daemon,"socket":socket,"state":state}),
@@ -579,5 +605,30 @@ pub(super) fn manage(request: &Value, socket: &Path, state: &Path) -> Result<Val
             Ok(json!({"id":id}))
         }
         _ => bail!("Unknown server action"),
+    }
+}
+
+#[cfg(test)]
+mod status_tests {
+    use super::*;
+
+    #[test]
+    fn timeout_from_a_known_compatible_server_never_offers_takeover() {
+        let mut info = json!({"protocol":crate::VERSION, "release_version":"0.0.6"});
+        let mut status = json!({"running":true,"compatible":false,"update_available":true,
+            "error":"HostInfo reply timed out"});
+        assert_eq!(
+            running_server_state(&info, &status, false),
+            "inspection_failed"
+        );
+        assert_eq!(
+            running_server_state(&info, &status, true),
+            "takeover_required"
+        );
+        status["compatible"] = json!(true);
+        status["update_available"] = json!(false);
+        assert_eq!(running_server_state(&info, &status, false), "connected");
+        info["protocol"] = json!("unsupported protocol");
+        assert_eq!(running_server_state(&info, &status, false), "unsupported");
     }
 }

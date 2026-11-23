@@ -420,8 +420,8 @@ pub unsafe extern "C" fn jam_view_draw(
         {
             v.last_size = size;
         }
-        let d = v.mirror.display.lock().unwrap();
-        let error = d.error.clone();
+        let mut d = v.mirror.display.lock().unwrap();
+        let error = d.error.as_ref().or(d.resize_error.as_ref()).cloned();
         let ready = v.presentation.ready(
             (d.frame.cols, d.frame.rows),
             size,
@@ -444,7 +444,7 @@ pub unsafe extern "C" fn jam_view_draw(
         } else {
             None
         };
-        let meta = serde_json::json!({"text":screen_text,"error":error,"ready":ready,"mouse":d.frame.mouse_tracking,"alternate":d.frame.alternate,"cols":d.frame.cols,"rows":d.frame.rows,"cursor_x":d.frame.cursor.0,"cursor_y":d.frame.cursor.1});
+        let meta = serde_json::json!({"text":screen_text,"error":error,"ready":ready,"mouse":d.frame.mouse_tracking,"alternate":d.frame.alternate,"cols":d.frame.cols,"rows":d.frame.rows,"cursor_x":d.frame.cursor.0,"cursor_y":d.frame.cursor.1,"clipboard_text":d.clipboard_text.take()});
         if !ready {
             return Ok(meta);
         }
@@ -502,7 +502,18 @@ pub unsafe extern "C" fn jam_view_action(
                     action == "extend",
                 )
             }
+            "link" if x >= 0 && y >= 0 => {
+                return Ok(v
+                    .mirror
+                    .display
+                    .lock()
+                    .unwrap()
+                    .frame
+                    .link_at(x as usize, y as usize)
+                    .unwrap_or_default());
+            }
             "copy" => return Ok(serde_json::json!({"text":v.mirror.selected_text()})),
+            "clipboard_gesture" => v.mirror.display.lock().unwrap().clipboard_gesture(x != 0),
             _ => anyhow::bail!("unknown view action"),
         };
         Ok(serde_json::json!({"ok":true}))
