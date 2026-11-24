@@ -163,6 +163,7 @@ impl Drop for Tunnel {
         let _ = self.process.wait();
         let _ = fs::remove_file(&self.socket);
         let _ = fs::remove_file(self.socket.with_extension("log"));
+        input::disconnect(&self.socket);
     }
 }
 static TUNNELS: OnceLock<Mutex<HashMap<String, Tunnel>>> = OnceLock::new();
