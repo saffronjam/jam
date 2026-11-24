@@ -364,7 +364,7 @@ done
     elif op == "relaunch":
         ui.quit()
         ui.launch()
-        wait(lambda: ui.has("Terminal"), "terminal after reopen")
+        ui.element("Terminal", "terminal", index=0)
     elif op == "begin_input":
         jam.terminal()
         ui.type(args[0])
