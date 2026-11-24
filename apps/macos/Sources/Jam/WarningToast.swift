@@ -99,26 +99,53 @@ struct WarningDetails: NSViewRepresentable {
   }
 }
 
-/// An overlay never participates in pane layout or claims keyboard focus.
-struct WarningToast: View {
-  private enum Action: Hashable { case dismiss, retry, details, copy }
+struct ToastDismissal: ViewModifier {
+  static let defaultDuration: Duration = .seconds(8)
+
   private struct Timeout: Equatable {
     let message: String
     let paused: Bool
   }
+
+  let message: String
+  let duration: Duration
+  let paused: Bool
+  let dismiss: () -> Void
+  @State private var hovered = false
+  @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
+
+  func body(content: Content) -> some View {
+    let timeout = Timeout(message: message, paused: paused || hovered || voiceOver)
+    content.onHover { hovered = $0 }
+      .task(id: timeout) {
+        guard !timeout.paused else { return }
+        do { try await Task.sleep(for: duration) } catch { return }
+        if !Task.isCancelled { dismiss() }
+      }
+  }
+}
+
+extension View {
+  func dismissToast(
+    message: String, after duration: Duration, paused: Bool,
+    dismiss: @escaping () -> Void
+  ) -> some View {
+    modifier(ToastDismissal(message: message, duration: duration, paused: paused, dismiss: dismiss))
+  }
+}
+
+/// An overlay never participates in pane layout or claims keyboard focus.
+struct WarningToast: View {
+  private enum Action: Hashable { case dismiss, retry, details, copy }
   let message: String
   let retry: (() -> Void)?
   let dismiss: () -> Void
-  var duration: Duration = .seconds(8)
+  var duration: Duration = ToastDismissal.defaultDuration
   @State private var expanded = false
-  @State private var hovered = false
   @FocusState private var focusedAction: Action?
-  @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
 
   var body: some View {
     let content = WarningContent(message)
-    let timeout = Timeout(
-      message: message, paused: expanded || hovered || focusedAction != nil || voiceOver)
     VStack(alignment: .leading, spacing: 12) {
       HStack(alignment: .top, spacing: 10) {
         Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
@@ -154,12 +181,10 @@ struct WarningToast: View {
       }
       .shadow(color: .black.opacity(0.18), radius: 12, y: 4)
       .accessibilityElement(children: .contain).accessibilityLabel("Warning")
-      .onHover { hovered = $0 }
-      .task(id: timeout) {
-        guard !timeout.paused else { return }
-        do { try await Task.sleep(for: duration) } catch { return }
-        if !Task.isCancelled { dismiss() }
-      }
+      .dismissToast(
+        message: message, after: duration,
+        paused: expanded || focusedAction != nil, dismiss: dismiss
+      )
       .onChange(of: message) { _, _ in
         expanded = false
       }

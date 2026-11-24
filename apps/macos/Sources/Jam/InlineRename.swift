@@ -63,42 +63,35 @@ struct PendingRename {
 }
 
 extension Store {
-  private func setDisplayName(_ name: String, for id: String) {
-    for index in workspaces.indices {
-      if workspaces[index].id == id { workspaces[index].name = name }
-      if let tab = workspaces[index].tabs.firstIndex(where: { $0.id == id }) {
-        workspaces[index].tabs[tab].name = name
-      }
-    }
-  }
   func rename(_ id: String, to value: String) {
     let name = value.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !name.isEmpty else {
       request(["Rename": ["id": id, "name": name]])
       return
     }
-    guard
-      let oldName = workspaces.first(where: { $0.id == id })?.name
-        ?? workspaces.flatMap(\.tabs).first(where: { $0.id == id })?.name
-    else { return }
     let pending = PendingRename(name: name)
-    pendingRenames[id] = pending
-    setDisplayName(name, for: id)
-    let endpoint = WorkspaceSelection.endpoint(of: id)
-    endpointQueue(endpoint).async {
-      // Renaming by stable identity does not depend on split/layout geometry.
-      let reply = rpc(["Rename": ["id": id, "name": name]], endpoint: endpoint)
-      let state =
-        reply["State"] as? [String: Any]
-        ?? rpc("State", endpoint: endpoint)["State"] as? [String: Any]
-      DispatchQueue.main.async {
-        if self.pendingRenames[id]?.token == pending.token {
-          self.pendingRenames.removeValue(forKey: id)
-          if reply["error"] != nil { self.setDisplayName(oldName, for: id) }
+    if submitLayout(
+      ["Rename": ["id": id, "name": name]], endpoint: WorkspaceSelection.endpoint(of: id),
+      preview: { layout in
+        for index in layout.indices {
+          if layout[index].id == id {
+            layout[index].name = name
+            return true
+          }
+          if let tab = layout[index].tabs.firstIndex(where: { $0.id == id }) {
+            layout[index].tabs[tab].name = name
+            return true
+          }
         }
-        if let state { self.apply(state, endpoint: endpoint) }
-        if let error = reply["error"] as? String { self.error = error }
-      }
+        return false
+      },
+      complete: { [weak self] _ in
+        if self?.pendingRenames[id]?.token == pending.token {
+          self?.pendingRenames.removeValue(forKey: id)
+        }
+      })
+    {
+      pendingRenames[id] = pending
     }
   }
 }

@@ -1,6 +1,7 @@
 import AppKit
 import CJam
 import Darwin
+import Observation
 import SwiftUI
 
 func nativeString(_ p: UnsafeMutablePointer<CChar>?) -> String {
@@ -104,6 +105,10 @@ struct RepositoryContext: Decodable {
   }
 }
 enum TerminalInputGate { static var blocked = false }
+
+@Observable private final class PaneFocus {
+  var id = JamDefaults.shared.string(forKey: "pane") ?? ""
+}
 final class Store: ObservableObject {
   let appUpgrade = AppUpgradeController()
   @Published var remotes: [RemoteMachine] = []
@@ -206,11 +211,15 @@ final class Store: ObservableObject {
         || serverActionErrors[endpoint] != nil)
   }
   @Published var workspaces: [Workspace] = []
+  @Published var pendingLayoutEdits: [LayoutEdit] = []
+  var sendingLayoutEdits = Set<String>()
   @Published var workspaceCreations: [String: WorkspaceCreation] = [:]
   @Published var awaitingCreatedFrames = Set<String>()
+  @Published var pendingPaneSplits: [String: PendingPaneSplit] = [:]
   var workspaceCreationOrigins: [String: String] = [:]
   var workspaceCreationEpochs: [String: UInt64] = [:]
   var displayedWorkspaces: [Workspace] {
+    let workspaces = projectedWorkspaces
     if workspaceCreations.isEmpty {
       return WorkspaceSelection.ordered(
         workspaces, machines: [""] + remotes.map(\.id), id: { $0.id })
@@ -246,20 +255,27 @@ final class Store: ObservableObject {
   }
   @Published var tab = JamDefaults.shared.string(forKey: "tab") ?? "" {
     didSet {
-      if !CommandLine.arguments.contains("--preview") && !isCreatingWorkspace(selected) {
+      if !CommandLine.arguments.contains("--preview") && !isCreatingWorkspace(selected)
+        && !Self.layoutPlaceholder(tab)
+      {
         JamDefaults.shared.set(tab, forKey: "tab")
       }
     }
   }
-  @Published var focus = JamDefaults.shared.string(forKey: "pane") ?? "" {
-    didSet {
+  private let paneFocus = PaneFocus()
+  var focus: String {
+    get { paneFocus.id }
+    set {
+      guard paneFocus.id != newValue else { return }
+      paneFocus.id = newValue
       reportFocus()
       updateInputGate()
-      if !CommandLine.arguments.contains("--preview") && !isCreatingWorkspace(selected) {
-        JamDefaults.shared.set(focus, forKey: "pane")
-      }
     }
   }
+  var focusReport: DispatchWorkItem?
+  var reportingFocus = Set<String>()
+  var deferredFocusReport = false
+  var acknowledgingPanes = Set<String>()
   @Published var showPalette = false {
     didSet { updateInputGate() }
   }
@@ -276,6 +292,7 @@ final class Store: ObservableObject {
   @Published var busy = false
   @Published var movingLayout = false
   @Published var liftedPane: String?
+  var dragGridSizes: [String: CGSize] = [:]
   let terminalViews = TerminalViewPool()
   @Published var availableAgents: [String: Set<String>] = [:]
   @Published var config: JamConfig?
@@ -287,7 +304,8 @@ final class Store: ObservableObject {
     didSet {
       if !CommandLine.arguments.contains("--preview") {
         JamDefaults.shared.set(
-          selections.mapValues { [$0.0, $0.1] }, forKey: "workspaceSelections")
+          selections.filter { !Self.layoutPlaceholder($0.value.0) }.mapValues { [$0.0, $0.1] },
+          forKey: "workspaceSelections")
       }
     }
   }
@@ -328,6 +346,8 @@ final class Store: ObservableObject {
   }
   var workspaceOrderGeneration: UInt64 = 0
   var terminalTrimWork: DispatchWorkItem?
+  var memoryPressure: DispatchSourceMemoryPressure?
+  var appliedPolls: [String: Data] = [:]
   var capabilitiesByEndpoint: [String: Set<String>] = [:]
   var capabilitiesLoading = Set<String>()
   var editingWorkspace: String? { didSet { updateInputGate() } }
@@ -345,7 +365,7 @@ final class Store: ObservableObject {
       || (!currentEndpoint.isEmpty && remoteMessages[currentEndpoint] != "Connected")
   }
   @Published var draggingTab: String?
-  var dragOriginal: [Workspace]?
+  @Published var tabDragIndex: Int?
   @Published var paneErrors: [String: String] = [:]
   @Published var error = ""
   private var dismissedConnectionWarning: String?
@@ -401,6 +421,11 @@ final class Store: ObservableObject {
     reloadRemotes()
     reloadConfig()
     installShortcuts()
+    let pressure = DispatchSource.makeMemoryPressureSource(
+      eventMask: [.warning, .critical], queue: .main)
+    pressure.setEventHandler { [weak self] in self?.trimTerminalViewsNow(keepHidden: 0) }
+    memoryPressure = pressure
+    pressure.resume()
     if launchDirectory != nil { start() }
     timer = Timer.scheduledTimer(withTimeInterval: 0.6, repeats: true) { [weak self] _ in
       self?.refresh()
@@ -543,8 +568,10 @@ final class Store: ObservableObject {
           let oldTabs =
             renameNewTab ? tabsBeforeRequest : Set(self.workspaces.flatMap { $0.tabs.map(\.id) })
           let oldPanes = Set(self.panes.keys)
-          let newCount = (state["panes"] as? [[String: Any]])?.count ?? oldPanes.count
-          if newCount < oldPanes.count {
+          let oldCount = oldPanes.lazy.filter { WorkspaceSelection.endpoint(of: $0) == endpoint }
+            .count
+          let newCount = (state["panes"] as? [[String: Any]])?.count ?? oldCount
+          if newCount < oldCount {
             withAnimation(
               NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
                 ? nil : .timingCurve(0.22, 1, 0.36, 1, duration: 0.25)
@@ -567,8 +594,8 @@ final class Store: ObservableObject {
             self.select(w.id, tab: t.id)
             if renameNewTab { self.editingTab = t.id }
           }
-          if let p = self.currentTab?.root.ids.first(where: { !oldPanes.contains($0) }) {
-            self.focus = p
+          if let pane = self.currentTab?.root.ids.first(where: { !oldPanes.contains($0) }) {
+            self.focus = pane
           }
         }
         self.trimTerminalViews()
@@ -589,6 +616,10 @@ final class Store: ObservableObject {
       let agents = configureHost(
         settings, endpoint: "", incarnation: host?["incarnation"] as? String)
       let r = rpc("State")
+      let state = r["State"] as? [String: Any]
+      let encoded = state.flatMap {
+        try? JSONSerialization.data(withJSONObject: $0, options: .sortedKeys)
+      }
       DispatchQueue.main.async {
         self.loading = false
         guard self.draggingTab == nil, self.draggingPane == nil, !self.reorderingWorkspaces,
@@ -603,16 +634,24 @@ final class Store: ObservableObject {
           self.checkServer("")
           return
         }
-        self.connected = true
+        if !self.connected { self.connected = true }
         if let agents, self.availableAgents[""] != agents { self.availableAgents[""] = agents }
         if self.error == self.connectionError { self.error = "" }
         self.localTimeout = nil
         self.connectionError = ""
         self.dismissedConnectionWarning = nil
-        guard let s = r["State"] as? [String: Any] else { return }
+        guard let state else { return }
         self.observeServer(host, endpoint: "")
-        self.applyRefresh(s, endpoint: "", creationEpoch: creationEpoch)
+        self.applyPoll(state, encoded: encoded, endpoint: "", creationEpoch: creationEpoch)
       }
+    }
+  }
+  func applyPoll(
+    _ state: [String: Any], encoded: Data?, endpoint: String, creationEpoch: UInt64
+  ) {
+    if let encoded, appliedPolls[endpoint] == encoded { return }
+    if applyRefresh(state, endpoint: endpoint, creationEpoch: creationEpoch) {
+      appliedPolls[endpoint] = encoded
     }
   }
   @discardableResult
@@ -674,7 +713,7 @@ final class Store: ObservableObject {
           let role = t["agent_role"] as? String
           return Tab(
             agentRole: role == "coordinator" ? nil : role, id: id,
-            name: pendingRenames[id]?.name ?? t["name"] as? String ?? "Terminal",
+            name: t["name"] as? String ?? "Terminal",
             root: root)
         }
         let path = w["path"] as? String ?? ""
@@ -694,7 +733,7 @@ final class Store: ObservableObject {
           w["name"] as? String ?? "Workspace", automatic: w["auto_name"] as? Bool == true,
           directory: active?.cwd ?? (w["last_cwd"] as? String) ?? path, home: home)
         return Workspace(
-          id: id, name: pendingRenames[id]?.name ?? name, path: path,
+          id: id, name: name, path: path,
           tabs: tabs, coordinator: coordinator,
           repository: w["repository"] as? String, mainPath: w["main_path"] as? String,
           branch: w["branch"] as? String, parent: w["parent"] as? String,
@@ -746,6 +785,12 @@ final class Store: ObservableObject {
       focus = visiblePaneIDs.first ?? ""
     }
     if !awaitingCreatedFrames.isEmpty { awaitingCreatedFrames.formIntersection(panes.keys) }
+    if let tab = currentTab, let split = pendingPaneSplits[tab.id],
+      let pane = split.createdPane(in: tab.root),
+      terminalViews.existing(pane)?.meta["ready"] as? Bool != true
+    {
+      awaitingCreatedFrames.insert(pane)
+    }
     refreshLegacyAgentResumes(endpoint: endpoint)
     recoverVisiblePanes(endpoint: endpoint)
   }
@@ -766,9 +811,57 @@ final class Store: ObservableObject {
     beginCreation(.new)
   }
   func reportFocus() {
-    guard canNameWorkspaces, !focus.isEmpty else { return }
+    focusReport?.cancel()
     let pane = focus
-    endpointQueue(currentEndpoint).async { _ = rpc(["FocusPane": ["pane": pane]]) }
+    let endpoint = WorkspaceSelection.endpoint(of: pane)
+    let work = DispatchWorkItem { [weak self] in
+      guard let self, self.focus == pane else { return }
+      if !CommandLine.arguments.contains("--preview") && !self.isCreatingWorkspace(self.selected) {
+        JamDefaults.shared.set(pane, forKey: "pane")
+      }
+      guard self.canNameWorkspaces, !pane.isEmpty, !Self.layoutPlaceholder(pane),
+        !self.serverBusy.contains(endpoint),
+        endpoint.isEmpty || self.remoteMessages[endpoint] == "Connected"
+      else { return }
+      guard !self.sendingLayoutEdits.contains(endpoint),
+        self.reportingFocus.insert(endpoint).inserted
+      else {
+        self.deferredFocusReport = true
+        return
+      }
+      let incarnation = self.serverIncarnations[endpoint]
+      endpointQueue(endpoint).async {
+        let reply = rpc(["FocusPane": ["pane": pane]], endpoint: endpoint)
+        DispatchQueue.main.async {
+          self.reportingFocus.remove(endpoint)
+          if self.serverIncarnations[endpoint] == incarnation,
+            let state = reply["State"] as? [String: Any]
+          {
+            self.apply(state, endpoint: endpoint)
+          }
+          self.sendNextLayoutEdit(endpoint)
+          self.flushDeferredFocus()
+        }
+      }
+    }
+    focusReport = work
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.045, execute: work)
+  }
+  func flushDeferredFocus() {
+    guard deferredFocusReport else { return }
+    deferredFocusReport = false
+    reportFocus()
+  }
+  func acknowledgePane(_ pane: String) {
+    let endpoint = WorkspaceSelection.endpoint(of: pane)
+    guard !serverBusy.contains(endpoint),
+      endpoint.isEmpty || remoteMessages[endpoint] == "Connected",
+      acknowledgingPanes.insert(pane).inserted
+    else { return }
+    endpointQueue(endpoint).async {
+      _ = rpc(["Acknowledge": ["pane": pane]], endpoint: endpoint)
+      DispatchQueue.main.async { self.acknowledgingPanes.remove(pane) }
+    }
   }
   func restartPane(_ id: String, automatic: Bool = false) {
     guard let pane = panes[id], pane.needsResume else { return }
@@ -794,47 +887,61 @@ final class Store: ObservableObject {
   }
   func newTab() {
     guard let w = current, !isCreatingWorkspace(w.id) else { return }
-    request(["NewTab": ["workspace": w.id]], renameNewTab: true)
+    submitNewTab(workspace: w)
   }
   func canSplit(_ vertical: Bool, pane: String? = nil) -> Bool {
-    guard let size = paneSizes[pane ?? focus] else { return false }
+    guard let tab = currentTab, pendingPaneSplits[tab.id] == nil,
+      !Self.layoutPlaceholder(pane ?? focus), let size = paneSizes[pane ?? focus]
+    else { return false }
     return panes[pane ?? focus]?.agentRole != "coordinator"
       && SplitLayout.canSplit(size, vertical: vertical)
   }
   func split(_ vertical: Bool) {
-    guard
-      let target = currentTab?.root.ids.first(where: { $0 == focus }) ?? currentTab?.root.ids.first
+    guard let tab = currentTab,
+      let target = tab.root.ids.first(where: { $0 == focus }) ?? tab.root.ids.first
     else { return }
     guard canSplit(vertical, pane: target) else { return }
-    request(["Split": ["pane": target, "vertical": vertical]])
-  }
-  func close(_ pane: String) {
-    request(["Close": ["pane": pane]])
-  }
-  func closeTab(_ target: Tab) {
-    let endpoint = WorkspaceSelection.endpoint(of: target.id)
-    guard endpoint.isEmpty || remoteMessages[endpoint] == "Connected" else {
-      error = "Remote is unavailable"
-      return
-    }
-    guard closingTabs.insert(target.id).inserted else { return }
-    endpointQueue(endpoint).async {
-      let reply = rpc(["CloseTab": ["tab": target.id]], endpoint: endpoint)
-      let state = reply["State"] as? [String: Any]
-      let error = reply["error"] as? String
-      DispatchQueue.main.async {
-        self.closingTabs.remove(target.id)
-        if let state { self.apply(state, endpoint: endpoint) }
-        if let error { self.error = error }
-        if self.tab == target.id,
-          !self.workspaces.contains(where: { $0.tabs.contains { $0.id == target.id } })
+    let pending = PendingPaneSplit(
+      tab: tab.id, source: target, vertical: vertical, previousPanes: tab.root.ids)
+    let accepted = submitLayout(
+      ["Split": ["pane": target, "vertical": vertical]],
+      endpoint: WorkspaceSelection.endpoint(of: target),
+      preview: { layout in
+        layout.lazy.flatMap(\.tabs).contains { $0.id == tab.id && $0.root.ids.contains(target) }
+      },
+      complete: { [weak self] reply in
+        guard let self else { return }
+        self.pendingPaneSplits.removeValue(forKey: tab.id)
+        if reply["State"] != nil, let current = self.currentTab, current.id == tab.id,
+          self.focus == target, let created = pending.createdPane(in: current.root)
         {
-          self.tab = self.current?.tabs.first?.id ?? ""
-          self.focus = self.currentTab?.root.ids.first ?? ""
+          self.focus = created
           self.focusTerminal()
         }
-        self.trimTerminalViews()
-      }
+      })
+    if accepted { pendingPaneSplits[tab.id] = pending }
+  }
+  func close(_ pane: String) {
+    guard !Self.layoutPlaceholder(pane) else { return }
+    if panes[pane]?.agentRole == "coordinator" {
+      request(["Close": ["pane": pane]])
+      return
+    }
+    let removeEmptyTab = config?.closeEmptyTabs ?? true
+    submitLayout(["Close": ["pane": pane]], endpoint: WorkspaceSelection.endpoint(of: pane)) {
+      layout in
+      OptimisticLayout.removePane(pane, from: &layout, removeEmptyTab: removeEmptyTab)
+    }
+  }
+  func closeTab(_ target: Tab) {
+    guard !Self.layoutPlaceholder(target.id) else { return }
+    submitLayout(
+      ["CloseTab": ["tab": target.id]], endpoint: WorkspaceSelection.endpoint(of: target.id)
+    ) { layout in
+      guard let index = layout.firstIndex(where: { $0.tabs.contains { $0.id == target.id } })
+      else { return false }
+      layout[index].tabs.removeAll { $0.id == target.id }
+      return true
     }
   }
   func preview() {
@@ -904,6 +1011,18 @@ final class Store: ObservableObject {
   var body: some Scene {
     Window("Jam", id: "main") {
       ContentView().environmentObject(store).onAppear { PreviewCapture.installIfRequested() }
+        .onReceive(
+          NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
+        ) { _ in InteractionTiming.event("App became active") }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) {
+          note in
+          guard let window = note.object as? NSWindow, window === NSApp.keyWindow,
+            window.attachedSheet == nil, window.sheetParent == nil,
+            window.firstResponder == window || window.firstResponder is TerminalNSView
+          else { return }
+          InteractionTiming.event("Window became key")
+          store.focusTerminal()
+        }
         .preferredColorScheme(
           store.config?.appearance == "dark"
             ? .dark : store.config?.appearance == "light" ? .light : nil
@@ -1198,6 +1317,11 @@ struct ContentView: View {
         }
       }
     }.tint(Color(nsColor: .controlAccentColor))
+      .toolbar {
+        ToolbarItem(placement: .primaryAction) {
+          UpgradeAvailableChip(controller: store.appUpgrade)
+        }
+      }
   }
 }
 struct PaneTree: View {
@@ -1209,22 +1333,35 @@ struct PaneTree: View {
   @State private var resizing: String?
   var body: some View {
     GeometryReader { geometry in
+      let pending = store.pendingPaneSplits[tab]
+      let preview = pending?.preview(in: node) ?? node
+      let showingPreview = preview.ids.contains(where: { $0 == pending?.placeholder })
       let layout = PaneLayout(
-        node: node, size: geometry.size, ratios: ratioPaneIDs == node.ids ? ratios : [:])
+        node: preview, size: geometry.size, ratios: ratioPaneIDs == preview.ids ? ratios : [:])
       ZStack(alignment: .topLeading) {
         ForEach(layout.panes) { pane in
+          let placeholder = pane.id == pending?.placeholder || Store.layoutPlaceholder(pane.id)
           GeometryReader { proxy in
-            PaneCard(id: pane.id).frame(width: proxy.size.width, height: proxy.size.height)
-              .clipped()
-              .onAppear {
-                if store.paneSizes[pane.id] != proxy.size { store.paneSizes[pane.id] = proxy.size }
-              }
-              .onChange(of: proxy.size) { _, size in
-                if store.paneSizes[pane.id] != size { store.paneSizes[pane.id] = size }
-              }
+            PaneCard(
+              id: pane.id, starting: placeholder,
+              desiredSize: pane.frame.size
+            )
+            .frame(width: proxy.size.width, height: proxy.size.height)
+            .clipped()
           }.frame(width: pane.frame.width, height: pane.frame.height)
             .offset(x: pane.frame.minX, y: pane.frame.minY)
+            .zIndex(placeholder ? -1 : 0)
             .transition(.identity)
+            .onAppear {
+              if !placeholder && store.paneSizes[pane.id] != pane.frame.size {
+                store.paneSizes[pane.id] = pane.frame.size
+              }
+            }
+            .onChange(of: pane.frame.size) { _, size in
+              if !placeholder && store.paneSizes[pane.id] != size {
+                store.paneSizes[pane.id] = size
+              }
+            }
         }
         ForEach(layout.dividers) { divider in
           Rectangle().fill(Color.clear)
@@ -1259,24 +1396,37 @@ struct PaneTree: View {
                 .onEnded { _ in
                   resizing = nil
                   if let ratio = ratios[divider.id] {
-                    store.request(["Ratio": ["tab": tab, "path": divider.path, "ratio": ratio]])
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-                      if resizing != divider.id && ratios[divider.id] == ratio {
-                        ratios.removeValue(forKey: divider.id)
-                      }
-                    }
+                    store.commitDivider(tab: tab, path: divider.path, ratio: ratio)
+                    ratios.removeValue(forKey: divider.id)
                   }
-                })
+                }
+            )
+            .allowsHitTesting(!showingPreview)
         }
       }.coordinateSpace(name: "pane-layout-\(tab)")
-        .animation(WorkspaceFinder.animation, value: node.ids)
-        .onChange(of: node.ids) { _, _ in ratios.removeAll() }
+        .animation(WorkspaceFinder.animation, value: preview.ids)
+        .onChange(of: preview.ids) { _, _ in ratios.removeAll() }
     }.transition(.identity)
   }
 }
 struct PaneCard: View {
   @EnvironmentObject var store: Store
+  @Environment(\.displayScale) private var displayScale
   let id: String
+  var starting = false
+  var desiredSize: CGSize?
+  private let headerHeight: CGFloat = 34
+  private let cardInset: CGFloat = 1
+  private let terminalInset: CGFloat = 2
+  private var dividerHeight: CGFloat { 1 / displayScale }
+  private var terminalSize: CGSize? {
+    desiredSize.map { size in
+      let insets = 2 * (cardInset + terminalInset)
+      return CGSize(
+        width: max(1, size.width - insets),
+        height: max(1, size.height - headerHeight - dividerHeight - insets))
+    }
+  }
   var pane: Pane? { store.panes[id] }
   var body: some View {
     VStack(spacing: 0) {
@@ -1295,10 +1445,10 @@ struct PaneCard: View {
         .font(.system(size: 11, weight: .medium, design: .monospaced)).foregroundStyle(.secondary)
         .lineLimit(1)
         .truncationMode(.middle)
-        Text(URL(fileURLWithPath: pane?.cwd ?? "").lastPathComponent).font(
-          .system(size: 10, design: .monospaced)
-        )
-        .foregroundStyle(.secondary)
+        if let pane {
+          Text(URL(fileURLWithPath: pane.cwd).lastPathComponent)
+            .font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary)
+        }
         Spacer()
         if let pane,
           pane.status == "recovery_failed" && !pane.exited
@@ -1309,7 +1459,7 @@ struct PaneCard: View {
         if pane?.status == "recovery_failed" {
           Text("Recovery paused").foregroundStyle(.secondary)
         }
-        if pane?.agentRole != "coordinator" {
+        if !starting && pane?.agentRole != "coordinator" {
           Button {
             store.focus = id
             store.split(false)
@@ -1327,23 +1477,30 @@ struct PaneCard: View {
           }.help(store.canSplit(true, pane: id) ? "Split down" : "Not enough space to split down")
             .disabled(!store.canSplit(true, pane: id))
         }
-        Button {
-          store.close(id)
-        } label: {
-          Image(systemName: "xmark")
-        }.help(pane?.agentRole == "coordinator" ? "Close Coordinator" : "Close terminal")
-      }.buttonStyle(.plain).font(.system(size: 10)).padding(.horizontal, 12).frame(height: 34)
+        if !starting {
+          Button {
+            store.close(id)
+          } label: {
+            Image(systemName: "xmark")
+          }.help(pane?.agentRole == "coordinator" ? "Close Coordinator" : "Close terminal")
+        }
+      }.buttonStyle(.plain).font(.system(size: 10)).padding(.horizontal, 12)
+        .frame(height: headerHeight)
         .background(Color.primary.opacity(0.025))
         .overlay(alignment: .leading) {
-          if pane?.agentRole != "coordinator" {
+          if !starting && pane?.agentRole != "coordinator" {
             GeometryReader { geometry in
               PaneDragHandle(pane: id, store: store).frame(
-                width: max(0, geometry.size.width - 100), height: 34)
+                width: max(0, geometry.size.width - 100), height: headerHeight)
             }
           }
         }
-      Divider()
-      if id.hasPrefix("preview") {
+      Divider().frame(height: dividerHeight)
+      if starting {
+        ProgressView().accessibilityLabel("Starting terminal")
+          .frame(maxWidth: .infinity, maxHeight: .infinity)
+          .background(Color(nsColor: TerminalAppearance.background))
+      } else if id.hasPrefix("preview") {
         Text(
           id == "preview-a"
             ? "❯ git status\nOn branch main\n\nNothing to commit, working tree clean.\n\n❯ "
@@ -1375,13 +1532,19 @@ struct PaneCard: View {
       } else {
         TerminalSurface(
           pool: store.terminalViews, pane: id, fontScale: store.fontScale,
+          desiredSize: store.dragGridSizes[id] ?? terminalSize,
           copyOnSelect: store.config?.copyOnSelect ?? true,
           isAIPane: pane?.isAIPane ?? false,
           focused: store.focus == id,
+          isCurrentFocus: { store.focus == id },
           onFocus: {
             guard store.visiblePaneIDs.contains(id) else { return }
-            if store.focus != id { store.focus = id }
-            store.request(["Acknowledge": ["pane": id]])
+            if store.focus != id {
+              var transaction = Transaction(animation: nil)
+              transaction.disablesAnimations = true
+              withTransaction(transaction) { store.focus = id }
+            }
+            store.acknowledgePane(id)
           }, onError: { store.paneErrors[id] = $0 },
           onSelectionCopy: {
             store.quickToast = QuickToastMessage(text: "Copied to clipboard")
@@ -1391,7 +1554,7 @@ struct PaneCard: View {
         ).id(
           "\(id)-\(pane?.exited ?? false)"
         ).frame(maxWidth: .infinity, maxHeight: .infinity)
-          .padding(2)
+          .padding(terminalInset)
           .background(Color(nsColor: TerminalAppearance.background))
           .overlay {
             if store.awaitingCreatedFrames.contains(id) && store.paneErrors[id] == nil {
@@ -1415,10 +1578,16 @@ struct PaneCard: View {
         store.focus == id
           ? Color(nsColor: .controlAccentColor).opacity(0.45) : Color.primary.opacity(0.12),
         lineWidth: 1)
-    ).shadow(color: .black.opacity(0.07), radius: 10, y: 4).padding(1)
-      .background(PaneDropSurface(pane: id))
+    ).shadow(color: .black.opacity(0.07), radius: 10, y: 4).padding(cardInset)
+      .background {
+        if !starting { PaneDropSurface(pane: id) }
+      }
       .opacity(store.draggingPane == id ? 0.65 : 1)
-      .onTapGesture { store.focus = id }
+      .onTapGesture {
+        if !starting && (pane?.exited == true || store.terminalViews.existing(id) == nil) {
+          store.focus = id
+        }
+      }
   }
 }
 private struct StoppedPaneFocusSurface: NSViewRepresentable {
@@ -1453,9 +1622,11 @@ struct TerminalSurface: NSViewRepresentable {
   let pool: TerminalViewPool
   let pane: String
   let fontScale: Double
+  var desiredSize: CGSize?
   let copyOnSelect: Bool
   let isAIPane: Bool
   let focused: Bool
+  let isCurrentFocus: () -> Bool
   let onFocus: () -> Void
   let onError: (String?) -> Void
   let onSelectionCopy: () -> Void
@@ -1468,13 +1639,23 @@ struct TerminalSurface: NSViewRepresentable {
     v.copyOnSelect = copyOnSelect
     v.isAIPane = isAIPane
     v.fontScale = fontScale
+    v.desiredSize = desiredSize
     v.onFocus = onFocus
+    v.isCurrentFocus = isCurrentFocus
     v.onReady = onReady
     v.onError = onError
     v.onSelectionCopy = onSelectionCopy
     if v.focused != focused {
       v.focused = focused
-      if focused && !TerminalInputGate.blocked { v.window?.makeFirstResponder(v) }
+      if focused {
+        DispatchQueue.main.async { [weak v] in
+          guard let v, v.isCurrentFocus?() == true, !TerminalInputGate.blocked,
+            let window = v.window, window.isKeyWindow,
+            window.attachedSheet == nil, !v.isHiddenOrHasHiddenAncestor
+          else { return }
+          if window.firstResponder !== v { window.makeFirstResponder(v) }
+        }
+      }
     }
   }
 }
@@ -1488,15 +1669,19 @@ final class TerminalNSView: NSView, NSTextInputClient, NSMenuItemValidation {
   var handle: UnsafeMutableRawPointer?
   var displayClock: CADisplayLink?
   var displayTarget: DisplayTarget?
+  var occlusionObserver: NSObjectProtocol?
   var onFocus: (() -> Void)?
+  var isCurrentFocus: (() -> Bool)?
   var marked = NSAttributedString(string: "")
   var onError: ((String?) -> Void)?
   var onSelectionCopy: (() -> Void)?
   var meta: [String: Any] = [:]
+  var screenText = ""
   var onReady: (() -> Void)?
   var lastError: String?
   var receivedErrorState = false
   var fontScale: Double = 1
+  var desiredSize: CGSize?
   var focused = false
   var tracking: NSTrackingArea?
   var copyOnSelect = true
@@ -1563,10 +1748,11 @@ final class TerminalNSView: NSView, NSTextInputClient, NSMenuItemValidation {
     onFocus?()
   }
   private func focusFromInteraction() {
-    if window?.firstResponder === self {
+    guard !TerminalInputGate.blocked, let window else { return }
+    InteractionTiming.event("Pane mouse down")
+    if window.firstResponder === self || window.makeFirstResponder(self) {
       acknowledgeFocus()
-    } else {
-      window?.makeFirstResponder(self)
+      InteractionTiming.event("Pane responder set")
     }
   }
   override func viewDidMoveToWindow() {
@@ -1574,12 +1760,14 @@ final class TerminalNSView: NSView, NSTextInputClient, NSMenuItemValidation {
     displayClock?.invalidate()
     displayClock = nil
     displayTarget = nil
-    guard window != nil else { return }
+    if let occlusionObserver { NotificationCenter.default.removeObserver(occlusionObserver) }
+    occlusionObserver = nil
+    guard let window else { return }
     invalidateFrame()
     prepareForDisplay()
     if focused {
       DispatchQueue.main.async { [weak self] in
-        if let self, self.focused, !TerminalInputGate.blocked {
+        if let self, self.isCurrentFocus?() ?? self.focused, !TerminalInputGate.blocked {
           self.window?.makeFirstResponder(self)
         }
       }
@@ -1590,6 +1778,20 @@ final class TerminalNSView: NSView, NSTextInputClient, NSMenuItemValidation {
     let clock = displayLink(target: target, selector: #selector(DisplayTarget.tick))
     clock.add(to: .main, forMode: .common)
     displayClock = clock
+    occlusionObserver = NotificationCenter.default.addObserver(
+      forName: NSWindow.didChangeOcclusionStateNotification, object: window, queue: .main
+    ) { [weak self] _ in self?.updateDisplayVisibility() }
+    updateDisplayVisibility()
+  }
+  private func updateDisplayVisibility() {
+    guard let clock = displayClock, let window,
+      !CommandLine.arguments.contains("--preview")
+    else { return }
+    let visible = window.occlusionState.contains(.visible) && !window.isMiniaturized
+    if clock.isPaused == visible {
+      invalidateFrame()
+      clock.isPaused = !visible
+    }
   }
   func invalidateFrame() {
     if let handle { jam_view_invalidate(handle) }
@@ -1608,8 +1810,7 @@ final class TerminalNSView: NSView, NSTextInputClient, NSMenuItemValidation {
       updateTerminalAppearance()
       addSubview(composition)
     }
-    // Submit a cached frame during layout, without waiting for a display-link tick.
-    render()
+    // The display link submits frames outside the AppKit layout pass.
   }
   override func viewDidChangeEffectiveAppearance() {
     super.viewDidChangeEffectiveAppearance()
@@ -1636,13 +1837,21 @@ final class TerminalNSView: NSView, NSTextInputClient, NSMenuItemValidation {
   }
   @objc func displayTick() { render() }
   func render() {
-    guard let handle, let window, !isHiddenOrHasHiddenAncestor, bounds.width > 0, bounds.height > 0
+    guard let handle, let window, !isHiddenOrHasHiddenAncestor, bounds.width > 0, bounds.height > 0,
+      !window.isMiniaturized,
+      CommandLine.arguments.contains("--preview") || window.occlusionState.contains(.visible)
     else { return }
     let s = window.backingScaleFactor
-    let result = nativeString(
-      jam_view_draw(
-        handle, UInt32(bounds.width * s), UInt32(bounds.height * s), Float(s * fontScale)))
+    let target = desiredSize ?? bounds.size
+    let result = InteractionTiming.measure("Terminal display update") {
+      nativeString(
+        jam_view_draw(
+          handle, UInt32(bounds.width * s), UInt32(bounds.height * s),
+          UInt32(target.width * s), UInt32(target.height * s), Float(s * fontScale)))
+    }
     if let values = try? JSONSerialization.jsonObject(with: Data(result.utf8)) as? [String: Any] {
+      guard values["unchanged"] as? Bool != true else { return }
+      if let text = values["text"] as? String { screenText = text }
       meta = values
       if let text = values["clipboard_text"] as? String, copyOnSelect, window.isKeyWindow,
         window.firstResponder === self, !TerminalInputGate.blocked
@@ -1661,12 +1870,15 @@ final class TerminalNSView: NSView, NSTextInputClient, NSMenuItemValidation {
           onError?(error)
         }
       }
-      if let text = values["text"] as? String { setAccessibilityValue(text) }
-      updateComposition()
+      if let text = values["text"] as? String, accessibilityValue() as? String != text {
+        setAccessibilityValue(text)
+      }
+      if hasMarkedText() { updateComposition() }
     }
   }
   deinit {
     displayClock?.invalidate()
+    if let occlusionObserver { NotificationCenter.default.removeObserver(occlusionObserver) }
     if let handle { jam_view_drop(handle) }
   }
   func modifiers(_ event: NSEvent) -> Int {

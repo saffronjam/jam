@@ -75,6 +75,12 @@ final class PaneSnapView: NSView {
 }
 
 final class PaneDragController {
+  private struct Target {
+    weak var view: NSView?
+  }
+
+  private var targets: [Target] = []
+
   weak var store: Store?
   weak var window: NSWindow?
   var source: String?
@@ -88,7 +94,6 @@ final class PaneDragController {
   var ghost: FloatingPanePreview?
   var ghostOffset = NSPoint.zero
   var lastPoint = NSPoint.zero
-  var timer: Timer?
   var hoverID: String?
   var hoverWork: DispatchWorkItem?
   init(store: Store) { self.store = store }
@@ -147,14 +152,13 @@ final class PaneDragController {
       }
       started = true
       makeGhost(source: source, point: event.locationInWindow)
+      store.dragGridSizes = Dictionary(
+        uniqueKeysWithValues: store.visiblePaneIDs.compactMap { id in
+          store.terminalViews.existing(id)?.desiredSize.map { (id, $0) }
+        })
       store.draggingPane = source
       withAnimation(WorkspaceFinder.animation) { store.liftedPane = source }
       lastPoint = event.locationInWindow
-      timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30, repeats: true) { [weak self] _ in
-        guard let self, self.started else { return }
-        self.update(self.lastPoint)
-      }
-      if let timer { RunLoop.main.add(timer, forMode: .common) }
       let overlay = PaneSnapView(frame: .zero)
       window?.contentView?.addSubview(overlay)
       self.overlay = overlay
@@ -173,20 +177,30 @@ final class PaneDragController {
     ghost?.setFrameOrigin(NSPoint(x: cursor.x - ghostOffset.x, y: cursor.y - ghostOffset.y))
     destination = nil
     overlay?.isHidden = true
-    func find(_ view: NSView) -> NSView? {
-      guard !view.isHiddenOrHasHiddenAncestor else { return nil }
-      if let pane = view as? PaneDropView, pane.pane == source { return nil }
-      if view is PaneDropView || view is EmptyPaneDropView || view is TabDragView
-        || view is WorkspaceOutline,
-        view.convert(view.visibleRect.intersection(view.bounds), to: nil).contains(point)
-      {
-        return view
+    func targetAtPoint() -> NSView? {
+      targets.lazy.compactMap(\.view).first { view in
+        view.window === self.window && !view.isHiddenOrHasHiddenAncestor
+          && view.convert(view.visibleRect.intersection(view.bounds), to: nil).contains(point)
       }
-      for child in view.subviews { if let found = find(child) { return found } }
-      return nil
+    }
+    var hit = targetAtPoint()
+    if hit == nil {
+      targets.removeAll(keepingCapacity: true)
+      func collect(_ view: NSView) {
+        guard !view.isHiddenOrHasHiddenAncestor else { return }
+        if let pane = view as? PaneDropView, pane.pane == source { return }
+        if view is PaneDropView || view is EmptyPaneDropView || view is TabDragView
+          || view is WorkspaceOutline
+        {
+          targets.append(Target(view: view))
+        }
+        for child in view.subviews { collect(child) }
+      }
+      collect(content)
+      hit = targetAtPoint()
     }
     var hover: (String, () -> Void)?
-    if let pane = find(content) as? PaneDropView, pane.pane != source {
+    if let pane = hit as? PaneDropView, pane.pane != source {
       let rect = pane.convert(pane.bounds, to: content)
       let local = pane.convert(point, from: nil)
       let x = local.x / max(1, pane.bounds.width)
@@ -214,17 +228,17 @@ final class PaneDragController {
       default: break
       }
       show(zone)
-    } else if let empty = find(content) as? EmptyPaneDropView {
+    } else if let empty = hit as? EmptyPaneDropView {
       destination = ["Tab": ["tab": empty.tab]]
       show(empty.convert(empty.bounds, to: content))
-    } else if let tab = find(content) as? TabDragView,
+    } else if let tab = hit as? TabDragView,
       let w = store.workspaces.first(where: { $0.tabs.contains { $0.id == tab.tabID } })
     {
       let id = tab.tabID
       destination = ["Tab": ["tab": id]]
       hover = ("tab-" + id, { store.select(w.id, tab: id) })
       show(tab.convert(tab.bounds, to: content))
-    } else if let outline = find(content) as? WorkspaceOutline {
+    } else if let outline = hit as? WorkspaceOutline {
       let row = outline.row(at: outline.convert(point, from: nil))
       if row >= 0, let item = outline.item(atRow: row) as? WorkspaceSidebar.Item,
         let w = item.workspace, !store.isCreatingWorkspace(w.id)
@@ -242,6 +256,10 @@ final class PaneDragController {
         let work = DispatchWorkItem { [weak self] in
           guard self?.started == true else { return }
           hover.1()
+          self?.targets.removeAll(keepingCapacity: true)
+          DispatchQueue.main.async { [weak self] in
+            if let self, self.started { self.update(self.lastPoint) }
+          }
         }
         hoverWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.45, execute: work)
@@ -262,7 +280,7 @@ final class PaneDragController {
       width: min(400, max(180, rect.width * 0.7)), height: min(260, max(110, rect.height * 0.7)))
     let ghost = FloatingPanePreview(frame: NSRect(origin: .zero, size: size))
     ghost.title = store.panes[source]?.title ?? "Terminal"
-    ghost.text = store.terminalViews.existing(source)?.meta["text"] as? String ?? ""
+    ghost.text = store.terminalViews.existing(source)?.screenText ?? ""
     ghost.wantsLayer = true
     ghost.shadow = NSShadow()
     ghost.shadow?.shadowBlurRadius = 14
@@ -279,11 +297,10 @@ final class PaneDragController {
     monitor = nil
     if let observer { NotificationCenter.default.removeObserver(observer) }
     observer = nil
-    timer?.invalidate()
-    timer = nil
     hoverWork?.cancel()
     hoverWork = nil
     hoverID = nil
+    targets.removeAll(keepingCapacity: true)
   }
   func show(_ rect: NSRect) {
     overlay?.frame = rect
@@ -303,6 +320,7 @@ final class PaneDragController {
     started = false
     destination = nil
     self.previous = nil
+    store?.dragGridSizes.removeAll()
     store?.draggingPane = nil
     NSCursor.arrow.set()
     if restore, wasStarted, let previous {
@@ -314,39 +332,29 @@ final class PaneDragController {
 }
 extension Store {
   func movePane(_ pane: String, destination: [String: Any], completion: @escaping () -> Void) {
-    guard !busy else {
-      completion()
-      return
-    }
-    movingLayout = true
-    busy = true
-    DispatchQueue.global().async {
-      let reply = rpc(["MovePane": ["pane": pane, "destination": destination]])
-      DispatchQueue.main.async {
-        self.busy = false
-        self.movingLayout = false
-        withAnimation(WorkspaceFinder.animation) {
-          if let state = reply["State"] as? [String: Any] {
-            self.apply(state)
-            self.liftedPane = nil
-            if let w = self.workspaces.first(where: {
-              $0.tabs.contains { $0.root.ids.contains(pane) }
-            }),
-              let tab = w.tabs.first(where: { $0.root.ids.contains(pane) })
-            {
-              self.select(w.id, tab: tab.id, pane: pane)
-            }
-          } else {
-            self.liftedPane = nil
-            self.error = reply["error"] as? String ?? "Could not move pane"
-            self.focusTerminal()
-          }
-        }
-        DispatchQueue.main.async {
-          completion()
-          self.trimTerminalViews()
-        }
-      }
+    let endpoint = WorkspaceSelection.endpoint(of: pane)
+    let placeholder = (endpoint.isEmpty ? "" : endpoint + "|") + "pending-tab-" + UUID().uuidString
+    let removeEmptyTab = config?.closeEmptyTabs ?? true
+    let accepted = submitLayout(
+      ["MovePane": ["pane": pane, "destination": destination]], endpoint: endpoint,
+      preview: { layout in
+        OptimisticLayout.movePane(
+          pane, to: destination, in: &layout, placeholder: placeholder,
+          removeEmptyTab: removeEmptyTab)
+      },
+      complete: { [weak self] _ in
+        guard let self, self.tab == placeholder, self.focus == pane,
+          let target = self.current?.tabs.first(where: { $0.root.ids.contains(pane) })
+        else { return }
+        self.select(self.selected, tab: target.id, pane: pane)
+      })
+    completion()
+    if accepted,
+      let target = projectedWorkspaces.first(where: {
+        $0.tabs.contains { $0.root.ids.contains(pane) }
+      }), let tab = target.tabs.first(where: { $0.root.ids.contains(pane) })
+    {
+      select(target.id, tab: tab.id, pane: pane)
     }
   }
 }

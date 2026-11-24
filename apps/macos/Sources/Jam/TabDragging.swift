@@ -43,54 +43,34 @@ extension Store {
         "Tab moving requires the updated daemon. Finish active work before restarting the daemon."
       return false
     }
-    dragOriginal = workspaces
     draggingTab = id
     return true
   }
-  func previewTabMove(to: Int) {
-    guard let draggingTab,
-      let w = workspaces.firstIndex(where: { $0.tabs.contains { $0.id == draggingTab } }),
-      let from = workspaces[w].tabs.firstIndex(where: { $0.id == draggingTab }),
-      workspaces[w].tabs.indices.contains(to), from != to
-    else { return }
-    withAnimation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.22)) {
-      let tab = workspaces[w].tabs.remove(at: from)
-      workspaces[w].tabs.insert(tab, at: to)
-    }
+  func previewTabMove(to index: Int) {
+    guard draggingTab != nil else { return }
+    withAnimation(WorkspaceFinder.animation) { tabDragIndex = index }
   }
   func cancelTabDrag() {
-    guard draggingTab != nil else { return }
-    if let original = dragOriginal { workspaces = original }
     draggingTab = nil
-    dragOriginal = nil
+    tabDragIndex = nil
     focusTerminal()
   }
   func finishTabDrag(workspace: String) -> Bool {
-    guard let id = draggingTab, let target = workspaces.first(where: { $0.id == workspace }) else {
-      return false
-    }
+    guard let id = draggingTab,
+      let target = projectedWorkspaces.first(where: { $0.id == workspace })
+    else { return false }
     let index = target.tabs.firstIndex(where: { $0.id == id }) ?? target.tabs.count
-    let original = dragOriginal
-    movingLayout = true
-    busy = true
     draggingTab = nil
-    dragOriginal = nil
-    DispatchQueue.global().async {
-      let reply = rpc(["MoveTab": ["tab": id, "workspace": workspace, "index": index]])
-      DispatchQueue.main.async {
-        self.busy = false
-        self.movingLayout = false
-        if let state = reply["State"] as? [String: Any] {
-          self.apply(state)
-          self.select(workspace, tab: id)
-        } else {
-          if let original { self.workspaces = original }
-          self.error = reply["error"] as? String ?? "Could not move tab"
-        }
-      }
-    }
-    return true
+    tabDragIndex = nil
+    let endpoint = WorkspaceSelection.endpoint(of: id)
+    guard WorkspaceSelection.endpoint(of: workspace) == endpoint else { return false }
+    let accepted = submitLayout(
+      ["MoveTab": ["tab": id, "workspace": workspace, "index": index]], endpoint: endpoint,
+      preview: { OptimisticLayout.moveTab(id, into: workspace, at: index, in: &$0) })
+    if accepted { select(workspace, tab: id) }
+    return accepted
   }
+
 }
 
 struct DraggableTab: NSViewRepresentable {
@@ -205,10 +185,10 @@ final class TabDragView: NSView {
     editor = field
     label.isHidden = true
     field.completion = { [weak self, weak field] value in
+      completion(value)
       if let name = value?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
         self?.label.stringValue = name
       }
-      completion(value)
       field?.removeFromSuperview()
       self?.editor = nil
       self?.label.isHidden = false

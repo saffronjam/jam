@@ -13,8 +13,8 @@ final class TerminalViewPool {
     return view
   }
   func existing(_ pane: String) -> TerminalNSView? { views[pane] }
-  func retain(live: Set<String>, visible: Set<String>) {
-    let kept = policy.retain(live: live, visible: visible, capacity: 16)
+  func retain(live: Set<String>, visible: Set<String>, capacity: Int) {
+    let kept = policy.retain(live: live, visible: visible, capacity: capacity)
     for id in Array(views.keys) where !kept.contains(id) {
       views.removeValue(forKey: id)?.removeFromSuperview()
     }

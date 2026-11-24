@@ -14,6 +14,10 @@ pub struct Presentation {
 }
 
 impl Presentation {
+    pub fn allow_cached_frame(&mut self) {
+        self.presented = true;
+    }
+
     pub fn ready(&mut self, frame: (u16, u16), target: (u16, u16), now: Instant) -> bool {
         let since = *self.waiting_since.get_or_insert(now);
         frame.0 > 0

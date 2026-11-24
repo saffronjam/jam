@@ -117,14 +117,15 @@ extension Store {
   }
   func trimTerminalViews() {
     terminalTrimWork?.cancel()
-    let work = DispatchWorkItem { [weak self] in
-      guard let self else { return }
-      var retained = Set(self.visiblePaneIDs)
-      if let lifted = self.liftedPane { retained.insert(lifted) }
-      self.terminalViews.retain(live: Set(self.panes.keys), visible: retained)
-    }
+    let work = DispatchWorkItem { [weak self] in self?.trimTerminalViewsNow(keepHidden: 2) }
     terminalTrimWork = work
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: work)
+    DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: work)
+  }
+  func trimTerminalViewsNow(keepHidden: Int) {
+    var retained = Set(visiblePaneIDs)
+    if let liftedPane { retained.insert(liftedPane) }
+    terminalViews.retain(
+      live: Set(panes.keys), visible: retained, capacity: retained.count + keepHidden)
   }
   func focusTerminal() {
     DispatchQueue.main.async { [weak self] in

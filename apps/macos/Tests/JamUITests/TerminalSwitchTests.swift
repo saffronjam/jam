@@ -90,9 +90,10 @@ struct WorktreeListFixture: View {
     _ = nativeString(jam_start(""))
     defer { _ = rpc("Stop") }
     try checkTerminalMouseGestures()
+    try checkOptimisticSplit()
     let store = Store()
-    try checkWarningTimeout()
-    try checkUpgradeNotifications(store: store)
+    try checkToastTimeouts()
+    try checkUpgradeChip(store: store)
     try checkUpdateSettingsControls(store: store)
     try checkSettings(store: store)
     let directory = ProcessInfo.processInfo.environment["JAM_STATE_DIR"]!
@@ -151,6 +152,7 @@ struct WorktreeListFixture: View {
       timings.append(Date().timeIntervalSince(start) * 1000)
       RunLoop.current.run(until: Date().addingTimeInterval(0.03))
     }
+    try checkRapidFocus(store: store, window: window)
     try checkInlineRename(store: store, window: window)
     try checkAutomaticFocusAcknowledgement(store: store, window: window)
     try checkServerRecovery(store: store, destinations: destinations, window: window)
@@ -294,6 +296,66 @@ struct WorktreeListFixture: View {
     print("Client drag-copy, quick toast events, OSC 52 and hyperlink gestures passed")
   }
 
+  static func checkOptimisticSplit() throws {
+    let store = Store()
+    let directory = ProcessInfo.processInfo.environment["JAM_STATE_DIR"]!
+    apply(rpc(["CreateWorkspace": ["path": directory, "name": "Split fixture"]]), to: store)
+    let workspace = store.workspaces.last!
+    defer { _ = rpc(["WorkspaceClose": ["workspace": workspace.id, "group": false]]) }
+    let tab = workspace.tabs[0]
+    let source = tab.root.ids[0]
+    store.select(workspace.id, tab: tab.id, pane: source)
+    let window = FocusTestWindow(
+      contentRect: NSRect(x: -3000, y: -3000, width: 1100, height: 700),
+      styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+    window.contentView = NSHostingView(rootView: ServerSheetFixture(store: store))
+    window.orderFront(nil)
+    defer { window.orderOut(nil) }
+    try wait("initial split terminal") {
+      guard let view = store.terminalViews.existing(source) else { return false }
+      return view.desiredSize != nil && matchesGeometry(view) && store.paneSizes[source] != nil
+    }
+    let view = store.terminalViews.existing(source)!
+    let originalWidth = view.desiredSize!.width
+
+    let replyGate = DispatchSemaphore(value: 0)
+    var gateReleased = false
+    defer { if !gateReleased { replyGate.signal() } }
+    endpointQueue("").async { replyGate.wait() }
+    store.split(false)
+    let pending = store.pendingPaneSplits[tab.id]!
+    assert(store.currentTab?.root.ids == [source])
+    assert(pending.preview(in: tab.root).ids == [source, pending.placeholder])
+    assert(store.focus == source && store.panes[pending.placeholder] == nil)
+    store.split(true)
+    assert(store.pendingPaneSplits[tab.id]?.placeholder == pending.placeholder)
+    try wait("optimistic pane layout and destination terminal size") {
+      guard let width = view.desiredSize?.width, width < originalWidth * 0.55 else { return false }
+      return view.meta["cols"] as? Int == Int(width / view.cellSize.width)
+    }
+    assert(store.currentTab?.root.ids == [source], "Preview must precede server confirmation")
+    assert(store.terminalViews.existing(pending.placeholder) == nil)
+    replyGate.signal()
+    gateReleased = true
+
+    try wait("split confirmation") { store.pendingPaneSplits[tab.id] == nil }
+    let committed = store.currentTab!.root
+    let created = pending.createdPane(in: committed)!
+    assert(committed.ids == [source, created] && store.focus == created)
+    assert(pending.preview(in: committed).ids == committed.ids)
+
+    // The pane visible in the client can have already been closed by a second client.
+    _ = rpc(["Close": ["pane": created]])
+    store.paneSizes[created] = CGSize(width: 640, height: 480)
+    store.split(true)
+    let rejected = store.pendingPaneSplits[tab.id]!
+    assert(rejected.preview(in: committed).ids == [source, created, rejected.placeholder])
+    try wait("split rejection") { store.pendingPaneSplits[tab.id] == nil }
+    assert(!store.error.isEmpty && store.panes[rejected.placeholder] == nil)
+    assert(store.currentTab?.root.ids.contains(rejected.placeholder) == false)
+    print("Optimistic split passed with a delayed reply, confirmation, and rejection.")
+  }
+
   static func checkStoppedPaneFocusAndResume() throws {
     let store = Store()
     let directory = ProcessInfo.processInfo.environment["JAM_STATE_DIR"]!
@@ -362,6 +424,38 @@ struct WorktreeListFixture: View {
     }
     print(
       "Stopped split pane accepts focus and closes independently. Unknown launch permissions show manual resume."
+    )
+  }
+
+  static func checkRapidFocus(store: Store, window: FocusTestWindow) throws {
+    let workspace = store.workspaces.first { $0.tabs.contains { $0.root.ids.count == 2 } }!
+    let tab = workspace.tabs.first { $0.root.ids.count == 2 }!
+    let panes = tab.root.ids
+    store.select(workspace.id, tab: tab.id)
+    window.keyStatus = true
+    defer { window.keyStatus = nil }
+    try wait("two attached focus targets") {
+      panes.allSatisfy { store.terminalViews.existing($0)?.window === window }
+    }
+    let gate = DispatchSemaphore(value: 0)
+    endpointQueue("").async { gate.wait() }
+    defer { gate.signal() }
+    var samples: [Double] = []
+    for click in 0..<80 {
+      let pane = panes[click % 2]
+      let terminal = store.terminalViews.existing(pane)!
+      let event = NSEvent.mouseEvent(
+        with: .leftMouseDown, location: terminal.convert(NSPoint(x: 12, y: 12), to: nil),
+        modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber,
+        context: nil, eventNumber: click, clickCount: 1, pressure: 1)!
+      let start = ProcessInfo.processInfo.systemUptime
+      terminal.mouseDown(with: event)
+      assert(store.focus == pane && window.firstResponder === terminal)
+      samples.append((ProcessInfo.processInfo.systemUptime - start) * 1000)
+    }
+    samples.sort()
+    print(
+      "Rapid mouse-down to local responder with stalled control RPCs: p95 \(samples[75]) ms, p99 \(samples[79]) ms."
     )
   }
 
@@ -539,19 +633,19 @@ struct WorktreeListFixture: View {
     assert(
       tabView.label.stringValue == "Renamed tab", "Committing must not reveal the old native label")
     assert(
-      store.workspaces.flatMap(\.tabs).first { $0.id == tab }?.name == "Renamed tab",
+      store.projectedWorkspaces.flatMap(\.tabs).first { $0.id == tab }?.name == "Renamed tab",
       "Tab rename must be immediate")
     store.apply(beforeTabRename)
     assert(
-      store.workspaces.flatMap(\.tabs).first { $0.id == tab }?.name == "Renamed tab",
+      store.projectedWorkspaces.flatMap(\.tabs).first { $0.id == tab }?.name == "Renamed tab",
       "An in-flight poll must not undo a pending rename")
     try wait("tab rename acknowledgement") { store.pendingRenames[tab] == nil }
     store.apply(beforeTabRename)
     assert(
-      store.workspaces.flatMap(\.tabs).first { $0.id == tab }?.name == "Renamed tab",
+      store.projectedWorkspaces.flatMap(\.tabs).first { $0.id == tab }?.name == "Renamed tab",
       "A stale poll after acknowledgement must not undo the rename")
     try wait("tab rename commit") {
-      store.workspaces.flatMap(\.tabs).first { $0.id == tab }?.name == "Renamed tab"
+      store.projectedWorkspaces.flatMap(\.tabs).first { $0.id == tab }?.name == "Renamed tab"
     }
     let child = store.workspaces[1].id
     for (id, label) in [(workspace, "workspace"), (child, "worktree")] {
@@ -582,7 +676,7 @@ struct WorktreeListFixture: View {
       let beforeRename = rpc("State")["State"] as! [String: Any]
       enter(text, name: "Renamed " + label)
       assert(
-        store.workspaces.first { $0.id == id }?.name == "Renamed " + label,
+        store.projectedWorkspaces.first { $0.id == id }?.name == "Renamed " + label,
         "Sidebar rename must be immediate")
       let committedCell =
         outline.view(atColumn: 0, row: outline.row(forItem: item), makeIfNecessary: true)
@@ -591,12 +685,12 @@ struct WorktreeListFixture: View {
         committedCell.nameField.stringValue == "Renamed " + label,
         "The old label must not reappear after the editor closes")
       store.apply(beforeRename)
-      assert(store.workspaces.first { $0.id == id }?.name == "Renamed " + label)
+      assert(store.projectedWorkspaces.first { $0.id == id }?.name == "Renamed " + label)
       try wait("sidebar rename acknowledgement") { store.pendingRenames[id] == nil }
       store.apply(beforeRename)
-      assert(store.workspaces.first { $0.id == id }?.name == "Renamed " + label)
+      assert(store.projectedWorkspaces.first { $0.id == id }?.name == "Renamed " + label)
       try wait("sidebar rename commit") {
-        store.workspaces.first { $0.id == id }?.name == "Renamed " + label
+        store.projectedWorkspaces.first { $0.id == id }?.name == "Renamed " + label
       }
     }
     print(
@@ -731,7 +825,8 @@ struct WorktreeListFixture: View {
     assert(store.currentTab?.id == other.id && store.focus == "preview-b")
     assert(store.beginTabDrag(regular.id))
     store.previewTabMove(to: 1)
-    assert(store.workspaces[0].tabs.last?.id == regular.id)
+    assert(store.projectedWorkspaces[0].tabs.last?.id == regular.id)
+    assert(store.workspaces[0].tabs.first?.id == regular.id)
     store.cancelTabDrag()
     store.openCoordinator(worktree.id)
     assert(store.surface == .coordinator && store.visiblePaneIDs == ["preview-child"])
@@ -1030,7 +1125,7 @@ struct WorktreeListFixture: View {
     )
   }
 
-  static func checkWarningTimeout() throws {
+  static func checkToastTimeouts() throws {
     var dismissed: [String] = []
     func toast(_ message: String) -> WarningToast {
       WarningToast(
@@ -1054,25 +1149,62 @@ struct WorktreeListFixture: View {
     let quick = QuickToast(message: Binding(get: { copied }, set: { copied = $0 }))
     window.contentView = NSHostingView(rootView: quick)
     try wait("quick toast automatically dismissed") { copied == nil }
+
+    var upgradeDismissed = false
+    let upgrade = UpgradeNoticeToast(
+      message: "Jam was upgraded to 0.0.9.", openReleaseNotes: {},
+      dismiss: { upgradeDismissed = true }, duration: .milliseconds(500))
+    window.contentView = NSHostingView(rootView: upgrade)
+    try wait("upgrade success toast automatically dismissed") { upgradeDismissed }
+
+    let interrupted = AppUpgradeRecovery(
+      journal: "interrupted", version: "0.0.9", phase: "started", error: nil)
+    let controller = AppUpgradeController { _ in Data("{}".utf8) }
+    controller.pendingRecoveries = [interrupted]
+    let recovery = UpgradeRecoveryToast(
+      recovery: interrupted, later: { controller.showRecoveryNotice = false },
+      recover: { controller.recovery = interrupted }, duration: .milliseconds(500))
+    window.contentView = NSHostingView(rootView: recovery)
+    try wait("upgrade recovery toast automatically dismissed") { !controller.showRecoveryNotice }
+    assert(controller.pendingRecoveries.first?.id == interrupted.id && controller.recovery == nil)
   }
 
-  static func checkUpgradeNotifications(store: Store) throws {
-    let controller = AppUpgradeController { _ in Data("{}".utf8) }
+  static func checkUpgradeChip(store: Store) throws {
+    let release = AppRelease(
+      schema: 1, version: "9.0.0", protocol: "jam/test", minMacOS: "14.0", assets: [])
+    JamDefaults.shared.removeObject(forKey: "appUpgradeState")
+    let controller = AppUpgradeController { request in
+      assert(request["action"] as? String == "check")
+      return try JSONEncoder().encode(
+        AppUpgradeCheck(current: "0.0.9", available: true, release: release))
+    }
     controller.managed = true
-    controller.available = AppRelease(
-      schema: 1, version: "0.0.4", protocol: "jam/test", minMacOS: "14.0", assets: [])
     let previousError = store.error
-    defer { store.error = previousError }
-    store.error = "incompatible jam daemon; update the server from Machines"
+    defer {
+      store.error = previousError
+      JamDefaults.shared.removeObject(forKey: "appUpgradeState")
+    }
+    let serverWarning = "incompatible jam daemon; update the server from Machines"
+    store.error = serverWarning
     let window = NSWindow(
       contentRect: NSRect(x: -3000, y: -3000, width: 700, height: 600),
       styleMask: [.titled], backing: .buffered, defer: false)
-    let host = NSHostingView(rootView: AppStatusOverlay(store: store, controller: controller))
+    let host = NSHostingView(
+      rootView: VStack(alignment: .trailing) {
+        HStack {
+          Spacer()
+          UpgradeAvailableChip(controller: controller)
+        }
+        Spacer()
+        AppStatusOverlay(store: store, controller: controller)
+      }.padding(8))
     window.contentView = host
     window.orderFront(nil)
     defer { window.orderOut(nil) }
+    controller.check()
+    try wait("manual check finds update") { controller.available?.version == release.version }
     RunLoop.current.run(until: Date().addingTimeInterval(0.3))
-    // Inspect the rendered overlay: SwiftUI's lazy AX tree is unavailable to
+    // Inspect the rendered UI: SwiftUI's lazy AX tree is unavailable to
     // in-process traversal without an external accessibility client.
     func renderedText() throws -> String {
       let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
@@ -1085,21 +1217,29 @@ struct WorktreeListFixture: View {
       return (recognition.results ?? []).compactMap { $0.topCandidates(1).first?.string }
         .joined(separator: " ")
     }
+    // Vision can mistake the caption's lowercase i for an l.
+    func containsUpgradeChip(_ text: String) -> Bool {
+      text.range(of: #"\bUpgrade ava[il]lable\b"#, options: .regularExpression) != nil
+    }
     let text = try renderedText()
     assert(
-      text.contains("Jam 0.0.4 is available") && text.contains("Upgrade")
+      containsUpgradeChip(text) && !text.contains("Jam 9.0.0 is available")
         && text.contains("Retry") && text.contains("The Jam server needs an update"),
-      "The rendered overlay must show both the warning and upgrade action: \(text)")
+      "The rendered UI must show the warning and chip without an upgrade toast: \(text)")
     controller.managed = false
-    controller.notice = "Jam 0.0.4 is available"
+    controller.notice = "Jam 9.0.0 is available"
+    store.error = serverWarning
     RunLoop.current.run(until: Date().addingTimeInterval(0.3))
     let developmentText = try renderedText()
-    assert(developmentText.contains("The Jam server needs an update"))
     assert(
-      !developmentText.contains("Jam 0.0.4 is available"),
-      "Development builds showed an update toast")
+      developmentText.localizedCaseInsensitiveContains("Jam server needs an update"),
+      "The server warning should still be visible: \(developmentText)")
+    assert(
+      !containsUpgradeChip(developmentText)
+        && !developmentText.contains("Jam 9.0.0 is available"),
+      "Development builds showed an upgrade notification: \(developmentText)")
     print(
-      "Release update notification stays visible alongside errors; development update toasts stay hidden."
+      "Manual update checks show the upgrade chip alongside errors in release builds."
     )
   }
 
@@ -1147,7 +1287,7 @@ struct WorktreeListFixture: View {
       assert(
         controller.notice.isEmpty, "The available version must not become an explanatory notice")
       if !managed {
-        assert(controller.available == nil, "Development builds must not offer an update toast")
+        assert(controller.available == nil, "Development builds must not show the upgrade chip")
         controller.prepareFromSettings()
         assert(!controller.showSheet, "Development builds must not start an upgrade")
         continue

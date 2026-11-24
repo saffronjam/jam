@@ -534,29 +534,29 @@ struct WorkspaceSidebar: NSViewRepresentable {
         update(outline)
         return
       }
-      let original = store.workspaces
-      // Hidden, not-yet-loaded remote groups are not part of this drag.
+      let original = store.projectedWorkspaces
       let order = ids + original.map(\.id).filter { !ids.contains($0) }
-      store.workspaces = order.compactMap { id in original.first { $0.id == id } }
-      signature = "<moved>"
-      store.busy = true
       let endpoint = WorkspaceSelection.endpoint(of: sourceID)
       let ordered = order.filter { WorkspaceSelection.endpoint(of: $0) == endpoint }
-      endpointQueue(endpoint).async {
-        let reply = rpc(
-          ["ReorderWorkspaces": ["workspaces": ordered]], endpoint: endpoint)
-        DispatchQueue.main.async {
-          self.store.reorderingWorkspaces = false
-          self.store.workspaceOrderGeneration &+= 1
-          self.store.busy = false
-          if let state = reply["State"] as? [String: Any] {
-            self.store.apply(state, endpoint: endpoint)
-          } else {
-            self.store.workspaces = original
-            self.store.error = reply["error"] as? String ?? "Could not reorder workspaces"
+      store.reorderingWorkspaces = false
+      store.workspaceOrderGeneration &+= 1
+      signature = "<moved>"
+      let accepted = store.submitLayout(
+        ["ReorderWorkspaces": ["workspaces": ordered]], endpoint: endpoint,
+        preview: { layout in
+          let current = layout.filter { WorkspaceSelection.endpoint(of: $0.id) == endpoint }
+          guard Set(current.map(\.id)) == Set(ordered) else { return false }
+          let byID = Dictionary(uniqueKeysWithValues: current.map { ($0.id, $0) })
+          var reordered = ordered.compactMap { byID[$0] }.makeIterator()
+          for index in layout.indices
+          where
+            WorkspaceSelection.endpoint(of: layout[index].id) == endpoint
+          {
+            if let workspace = reordered.next() { layout[index] = workspace }
           }
-        }
-      }
+          return true
+        })
+      if !accepted { update(outline) }
     }
     func beginRename(_ item: Item, outline: NSOutlineView) {
       guard editing == nil, !item.isCoordinator, let workspace = item.workspace,
@@ -585,7 +585,8 @@ struct WorkspaceSidebar: NSViewRepresentable {
         if let value {
           self.store.rename(workspace.id, to: value)
           cell?.nameField.stringValue =
-            self.store.workspaces.first(where: { $0.id == workspace.id })?.name ?? workspace.name
+            self.store.projectedWorkspaces.first(where: { $0.id == workspace.id })?.name
+            ?? workspace.name
         }
         cell?.titleRow.alphaValue = 1
         editor?.removeFromSuperview()

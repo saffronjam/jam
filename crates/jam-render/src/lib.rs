@@ -182,8 +182,12 @@ impl Renderer {
         Ok(())
     }
     /// # Safety
-    /// The caller retains the NSView for this renderer's lifetime. Create and drop on AppKit's main thread.
-    pub unsafe fn appkit(view: *mut std::ffi::c_void, width: u32, height: u32) -> Result<Self> {
+    /// The caller keeps the NSView alive while attaching the surface on AppKit's main thread.
+    pub unsafe fn appkit(
+        view: *mut std::ffi::c_void,
+        width: u32,
+        height: u32,
+    ) -> Result<impl FnOnce() -> Result<Self> + Send + 'static> {
         let instance = instance();
         let surface = unsafe {
             instance.create_surface_unsafe(wgpu::SurfaceTargetUnsafe::RawHandle {
@@ -193,7 +197,7 @@ impl Renderer {
                 )),
             })
         }?;
-        Self::with_surface(instance, Some(surface), width, height)
+        Ok(move || Self::with_surface(instance, Some(surface), width, height))
     }
     pub fn headless(width: u32, height: u32) -> Result<Self> {
         Self::with_surface(instance(), None, width, height)

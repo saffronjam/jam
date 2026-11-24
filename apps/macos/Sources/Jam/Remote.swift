@@ -149,6 +149,10 @@ extension Store {
             incarnation: (connection["HostInfo"] as? [String: Any])?["incarnation"] as? String)
           : nil
         let state = connection["error"] == nil ? rpc("State", endpoint: remote.id) : connection
+        let snapshot = state["State"] as? [String: Any]
+        let encoded = snapshot.flatMap {
+          try? JSONSerialization.data(withJSONObject: $0, options: .sortedKeys)
+        }
         DispatchQueue.main.async {
           guard self.remoteConnectionGenerations[remote.id, default: 0] == connectionGeneration
           else { return }
@@ -170,27 +174,31 @@ extension Store {
               delay * Double.random(in: 0.8...1.2))
           } else {
             self.appUpgrade.forgetRequirement(endpoint: remote.id)
-            self.remoteMessages[remote.id] = "Connected"
+            if self.remoteMessages[remote.id] != "Connected" {
+              self.remoteMessages[remote.id] = "Connected"
+            }
             if let agents, self.availableAgents[remote.id] != agents {
               self.availableAgents[remote.id] = agents
             }
             if let persistent = connection["persistent"] as? Bool {
               self.remotePersistence[remote.id] = persistent
             }
-            self.ready = true
+            if !self.ready { self.ready = true }
             self.remoteDelay[remote.id] = 0.5
             self.remoteNext[remote.id] = Date().addingTimeInterval(0.6)
             if let host = connection["HostInfo"] as? [String: Any] {
               self.remoteHomes[remote.id] = host["home"] as? String
             }
-            if let value = state["State"] as? [String: Any] {
+            if let value = snapshot {
               if !self.reorderingWorkspaces && self.workspaceOrderGeneration == orderGeneration
                 && self.workspaceCreationEpochs[remote.id, default: 0] == creationEpoch
               {
                 self.observeServer(connection["HostInfo"] as? [String: Any], endpoint: remote.id)
-                self.applyRefresh(value, endpoint: remote.id, creationEpoch: creationEpoch)
-                if let data = try? JSONSerialization.data(withJSONObject: value) {
-                  JamDefaults.shared.set(data, forKey: "remoteState." + remote.id)
+                let changed = self.appliedPolls[remote.id] != encoded
+                self.applyPoll(
+                  value, encoded: encoded, endpoint: remote.id, creationEpoch: creationEpoch)
+                if changed, let encoded {
+                  JamDefaults.shared.set(encoded, forKey: "remoteState." + remote.id)
                 }
                 let firstLoad = self.loadedRemotes.insert(remote.id).inserted
                 if firstLoad && self.currentEndpoint == remote.id {

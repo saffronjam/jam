@@ -458,11 +458,10 @@ mod tests {
         let role = std::env::var("JAM_TUNNEL_TEST_ROLE").unwrap();
         TEST_SSH.with(|command| *command.borrow_mut() = Some(directory.join("ssh-fixture")));
         let socket = connect(&endpoint).unwrap();
-        fs::write(
-            directory.join(format!("{role}.path")),
-            socket.to_str().unwrap(),
-        )
-        .unwrap();
+        let report = directory.join(format!("{role}.path"));
+        let staging = report.with_extension("tmp");
+        fs::write(&staging, socket.to_str().unwrap()).unwrap();
+        fs::rename(staging, report).unwrap();
         if role == "gui" {
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
             while !directory.join("gui.stop").exists() {

@@ -51,6 +51,7 @@ extension Store {
     if serverIncarnations[endpoint] != incarnation {
       pendingServerRecovery.insert(endpoint)
       stateRevisions.removeValue(forKey: endpoint)
+      appliedPolls.removeValue(forKey: endpoint)
       serverIncarnations[endpoint] = incarnation
     }
   }

@@ -1,5 +1,7 @@
 use jam_core::*;
 use jam_render::Renderer;
+mod render_worker;
+use render_worker::{Frame as RenderFrame, RenderWorker};
 mod presentation;
 use presentation::{Presentation, Viewport};
 
@@ -296,7 +298,8 @@ fn cache_frame(pane: String, frame: std::sync::Arc<jam_core::vt::TerminalFrame>)
 struct View {
     presentation: Presentation,
     theme_changed: bool,
-    renderer: Renderer,
+    renderer: RenderWorker,
+    theme: Option<([u8; 3], [u8; 3])>,
     mirror: jam_core::client::Mirror,
     pane: String,
     key: String,
@@ -327,6 +330,7 @@ pub unsafe extern "C" fn jam_view_new(
                 jam_core::remote::local_socket(endpoint)?
             };
             let mirror = jam_core::client::Mirror::at(raw.into(), path);
+            let mut presentation = Presentation::default();
             if let Some((_, frame)) = LAST_FRAMES
                 .lock()
                 .unwrap()
@@ -337,12 +341,14 @@ pub unsafe extern "C" fn jam_view_new(
                 if display.generation == 0 {
                     display.frame = frame.clone();
                     display.revision += 1;
+                    presentation.allow_cached_frame();
                 }
             }
             Ok(View {
-                presentation: Presentation::default(),
+                presentation,
                 theme_changed: false,
-                renderer,
+                renderer: RenderWorker::new(renderer),
+                theme: None,
                 mirror,
                 pane: raw.into(),
                 key: pane.clone(),
@@ -369,6 +375,7 @@ pub unsafe extern "C" fn jam_view_new(
 pub unsafe extern "C" fn jam_view_invalidate(ptr: *mut c_void) {
     if let Some(view) = unsafe { ptr.cast::<View>().as_mut() } {
         view.presentation.invalidate();
+        view.renderer.discard_pending();
     }
 }
 /// # Safety
@@ -380,7 +387,9 @@ pub unsafe extern "C" fn jam_view_set_colors(ptr: *mut c_void, foreground: u32, 
     }
     let rgb = |color: u32| [(color >> 16) as u8, (color >> 8) as u8, color as u8];
     let view = unsafe { &mut *ptr.cast::<View>() };
-    view.theme_changed |= view.renderer.set_theme(rgb(foreground), rgb(background));
+    let theme = Some((rgb(foreground), rgb(background)));
+    view.theme_changed |= view.theme != theme;
+    view.theme = theme;
 }
 /// # Safety
 /// ptr must be a live Jam view handle, called exclusively on AppKit main thread.
@@ -389,6 +398,8 @@ pub unsafe extern "C" fn jam_view_draw(
     ptr: *mut c_void,
     width: u32,
     height: u32,
+    target_width: u32,
+    target_height: u32,
     scale: f32,
 ) -> *mut c_char {
     json_result(|| {
@@ -396,11 +407,15 @@ pub unsafe extern "C" fn jam_view_draw(
             anyhow::bail!("invalid view geometry")
         };
         let v = unsafe { &mut *ptr.cast::<View>() };
+        // Settle the PTY at the destination size while the viewport animates.
         let size = (
-            ((width as f32 / (8.4 * scale).round()) as u16).clamp(1, 1000),
-            ((height as f32 / (19.0 * scale).round()) as u16).clamp(1, 1000),
+            ((target_width as f32 / (8.4 * scale).round()) as u16).clamp(1, 1000),
+            ((target_height as f32 / (19.0 * scale).round()) as u16).clamp(1, 1000),
         );
-        let generation = v.mirror.display.lock().unwrap().generation;
+        let Ok(mut display) = v.mirror.display.try_lock() else {
+            return Ok(serde_json::json!({"unchanged": true}));
+        };
+        let generation = display.generation;
         if generation != v.generation {
             v.generation = generation;
             v.last_size = (0, 0);
@@ -408,7 +423,9 @@ pub unsafe extern "C" fn jam_view_draw(
         let focus_revision = *FOCUS.lock().unwrap().get(&v.key).unwrap_or(&0);
         if focus_revision != v.focus_revision {
             v.focus_revision = focus_revision;
-            v.last_size = (0, 0);
+            if (display.frame.cols, display.frame.rows) != size {
+                v.last_size = (0, 0);
+            }
         }
         let resized = size != v.last_size;
         if resized
@@ -420,60 +437,52 @@ pub unsafe extern "C" fn jam_view_draw(
         {
             v.last_size = size;
         }
-        let mut d = v.mirror.display.lock().unwrap();
-        let error = d.error.as_ref().or(d.resize_error.as_ref()).cloned();
-        let ready = v.presentation.ready(
-            (d.frame.cols, d.frame.rows),
-            size,
-            std::time::Instant::now(),
-        );
-        let screen_text = if ready && d.revision != v.revision {
-            Some(
-                d.frame
-                    .cells
-                    .chunks(d.frame.cols.max(1) as usize)
-                    .map(|row| {
-                        row.iter()
-                            .filter(|c| c.wide < 2)
-                            .map(|c| if c.text.is_empty() { " " } else { &c.text })
-                            .collect::<String>()
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n"),
-            )
-        } else {
-            None
-        };
-        let meta = serde_json::json!({"text":screen_text,"error":error,"ready":ready,"mouse":d.frame.mouse_tracking,"alternate":d.frame.alternate,"cols":d.frame.cols,"rows":d.frame.rows,"cursor_x":d.frame.cursor.0,"cursor_y":d.frame.cursor.1,"clipboard_text":d.clipboard_text.take()});
-        if !ready {
-            return Ok(meta);
-        }
-        let viewport = Viewport(width, height, scale);
-        let blink = d.frame.cursor_visible
-            && d.frame.cursor_blink
-            && v.last_blink.elapsed() >= std::time::Duration::from_millis(500);
-        if d.revision != v.revision
-            || blink
-            || resized
-            || v.theme_changed
-            || v.presentation.changed(viewport)
-        {
-            let f = d.frame.clone();
-            let revision = d.revision;
-            drop(d);
-            if blink {
-                v.blink = !v.blink;
-                v.last_blink = std::time::Instant::now();
+        let frame = display.frame.clone();
+        let revision = display.revision;
+        let clipboard_text = display.clipboard_text.take();
+        let error = display
+            .error
+            .as_ref()
+            .or(display.resize_error.as_ref())
+            .cloned();
+        drop(display);
+        let result = v.renderer.result();
+        let eligible =
+            v.presentation
+                .ready((frame.cols, frame.rows), size, std::time::Instant::now());
+        if eligible {
+            let viewport = Viewport(width, height, scale);
+            let blink = frame.cursor_visible
+                && frame.cursor_blink
+                && v.last_blink.elapsed() >= std::time::Duration::from_millis(500);
+            if revision != v.revision
+                || blink
+                || resized
+                || v.theme_changed
+                || v.presentation.changed(viewport)
+            {
+                if blink {
+                    v.blink = !v.blink;
+                    v.last_blink = std::time::Instant::now();
+                }
+                let cursor = !frame.cursor_blink || v.blink;
+                v.renderer.submit(RenderFrame {
+                    terminal: frame.clone(),
+                    revision,
+                    viewport,
+                    theme: v.theme,
+                    cursor,
+                });
+                v.presentation.did_present(viewport);
+                v.revision = revision;
+                v.theme_changed = false;
             }
-            // Use the same rounded cell metrics as input and PTY sizing. Scaling
-            // an old frame to fit changes the font and causes a second visible jump.
-            v.renderer
-                .render_with_cursor(&f, width, height, scale, !f.cursor_blink || v.blink)?;
-            v.presentation.did_present(viewport);
-            v.revision = revision;
-            v.theme_changed = false;
         }
-        Ok(meta)
+        Ok(serde_json::json!({
+            "text":result.text,"error":error.or(result.error),"ready":eligible && result.presented,
+            "mouse":frame.mouse_tracking,"alternate":frame.alternate,"cols":frame.cols,"rows":frame.rows,
+            "cursor_x":frame.cursor.0,"cursor_y":frame.cursor.1,"clipboard_text":clipboard_text
+        }))
     })
 }
 /// # Safety
@@ -525,10 +534,9 @@ pub unsafe extern "C" fn jam_view_action(
 pub unsafe extern "C" fn jam_view_drop(p: *mut c_void) {
     if !p.is_null() {
         let view = unsafe { Box::from_raw(p.cast::<View>()) };
-        cache_frame(
-            view.key.clone(),
-            view.mirror.display.lock().unwrap().frame.clone(),
-        );
+        if let Ok(display) = view.mirror.display.try_lock() {
+            cache_frame(view.key.clone(), display.frame.clone());
+        }
         drop(view)
     }
 }

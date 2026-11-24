@@ -24,7 +24,7 @@ Install the CLI with `~/Applications/Jam.app/Contents/Resources/bin/jam install-
 
 ## Upgrades
 
-The app checks for updates automatically and offers **Upgrade…** or **Skip This Version**. Use **Jam → Check for Updates…** to check manually, or turn automatic checks off in **Settings → General**.
+When an update is found, select **Upgrade available** in the top toolbar. Use **Jam → Check for Updates…** to check manually, or turn automatic checks off in **Settings → General**.
 
 Run `jam upgrade` to check, download, and apply the latest stable release. Jam asks before interrupting active sessions. `jam update` is an alias; `jam upgrade --check --json` is available for scripts. See [upgrade behavior](docs/upgrading.md).
 

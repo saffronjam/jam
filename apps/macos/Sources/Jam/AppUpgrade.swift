@@ -476,6 +476,88 @@ final class AppUpgradeController: ObservableObject {
   }
 }
 
+struct UpgradeNoticeToast: View {
+  private enum Action: Hashable { case dismiss, releaseNotes }
+  let message: String
+  let openReleaseNotes: (() -> Void)?
+  let dismiss: () -> Void
+  var duration: Duration = ToastDismissal.defaultDuration
+  @FocusState private var focusedAction: Action?
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      HStack(alignment: .top) {
+        Text(message).font(.callout)
+        Spacer(minLength: 8)
+        Button(action: dismiss) { Image(systemName: "xmark") }
+          .focused($focusedAction, equals: .dismiss)
+          .buttonStyle(.plain).accessibilityLabel("Dismiss update notification")
+      }
+      if let openReleaseNotes {
+        HStack {
+          Spacer()
+          Button("Open Release Notes", action: openReleaseNotes)
+            .focused($focusedAction, equals: .releaseNotes)
+        }.controlSize(.small)
+      }
+    }.padding(14).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+      .dismissToast(
+        message: message, after: duration, paused: focusedAction != nil,
+        dismiss: dismiss)
+  }
+}
+
+struct UpgradeAvailableChip: View {
+  @ObservedObject var controller: AppUpgradeController
+
+  var body: some View {
+    if controller.managed, let release = controller.available, !controller.showSheet {
+      Button(action: controller.prepare) {
+        Text("Upgrade available")
+          .font(.caption.weight(.medium))
+          .padding(.horizontal, 10).padding(.vertical, 4)
+          .background(Color.yellow.opacity(0.08), in: Capsule())
+          .overlay(Capsule().strokeBorder(Color.yellow.opacity(0.8), lineWidth: 1))
+          .contentShape(Capsule())
+      }
+      .buttonStyle(.plain)
+      .fixedSize()
+      .help("Install Jam \(release.version)")
+      .accessibilityHint("Install Jam \(release.version)")
+      .disabled(controller.busy)
+      .contextMenu {
+        Button("Skip This Version", action: controller.skip)
+          .disabled(controller.busy)
+      }
+    }
+  }
+}
+
+struct UpgradeRecoveryToast: View {
+  private enum Action: Hashable { case later, recover }
+  let recovery: AppUpgradeRecovery
+  let later: () -> Void
+  let recover: () -> Void
+  var duration: Duration = ToastDismissal.defaultDuration
+  @FocusState private var focusedAction: Action?
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      Text("A Jam upgrade was interrupted").font(.callout.weight(.semibold))
+      Text("Recover the installation before starting another upgrade.").font(.callout)
+        .foregroundStyle(.secondary)
+      HStack {
+        Spacer()
+        Button("Later", action: later).focused($focusedAction, equals: .later)
+        Button("Recover…", action: recover).focused($focusedAction, equals: .recover)
+      }.controlSize(.small)
+    }.padding(14).frame(width: 330)
+      .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+      .dismissToast(
+        message: recovery.id, after: duration, paused: focusedAction != nil, dismiss: later)
+  }
+}
+
 struct AppUpgradeOverlay: View {
   @ObservedObject var controller: AppUpgradeController
   var showsNotification = true
@@ -484,54 +566,18 @@ struct AppUpgradeOverlay: View {
       if controller.showRecoveryNotice && !controller.showSheet,
         controller.recovery == nil, let interrupted = controller.pendingRecoveries.first
       {
-        VStack(alignment: .leading, spacing: 12) {
-          Text("A Jam upgrade was interrupted").font(.callout.weight(.semibold))
-          Text("Recover the installation before starting another upgrade.").font(.callout)
-            .foregroundStyle(.secondary)
-          HStack {
-            Spacer()
-            Button("Later") { controller.showRecoveryNotice = false }
-            Button("Recover…") { controller.recovery = interrupted }
-          }.controlSize(.small)
-        }.padding(14).frame(width: 330)
-          .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+        UpgradeRecoveryToast(
+          recovery: interrupted, later: { controller.showRecoveryNotice = false },
+          recover: { controller.recovery = interrupted })
       } else if showsNotification && !controller.showSheet && !controller.error.isEmpty {
         WarningToast(message: controller.error, retry: nil, dismiss: { controller.error = "" })
       } else if controller.managed && showsNotification && !controller.showSheet
         && !controller.notice.isEmpty
       {
-        VStack(alignment: .leading, spacing: 12) {
-          HStack(alignment: .top) {
-            Text(controller.notice).font(.callout)
-            Spacer(minLength: 8)
-            Button(action: controller.dismissNotice) {
-              Image(systemName: "xmark")
-            }
-            .buttonStyle(.plain).accessibilityLabel("Dismiss update notification")
-          }
-          if controller.releaseNotesURL != nil {
-            HStack {
-              Spacer()
-              Button("Open Release Notes", action: controller.openReleaseNotes)
-            }.controlSize(.small)
-          }
-        }.padding(14).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-      } else if let release = controller.available, controller.managed, showsNotification,
-        !controller.showSheet
-      {
-        VStack(alignment: .leading, spacing: 12) {
-          Text("Jam \(release.version) is available").font(.callout.weight(.semibold))
-          if let minimum = controller.requiredMinimum {
-            Text("The remote machine needs Jam \(minimum) or newer before connecting.")
-              .font(.callout).foregroundStyle(.secondary)
-          }
-          HStack {
-            Spacer()
-            Button("Skip This Version", action: controller.skip).disabled(controller.busy)
-            Button("Upgrade…", action: controller.prepare).disabled(controller.busy)
-          }.controlSize(.small)
-        }.padding(14).frame(width: 330)
-          .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+        UpgradeNoticeToast(
+          message: controller.notice,
+          openReleaseNotes: controller.releaseNotesURL == nil ? nil : controller.openReleaseNotes,
+          dismiss: controller.dismissNotice)
       }
     }.frame(maxWidth: 360).padding(12)
       .sheet(isPresented: $controller.showSheet) { AppUpgradeSheet(controller: controller) }
@@ -674,8 +720,8 @@ struct AppUpdateSettings: View {
   }
 }
 
-/// Keep recovery visible when the interrupted server also reports a connection
-/// error, and keep both sheets attached while ordinary notifications change.
+/// Prioritize recovery over connection errors and keep the sheets attached while
+/// notifications change.
 struct AppStatusOverlay: View {
   @ObservedObject var store: Store
   @ObservedObject var controller: AppUpgradeController
@@ -695,7 +741,6 @@ struct AppStatusOverlay: View {
       }
       // Settings owns its nested upgrade sheets while it is open.
       if !store.showSettings {
-        // Connection errors must not hide the action that can resolve them.
         AppUpgradeOverlay(controller: controller)
       }
     }.animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: store.error.isEmpty)
