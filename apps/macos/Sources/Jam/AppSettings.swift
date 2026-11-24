@@ -259,7 +259,7 @@ struct AppSettingsView: View {
     case "General":
       settingsGroup("Updates") {
         AppUpdateSettings(
-          controller: store.appUpgrade, automatic: $draft.config.automaticCheckUpdates)
+          store: store, controller: store.appUpgrade, automatic: $draft.config.automaticCheckUpdates)
       }
       settingsGroup("Workspaces") {
         settingToggle(

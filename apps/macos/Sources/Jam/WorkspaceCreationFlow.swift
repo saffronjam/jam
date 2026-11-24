@@ -57,8 +57,13 @@ extension Store {
     runCreation(creation)
   }
 
+  func canRetryCreation(_ creation: WorkspaceCreation) -> Bool {
+    creation.failure != nil && !serverBusy.contains(creation.endpoint)
+      && (creation.endpoint.isEmpty || remoteMessages[creation.endpoint] == "Connected")
+  }
+
   func retryCreation(_ original: WorkspaceCreation) {
-    guard original.failure != nil else { return }
+    guard canRetryCreation(original) else { return }
     var creation = original
     if creation.canResubmit && workspaces.contains(where: { $0.id == creation.proposedID }) {
       creation.result = creation.proposedID
@@ -247,7 +252,7 @@ struct WorkspaceCreationView: View {
         ErrorNotice(message: failure)
         HStack {
           Button("Dismiss") { store.dismissCreation(creation) }
-          Button("Retry") { store.retryCreation(creation) }
+          Button("Retry") { store.retryCreation(creation) }.disabled(!store.canRetryCreation(creation))
         }
       }.frame(maxWidth: 320)
     } else {

@@ -1107,7 +1107,11 @@ final class Store: ObservableObject {
         .sheet(item: $store.worktreePicker) { context in
           WorktreePicker(context: context).environmentObject(store)
         }
-        .sheet(item: $store.serverAction) { action in
+        .sheet(
+          item: Binding(
+            get: { store.showSettings ? nil : store.serverAction },
+            set: { store.serverAction = $0 })
+        ) { action in
           ServerActionSheet(action: action).environmentObject(store)
         }
     }.defaultSize(width: 1100, height: 760).windowStyle(.hiddenTitleBar).windowToolbarStyle(

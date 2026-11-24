@@ -111,30 +111,36 @@ final class WorkspaceFinder: ObservableObject {
       ($0["id"] as? UInt64) != generation || $0["busy"] as? Bool == true
     }
     spinning = busy && Date().timeIntervalSince(started) > 0.12
+    // Keep the last settled result during a refresh of the same query and tab.
+    // Query and tab changes still clear it in update().
+    guard !busy else { return }
+    if results.contains(where: { $0["stale"] as? Bool == true }) {
+      start()
+      return
+    }
     counts = results.map { $0["count"] as? Int ?? 0 }
     count = counts.reduce(0, +)
     message = results.compactMap { $0["error"] as? String }.first ?? ""
-    if results.contains(where: { $0["stale"] as? Bool == true }) {
-      update()
-      return
+    if !settled {
+      settled = true
+      observedRevisions = results.map { $0["snapshot_revision"] as? Int ?? 0 }
+      if count > 0 {
+        choose(min(count - 1, max(0, ordinal - 1)))
+      } else {
+        chosen = nil
+        ordinal = 0
+      }
     }
-    if !busy {
-      if !settled {
-        settled = true
-        observedRevisions = results.map { $0["snapshot_revision"] as? Int ?? 0 }
-        if count > 0 { choose(min(count - 1, max(0, ordinal - 1))) }
-      }
-      let revisions = results.map { $0["revision"] as? Int ?? 0 }
-      if (revisions != observedRevisions || !message.isEmpty)
-        && Date().timeIntervalSince(started) > 0.75
-      {
-        // Coalesce live output; never restart a running scan merely because more output arrived.
-        start()
-      }
+    let revisions = results.map { $0["revision"] as? Int ?? 0 }
+    if (revisions != observedRevisions || !message.isEmpty)
+      && Date().timeIntervalSince(started) > 0.75
+    {
+      // Coalesce live output; never restart a running scan merely because more output arrived.
+      start()
     }
   }
   func next(_ direction: Int) {
-    guard count > 0 else { return }
+    guard settled, count > 0 else { return }
     choose((max(0, ordinal - 1) + direction + count) % count)
   }
   private func choose(_ index: Int) {
