@@ -853,8 +853,8 @@ Fixture: `isolated local installation`.
 4. `('fill', 'Branch name', 'bad-base')`
 5. `('fill', 'Base revision', 'no-such-ref')`
 6. `('click', 'Create')`
-7. `('click', 'Details', 'button')`
-8. `('visible', 'no-such-ref')`
+7. `('visible', 'invalid reference: no-such-ref')`
+8. `('enabled', 'Retry', 'button')`
 9. `('count', 'workspaces', 1)`
 10. `('same_layout',)`
 11. `('same_pids',)`
@@ -1013,60 +1013,64 @@ Fixture: `update-interrupted`.
 
 Fixture: `remote-password-required`.
 
-1. `('context', 'Fixture', 'machine')`
-2. `('click', 'Reconnect', 'menu')`
-3. `('dialog', 'SSH Authentication')`
-4. `('dialog_button', 'Cancel')`
-5. `('finish_dialogs',)`
-6. `('absent', 'SSH Authentication')`
-7. `('visible', 'Offline')`
-8. `('remote_rejected', 'Permission denied')`
-9. `('remote_workspace_preserved',)`
+1. `('visible', 'Server unavailable', 90)`
+2. `('context', 'Fixture', 'machine')`
+3. `('click', 'Reconnect', 'menu')`
+4. `('dialog', 'SSH Authentication')`
+5. `('dialog_button', 'Cancel')`
+6. `('finish_dialogs',)`
+7. `('absent', 'SSH Authentication')`
+8. `('visible', 'Offline')`
+9. `('remote_rejected', 'Permission denied')`
+10. `('remote_workspace_preserved',)`
 
 ## REMOTE-011: Accept real SSH continue
 
 Fixture: `remote-password-required`.
 
-1. `('context', 'Fixture', 'machine')`
-2. `('click', 'Reconnect', 'menu')`
-3. `('dialog', 'SSH Authentication')`
-4. `('type', 'fixture-local-only')`
-5. `('dialog_button', 'Continue')`
-6. `('dialog', 'SSH Authentication')`
-7. `('type', 'fixture-local-only')`
-8. `('dialog_button', 'Continue')`
-9. `('dialog', 'SSH Authentication')`
-10. `('type', 'fixture-local-only')`
-11. `('dialog_button', 'Continue')`
-12. `('finish_dialogs',)`
-13. `('remote_shell',)`
-14. `('remote_workspace_preserved',)`
+1. `('visible', 'Server unavailable', 90)`
+2. `('context', 'Fixture', 'machine')`
+3. `('click', 'Reconnect', 'menu')`
+4. `('dialog', 'SSH Authentication')`
+5. `('type', 'fixture-local-only')`
+6. `('dialog_button', 'Continue')`
+7. `('dialog', 'SSH Authentication')`
+8. `('type', 'fixture-local-only')`
+9. `('dialog_button', 'Continue')`
+10. `('dialog', 'SSH Authentication')`
+11. `('type', 'fixture-local-only')`
+12. `('dialog_button', 'Continue')`
+13. `('finish_dialogs',)`
+14. `('remote_shell',)`
+15. `('remote_workspace_preserved',)`
 
 ## REMOTE-012: Cancel real SSH trust host
 
 Fixture: `remote-host-untrusted`.
 
-1. `('context', 'Fixture', 'machine')`
-2. `('click', 'Reconnect', 'menu')`
-3. `('dialog', 'SSH Authentication')`
-4. `('dialog_button', 'Cancel')`
-5. `('finish_dialogs',)`
-6. `('absent', 'SSH Authentication')`
-7. `('visible', 'Offline')`
-8. `('remote_rejected', 'Host key verification failed')`
-9. `('remote_workspace_preserved',)`
+1. `('visible', 'Server unavailable', 90)`
+2. `('context', 'Fixture', 'machine')`
+3. `('click', 'Reconnect', 'menu')`
+4. `('dialog', 'SSH Authentication')`
+5. `('dialog_button', 'Cancel')`
+6. `('finish_dialogs',)`
+7. `('absent', 'SSH Authentication')`
+8. `('visible', 'Offline')`
+9. `('remote_rejected', 'Host key verification failed')`
+10. `('remote_workspace_preserved',)`
 
 ## REMOTE-013: Accept real SSH trust host
 
 Fixture: `remote-host-untrusted`.
 
-1. `('context', 'Fixture', 'machine')`
-2. `('click', 'Reconnect', 'menu')`
-3. `('dialog', 'SSH Authentication')`
-4. `('dialog_button', 'Trust Host')`
-5. `('finish_dialogs',)`
-6. `('remote_shell',)`
-7. `('remote_workspace_preserved',)`
+1. `('visible', 'Server unavailable', 90)`
+2. `('context', 'Fixture', 'machine')`
+3. `('click', 'Reconnect', 'menu')`
+4. `('dialog', 'SSH Authentication')`
+5. `('dialog_button', 'Trust Host')`
+6. `('finish_dialogs',)`
+7. `('remote_shell',)`
+8. `('remote_workspace_preserved',)`
 
 ## DEFAULT-001: Fresh profile uses documented worktrees_directory
 
@@ -3150,7 +3154,7 @@ Behaviors: `diagnostics`.
 14. `('remote_workspace_preserved',)`
 15. `('remote_server_stable', 2)`
 16. `('peer_transport', False)`
-17. `('absent', 'Server — Fixture')`
+17. `('absent', 'Server — Fixture', 90)`
 18. `('remote_shell',)`
 19. `('remote_workspace_preserved',)`
 

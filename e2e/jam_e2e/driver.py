@@ -539,6 +539,20 @@ class Desktop:
     def has(self, text):
         return text in self.texts()
 
+    def has_exact_label(self, text):
+        root = ElementTree.fromstring(self.tree())
+        if self.platform == "macos":
+            return any(
+                text in (node.get("name"), node.get("label"), node.get("value"))
+                and float(node.get("width", 0)) > 0 and float(node.get("height", 0)) > 0
+                for node in root.iter("XCUIElementTypeStaticText")
+            )
+        return any(
+            text in (node.get("name"), node.get("text"), node.get("value"))
+            and "showing" in node.get("states", "").lower()
+            for node in root.iter("label")
+        )
+
     def expect(self, text, timeout=20):
         return wait(lambda: self.has(text), repr(text), timeout=timeout)
 

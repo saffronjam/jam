@@ -496,8 +496,8 @@ case(
     ("fill", "Branch name", "bad-base"),
     ("fill", "Base revision", "no-such-ref"),
     ("click", "Create"),
-    ("click", "Details", "button"),
-    ("visible", "no-such-ref"),
+    ("visible", "invalid reference: no-such-ref"),
+    ("enabled", "Retry", "button"),
     ("count", "workspaces", 1),
     ("same_layout",),
     ("same_pids",),
@@ -578,6 +578,7 @@ for id, recipe, confirmation, accept, error in (
     ("REMOTE-013", "remote-host-untrusted", "Trust Host", True, None),
 ):
     steps = [
+        ("visible", "Server unavailable", 90),
         ("context", "Fixture", "machine"),
         ("click", "Reconnect", "menu"),
         ("dialog", "SSH Authentication"),
@@ -1900,7 +1901,7 @@ case(
     ("remote_workspace_preserved",),
     ("remote_server_stable", 2),
     ("peer_transport", False),
-    ("absent", "Server — Fixture"),
+    ("absent", "Server — Fixture", 90),
     ("remote_shell",),
     ("remote_workspace_preserved",),
     fixture="remote-creation-transport",

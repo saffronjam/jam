@@ -29,6 +29,19 @@ extension Store {
 }
 
 struct CoordinationView: View {
+  /// List row identities span sections. The daemon supplies stable IDs for
+  /// agents, messages and tasks even when their positions change.
+  private struct Row: Identifiable {
+    let id: String
+    let fields: [String: Any]
+
+    init?(_ fields: [String: Any]) {
+      guard let id = fields["id"] as? String else { return nil }
+      self.id = id
+      self.fields = fields
+    }
+  }
+
   @EnvironmentObject var store: Store
   @State private var agents: [[String: Any]] = []
   @State private var messages: [[String: Any]] = []
@@ -122,8 +135,8 @@ struct CoordinationView: View {
       if !failure.isEmpty { ErrorNotice(message: failure) }
       List {
         Section("Agents") {
-          ForEach(agents.indices, id: \.self) { i in
-            let agent = agents[i]
+          ForEach(agents.compactMap(Row.init)) { row in
+            let agent = row.fields
             HStack {
               VStack(alignment: .leading) {
                 Text("\(agent["provider"] as? String ?? "") · \(agent["role"] as? String ?? "")")
@@ -138,16 +151,14 @@ struct CoordinationView: View {
               )
               .font(.caption).foregroundStyle(.secondary)
               Spacer()
-              Button("Instructions") { action("instructions", agent: agent["id"] as? String ?? "") }
+              Button("Instructions") { action("instructions", agent: row.id) }
               if agent["archived"] as? Bool == true {
                 Text("Archived").font(.caption).foregroundStyle(.secondary)
               } else if agent["closed"] as? Bool == true {
                 Text("Closed").font(.caption).foregroundStyle(.secondary)
               } else {
                 Button(agent["paused"] as? Bool == true ? "Resume" : "Pause") {
-                  action(
-                    agent["paused"] as? Bool == true ? "resume" : "pause",
-                    agent: agent["id"] as? String ?? "")
+                  action(agent["paused"] as? Bool == true ? "resume" : "pause", agent: row.id)
                 }
               }
             }
@@ -155,24 +166,26 @@ struct CoordinationView: View {
         }
         if !messages.isEmpty {
           Section(showArchived ? "Messages" : "Pending messages") {
-            ForEach(messages.indices, id: \.self) { i in
+            ForEach(messages.compactMap(Row.init)) { row in
+              let message = row.fields
               VStack(alignment: .leading) {
-                Text(messages[i]["text"] as? String ?? "")
-                Text(messages[i]["error"] as? String ?? messages[i]["state"] as? String ?? "Queued")
+                Text(message["text"] as? String ?? "")
+                Text(message["error"] as? String ?? message["state"] as? String ?? "Queued")
                   .font(.caption).foregroundStyle(.secondary)
               }
             }
           }
         }
         Section("Tasks") {
-          ForEach(tasks.indices, id: \.self) { i in
+          ForEach(tasks.compactMap(Row.init)) { row in
+            let task = row.fields
             VStack(alignment: .leading) {
-              Text(tasks[i]["objective"] as? String ?? "")
+              Text(task["objective"] as? String ?? "")
               Text(
-                (tasks[i]["archived"] as? Bool == true ? "Archived · " : "") + taskState(tasks[i])
+                (task["archived"] as? Bool == true ? "Archived · " : "") + taskState(task)
               ).font(.caption).foregroundStyle(.secondary)
-              if let error = tasks[i]["delivery_error"] as? String { ErrorNotice(message: error) }
-              if let result = tasks[i]["result"] as? String {
+              if let error = task["delivery_error"] as? String { ErrorNotice(message: error) }
+              if let result = task["result"] as? String {
                 Text(result).font(.caption).textSelection(.enabled)
               }
             }
