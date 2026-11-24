@@ -2495,11 +2495,11 @@ case(
     ("enabled", "Terminal", "terminal", 90),
     ("visible", "fixture@jam-fixture:~/wt/project/transport-creation$", 90),
     ("click", "Terminal", "terminal"),
-    ("clipboard", "pwd > /home/fixture/project/transport-result.txt"),
-    ("paste",),
+    ("type_shell_command", "pwd > /home/fixture/project/transport-result.txt"),
     ("key", "ENTER"),
     ("remote_file_text", "transport-result.txt", "/home/fixture/wt/project/transport-creation\n"),
     ("peer_checkout", "transport-creation"),
+    ("remote_server_stable", 2),
     fixture="remote-creation-transport",
     behavior_ids=("creation", "creation-recovery"),
 )
