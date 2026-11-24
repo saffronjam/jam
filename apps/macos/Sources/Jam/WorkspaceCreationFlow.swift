@@ -252,7 +252,8 @@ struct WorkspaceCreationView: View {
         ErrorNotice(message: failure)
         HStack {
           Button("Dismiss") { store.dismissCreation(creation) }
-          Button("Retry") { store.retryCreation(creation) }.disabled(!store.canRetryCreation(creation))
+          Button("Retry") { store.retryCreation(creation) }
+            .disabled(!store.canRetryCreation(creation))
         }
       }.frame(maxWidth: 320)
     } else {
