@@ -3809,10 +3809,12 @@ Behaviors: `creation`, `creation-recovery`.
 16. `('click', 'Retry', 'button')`
 17. `('absent', 'Opening workspace')`
 18. `('enabled', 'Terminal', 'terminal', 90)`
-19. `('type_shell_command', 'pwd > /home/fixture/project/transport-result.txt')`
-20. `('key', 'ENTER')`
-21. `('remote_file_text', 'transport-result.txt', '/home/fixture/wt/project/transport-creation\n')`
-22. `('peer_checkout', 'transport-creation')`
+19. `('visible', 'fixture@jam-fixture:~/wt/project/transport-creation$', 90)`
+20. `('click', 'Terminal', 'terminal')`
+21. `('type_shell_command', 'pwd > /home/fixture/project/transport-result.txt')`
+22. `('key', 'ENTER')`
+23. `('remote_file_text', 'transport-result.txt', '/home/fixture/wt/project/transport-creation\n')`
+24. `('peer_checkout', 'transport-creation')`
 
 ## CREATE-010: Local New Workspace opens one ready terminal at the user's home
 
