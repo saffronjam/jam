@@ -258,8 +258,10 @@ final class TabDragView: NSView {
     dragging = false
     destination = nil
   }
+  override func isAccessibilityEnabled() -> Bool { click != nil && editor == nil && !dragging }
   override func accessibilityPerformPress() -> Bool {
-    click?()
+    guard isAccessibilityEnabled(), let click else { return false }
+    click()
     return true
   }
   override func mouseDragged(with event: NSEvent) {
