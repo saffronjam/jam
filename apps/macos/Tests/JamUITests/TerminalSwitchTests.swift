@@ -1388,7 +1388,8 @@ struct WorktreeListFixture: View {
       parent.contentView = NSHostingView(
         rootView: AppStatusOverlay(store: store, controller: controller))
       settings.contentView = NSHostingView(
-        rootView: AppUpdateSettings(store: store, controller: controller, automatic: .constant(true)))
+        rootView: AppUpdateSettings(
+          store: store, controller: controller, automatic: .constant(true)))
       parent.orderFront(nil)
       parent.beginSheet(settings)
       defer {
