@@ -34,6 +34,8 @@ class Jam:
         # before sending input; the command and its exact result run once.
         self.ui.expect("Remote project", timeout=90)
         self.ui.click("Remote project", "row")
+        wait(lambda: self.ui.element("Terminal", "terminal", index=0).is_enabled(),
+             "remote terminal accepts input", timeout=90)
         self.terminal()
         marker = "REMOTE_UI_" + uuid.uuid4().hex
         self.ui.type_shell_command((command + "; " if command else "") + "echo; echo "

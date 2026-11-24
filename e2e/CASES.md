@@ -3638,13 +3638,14 @@ Behaviors: `accounts`.
 4. `('click', 'Codex, second@example.invalid', 'button')`
 5. `('visible', 'Sign in again to read usage')`
 6. `('absent', 'Allow Keychain Access')`
-7. `('key', 'ESCAPE')`
-8. `('click', 'Next usage account', 'button')`
-9. `('click', 'Codex, fixture@example.invalid', 'button')`
-10. `('visible', '25%')`
-11. `('absent', 'Sign in again to read usage')`
-12. `('key', 'ESCAPE')`
-13. `('remote_workspace_preserved',)`
+7. `('click', 'Codex, second@example.invalid', 'button')`
+8. `('absent', 'Codex usage')`
+9. `('click', 'Next usage account', 'button')`
+10. `('click', 'Codex, fixture@example.invalid', 'button')`
+11. `('visible', '25%')`
+12. `('absent', 'Sign in again to read usage')`
+13. `('key', 'ESCAPE')`
+14. `('remote_workspace_preserved',)`
 
 ## TAKEOVER-004: A replacement refused by the remote service rolls back to the previous server
 
