@@ -343,6 +343,7 @@ case(
     ("write_config", '[bindings]\nnew_tab = ["ctrl+alt+j"]\n'),
     ("relaunch",),
     ("chord", "ctrl+alt+j"),
+    ("target_visible", "Tab name", "field"),
     ("key", "ESCAPE"),
     ("count", "tabs", 2),
 )

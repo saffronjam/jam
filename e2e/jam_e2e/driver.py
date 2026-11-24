@@ -442,10 +442,25 @@ class Desktop:
 
     def choose_directory(self, path):
         if self.platform == "macos":
-            wait(lambda: self.element("Open Workspace", "button"), "native directory chooser")
+            self.element("Open Workspace", "button")
             self.chord("cmd+shift+g")
-            self.type(str(path))
+
+            def go_to_folder_visible():
+                root = ElementTree.fromstring(self.tree())
+                for sheet in root.iter("XCUIElementTypeSheet"):
+                    for field in sheet.iter():
+                        if field.tag in {"XCUIElementTypeTextField", "XCUIElementTypeComboBox"} and (
+                            float(field.get("width", 0)) > 0 and float(field.get("height", 0)) > 0
+                        ):
+                            return True
+                return False
+
+            wait(go_to_folder_visible, "native Go to Folder field")
+            self.clipboard(str(path))
+            self.chord("cmd+a")
+            self.chord("cmd+v")
             self.key("ENTER")
+            wait(lambda: not go_to_folder_visible(), "native Go to Folder sheet to close")
             self.click("Open Workspace", "button")
         else:
             self.chord("ctrl+l")

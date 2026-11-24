@@ -649,8 +649,9 @@ Fixture: `isolated local installation`.
 1. `('write_config', '[bindings]\nnew_tab = ["ctrl+alt+j"]\n')`
 2. `('relaunch',)`
 3. `('chord', 'ctrl+alt+j')`
-4. `('key', 'ESCAPE')`
-5. `('count', 'tabs', 2)`
+4. `('target_visible', 'Tab name', 'field')`
+5. `('key', 'ESCAPE')`
+6. `('count', 'tabs', 2)`
 
 ## KEY-006: An explicitly unbound command stays disabled after restart
 
