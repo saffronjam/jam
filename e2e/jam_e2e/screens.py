@@ -32,7 +32,7 @@ class Jam:
         # Initial SSH inspection, socket discovery and forwarding can outlast
         # an ordinary element lookup on the real TCG guest. Observe startup
         # before sending input; the command and its exact result run once.
-        self.ui.expect("Remote project", timeout=60)
+        self.ui.expect("Remote project", timeout=90)
         self.ui.click("Remote project", "row")
         self.terminal()
         marker = "REMOTE_UI_" + uuid.uuid4().hex

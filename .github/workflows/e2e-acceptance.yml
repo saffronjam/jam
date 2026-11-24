@@ -62,7 +62,7 @@ jobs:
         os: [ubuntu-24.04, macos-26]
         shard: [0, 1]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 240
+    timeout-minutes: ${{ matrix.os == 'macos-26' && 360 || 240 }}
     env:
       E2E_SHARD_INDEX: ${{ matrix.shard }}
       E2E_SOURCE_REVISION: ${{ inputs.ref || github.sha }}

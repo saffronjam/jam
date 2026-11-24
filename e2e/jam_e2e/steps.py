@@ -227,10 +227,11 @@ done
     elif op == "single_sheet":
         ui.expect_single_sheet(*args)
     elif op == "stable_visible":
-        ui.expect(args[0])
-        until = time.monotonic() + args[1]
+        text, seconds = args
+        wait(lambda: ui.has_exact_label(text), f"visible label {text!r}")
+        until = time.monotonic() + seconds
         while time.monotonic() < until:
-            assert ui.has(args[0]), "A later result replaced visible " + args[0]
+            assert ui.has_exact_label(text), f"A later result replaced visible {text}"
             time.sleep(.1)
     elif op == "dialog":
         ui.dialog(*args)
@@ -249,10 +250,11 @@ done
     elif op == "target_visible":
         ui.element(*args)
     elif op == "absent":
-        wait(lambda: not ui.has(args[0]), f"absence of {args[0]}")
+        text, *deadline = args
+        wait(lambda: not ui.has(text), f"absence of {text}", *deadline)
         until = time.monotonic() + 2
         while time.monotonic() < until:
-            assert not ui.has(args[0]), f"Unexpected visible {args[0]}"
+            assert not ui.has(text), f"Unexpected visible {text}"
             time.sleep(0.1)
     elif op == "disabled":
         assert not ui.element(*args).is_enabled(), f"{args[0]} must be disabled"

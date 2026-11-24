@@ -27,7 +27,7 @@ struct MachineList: View {
             .contextMenu {
               serverMenu("")
               Divider()
-              Button("Reconnect") { store.reconnectMachine("") }.disabled(
+              Button("Reconnect") { store.openMachineStatus("") }.disabled(
                 !store.machineActions("").canReconnect)
             }
           ForEach(store.remotes) { remote in
@@ -114,7 +114,7 @@ struct MachineList: View {
       Spacer(minLength: 0)
       HStack(spacing: 4) {
         if let label = presentation.label {
-          Button(label) { store.reconnectMachine(id) }.buttonStyle(.plain)
+          Button(label) { store.openMachineStatus(id) }.buttonStyle(.plain)
             .font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(1)
             .fixedSize(horizontal: true, vertical: false)
         }
@@ -139,7 +139,7 @@ struct MachineList: View {
         }
         if warning && !store.serverBusy.contains(id) {
           Button {
-            store.reconnectMachine(id)
+            store.openMachineStatus(id)
           } label: {
             Image(systemName: "exclamationmark.triangle")
               .foregroundStyle(.yellow)

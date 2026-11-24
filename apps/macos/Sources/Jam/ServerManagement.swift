@@ -32,13 +32,16 @@ extension Store {
       + "terminals=\(state.status?.terminals ?? -1)"
     NSLog("Jam server status: %@", observation)
   }
-  func reconnectMachine(_ endpoint: String) {
+  func openMachineStatus(_ endpoint: String) {
     if (endpoint.isEmpty && localTimeout != nil)
       || serverStatuses[endpoint]?.state == "inspection_failed"
     {
       showServerAction(endpoint, kind: .inspect)
       return
     }
+    reconnectMachine(endpoint)
+  }
+  func reconnectMachine(_ endpoint: String) {
     if serverActionErrors[endpoint] != nil {
       showServerAction(
         endpoint, kind: serverStatuses[endpoint]?.blocked == true ? .takeover : .restart)

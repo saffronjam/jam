@@ -793,7 +793,7 @@ final class WorkspaceOutline: NSOutlineView {
       dragOrigin = nil
       draggedItem = nil
       reorderSession = nil
-      if let endpoint = item.machine { coordinator?.store.reconnectMachine(endpoint) }
+      if let endpoint = item.machine { coordinator?.store.openMachineStatus(endpoint) }
       return
     }
     if !item.isCoordinator && event.clickCount == 2 {
