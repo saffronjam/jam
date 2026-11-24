@@ -596,7 +596,7 @@ done
         probe = Path(__file__).with_name("program_probe.py")
         output = profile.repo / "program-phase.json"
         jam.terminal()
-        ui.type(shlex.join([sys.executable, str(probe), args[0], output.name, *args[1:]]))
+        ui.type_shell_command(shlex.join([sys.executable, str(probe), args[0], output.name, *args[1:]]))
         ui.key("ENTER")
         wait(output.exists, "foreground program status receipt")
     elif op == "program_phase":
