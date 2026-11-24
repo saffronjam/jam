@@ -2303,8 +2303,8 @@ case(
 case(
     "ACCOUNT-006",
     "The account page sums active provider processes across local and remote terminals",
-    ("run", "bash -c 'exec -a codex /bin/sleep 180' & fixture_job=$!"),
-    ("remote_shell", "bash -c 'exec -a codex /bin/sleep 180' & fixture_job=$!"),
+    ("run", "bash -c 'exec -a codex /bin/sleep 180' & :"),
+    ("remote_shell", "bash -c 'exec -a codex /bin/sleep 180' & :"),
     ("usage_requests_from_both_hosts",),
     ("click", "Codex, fixture@example.invalid", "button"),
     ("visible", "2 active sessions"),

@@ -3617,8 +3617,8 @@ Fixture: `usage-remote-account`.
 
 Behaviors: `accounts`.
 
-1. `('run', "bash -c 'exec -a codex /bin/sleep 180' & fixture_job=$!")`
-2. `('remote_shell', "bash -c 'exec -a codex /bin/sleep 180' & fixture_job=$!")`
+1. `('run', "bash -c 'exec -a codex /bin/sleep 180' & :")`
+2. `('remote_shell', "bash -c 'exec -a codex /bin/sleep 180' & :")`
 3. `('usage_requests_from_both_hosts',)`
 4. `('click', 'Codex, fixture@example.invalid', 'button')`
 5. `('visible', '2 active sessions')`
