@@ -643,6 +643,7 @@ struct AppUpgradeRecoverySheet: View {
   }
 }
 struct AppUpdateSettings: View {
+  @ObservedObject var store: Store
   @ObservedObject var controller: AppUpgradeController
   @Binding var automatic: Bool
   var body: some View {
@@ -671,9 +672,32 @@ struct AppUpdateSettings: View {
       }
       if !controller.error.isEmpty { ErrorNotice(message: controller.error) }
     }
-    .sheet(isPresented: $controller.showSheet) { AppUpgradeSheet(controller: controller) }
+    .sheet(
+      isPresented: Binding(
+        get: { controller.showSheet || store.serverAction != nil },
+        set: { presented in
+          if !presented {
+            controller.showSheet = false
+            store.serverAction = nil
+          }
+        })
+    ) {
+      SettingsUpdateConfirmation(store: store, controller: controller)
+    }
     .sheet(item: $controller.recovery) { interrupted in
       AppUpgradeRecoverySheet(controller: controller, interrupted: interrupted)
+    }
+  }
+}
+
+private struct SettingsUpdateConfirmation: View {
+  @ObservedObject var store: Store
+  @ObservedObject var controller: AppUpgradeController
+  var body: some View {
+    if let action = store.serverAction {
+      ServerActionSheet(action: action).environmentObject(store)
+    } else {
+      AppUpgradeSheet(controller: controller)
     }
   }
 }

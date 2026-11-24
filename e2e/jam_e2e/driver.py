@@ -7,6 +7,7 @@ import shlex
 import socket
 import subprocess
 import time
+import unicodedata
 from itertools import groupby
 from pathlib import Path
 from xml.etree import ElementTree
@@ -445,22 +446,30 @@ class Desktop:
             self.element("Open Workspace", "button")
             self.chord("cmd+shift+g")
 
-            def go_to_folder_visible():
+            def go_to_folder_sheet():
                 root = ElementTree.fromstring(self.tree())
-                for sheet in root.iter("XCUIElementTypeSheet"):
-                    for field in sheet.iter():
-                        if field.tag in {"XCUIElementTypeTextField", "XCUIElementTypeComboBox"} and (
-                            float(field.get("width", 0)) > 0 and float(field.get("height", 0)) > 0
-                        ):
-                            return True
-                return False
+                return next((sheet for sheet in root.iter("XCUIElementTypeSheet")
+                             if sheet.get("identifier") == "GoToWindow"), None)
 
-            wait(go_to_folder_visible, "native Go to Folder field")
+            def suggested_directory_selected():
+                sheet = go_to_folder_sheet()
+                if sheet is None:
+                    return False
+                directory = unicodedata.normalize("NFC", path.name)
+                return any(
+                    cell.get("selected") == "true"
+                    and any(unicodedata.normalize("NFC", label.get("value", "")) == directory
+                            for label in cell.iter("XCUIElementTypeStaticText"))
+                    for cell in sheet.iter("XCUIElementTypeCell")
+                )
+
+            wait(lambda: go_to_folder_sheet() is not None, "native Go to Folder field")
             self.clipboard(str(path))
             self.chord("cmd+a")
             self.chord("cmd+v")
+            wait(suggested_directory_selected, "selected native folder completion")
             self.key("ENTER")
-            wait(lambda: not go_to_folder_visible(), "native Go to Folder sheet to close")
+            wait(lambda: go_to_folder_sheet() is None, "native Go to Folder sheet to close")
             self.click("Open Workspace", "button")
         else:
             self.chord("ctrl+l")

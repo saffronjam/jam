@@ -273,17 +273,22 @@ done
     elif op == "tab_name":
         wait(lambda: any(tab["name"] == args[0] for workspace in profile.layout()["workspaces"]
                          for tab in workspace["tabs"]), f"committed tab name {args[0]!r}")
-    elif op == "remote_workspace_preserved":
+    elif op in {"remember_remote_workspace", "remote_workspace_preserved"}:
         from .remote import peer_call
 
         ids = json.loads((profile.root / "fixture-ids.json").read_text())
         state = peer_call(profile, "workspace", "list")["State"]
         assert [workspace["id"] for workspace in state["workspaces"]] == [ids["remote_workspace"]]
         info = peer_call(profile, "daemon", "info")["HostInfo"]
-        assert (info["build"], info["incarnation"]) == (
-            ids["remote_build"], ids["remote_incarnation"]
-        )
-        assert {pane["id"]: pane["session_generation"] for pane in state["panes"]} == ids["remote_sessions"]
+        sessions = {pane["id"]: pane["session_generation"] for pane in state["panes"]}
+        assert info["build"] == ids["remote_build"]
+        if op == "remember_remote_workspace":
+            assert sessions and sessions.keys() == ids["remote_sessions"].keys()
+            memory["remote_workspace_before"] = info["incarnation"], sessions
+        else:
+            expected = memory.get("remote_workspace_before",
+                                  (ids["remote_incarnation"], ids["remote_sessions"]))
+            assert (info["incarnation"], sessions) == expected
     elif op in ("remember_layout", "same_layout"):
 
         def identities():
@@ -513,7 +518,7 @@ done
         output = profile.repo / "interrupt.json"
         script = Path(__file__).with_name("interrupt_probe.py")
         jam.terminal()
-        ui.type(shlex.join([sys.executable, str(script), str(output)]))
+        ui.type_shell_command(shlex.join([sys.executable, str(script), output.name]))
         ui.key("ENTER")
         wait(output.with_suffix(".ready").exists, "real foreground job ready for Control-C")
         identity = json.loads(output.with_suffix(".ready").read_text())

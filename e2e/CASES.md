@@ -1021,7 +1021,7 @@ Fixture: `remote-password-required`.
 5. `('dialog_button', 'Cancel')`
 6. `('finish_dialogs',)`
 7. `('absent', 'SSH Authentication')`
-8. `('visible', 'Offline')`
+8. `('visible', 'Server unavailable', 60)`
 9. `('remote_rejected', 'Permission denied')`
 10. `('remote_workspace_preserved',)`
 
@@ -1056,7 +1056,7 @@ Fixture: `remote-host-untrusted`.
 5. `('dialog_button', 'Cancel')`
 6. `('finish_dialogs',)`
 7. `('absent', 'SSH Authentication')`
-8. `('visible', 'Offline')`
+8. `('visible', 'Server unavailable', 60)`
 9. `('remote_rejected', 'Host key verification failed')`
 10. `('remote_workspace_preserved',)`
 
@@ -2326,14 +2326,16 @@ Fixture: `provider-foreign`.
 
 Fixture: `remote-persistence-disabled`.
 
-1. `('remote_linger', 'no')`
-2. `('click', 'Session persistence warning for Fixture', 'button')`
-3. `('enabled', 'Enable Persistence', 'button')`
-4. `('click', 'Enable Persistence', 'button')`
-5. `('remote_linger', 'yes')`
-6. `('absent', 'Session persistence warning for Fixture')`
-7. `('remote_workspace_preserved',)`
-8. `('remote_shell',)`
+1. `('remote_shell',)`
+2. `('remote_linger', 'no')`
+3. `('remember_remote_workspace',)`
+4. `('click', 'Session persistence warning for Fixture', 'button')`
+5. `('enabled', 'Enable Persistence', 'button')`
+6. `('click', 'Enable Persistence', 'button')`
+7. `('remote_linger', 'yes')`
+8. `('absent', 'Session persistence warning for Fixture')`
+9. `('remote_workspace_preserved',)`
+10. `('remote_shell',)`
 
 ## MULTI-001: Two independent clients share live terminals; closing one preserves the other
 
@@ -3706,17 +3708,19 @@ Behaviors: `takeover`.
 4. `('enabled', 'Take Over and Reconnect', 'button')`
 5. `('restart_peer_outside_client',)`
 6. `('click', 'Take Over and Reconnect', 'button')`
-7. `('visible', 'The server changed. Inspect it again before taking over', 60)`
-8. `('restarted_peer_preserved',)`
-9. `('click', 'Try Again', 'button')`
-10. `('enabled', 'Take Over and Reconnect', 'button')`
-11. `('click', 'Take Over and Reconnect', 'button')`
-12. `('visible', 'Remote project', 120)`
-13. `('click', 'Remote project', 'row')`
-14. `('remote_server_changed', 'takeover')`
-15. `('remote_file_text', 'takeover-executions', 'x')`
-16. `('remote_shell', 'printf y >> takeover-executions')`
-17. `('remote_file_text', 'takeover-executions', 'xy')`
+7. `('visible', 'Could not complete the server action.', 60)`
+8. `('click', 'Details', 'disclosure')`
+9. `('visible', 'The server changed. Inspect it again before taking over', 60)`
+10. `('restarted_peer_preserved',)`
+11. `('click', 'Try Again', 'button')`
+12. `('enabled', 'Take Over and Reconnect', 'button')`
+13. `('click', 'Take Over and Reconnect', 'button')`
+14. `('visible', 'Remote project', 120)`
+15. `('click', 'Remote project', 'row')`
+16. `('remote_server_changed', 'takeover')`
+17. `('remote_file_text', 'takeover-executions', 'x')`
+18. `('remote_shell', 'printf y >> takeover-executions')`
+19. `('remote_file_text', 'takeover-executions', 'xy')`
 
 ## TAKEOVER-007: Explicit local takeover replaces a foreign daemon and restores the saved workspace
 
@@ -3797,15 +3801,18 @@ Behaviors: `creation`, `creation-recovery`.
 8. `('visible', 'Opening workspace')`
 9. `('peer_transport', True)`
 10. `('visible', 'Retry', 45)`
-11. `('release_peer_checkout',)`
-12. `('created_workspace', '/home/fixture/wt/project/transport-creation', True)`
-13. `('peer_transport', False)`
-14. `('click', 'Retry', 'button')`
-15. `('absent', 'Opening workspace')`
-16. `('type_terminal', 'pwd > /home/fixture/project/transport-result.txt')`
-17. `('key', 'ENTER')`
-18. `('remote_file_text', 'transport-result.txt', '/home/fixture/wt/project/transport-creation\n')`
-19. `('peer_checkout', 'transport-creation')`
+11. `('visible', 'Server unavailable', 90)`
+12. `('release_peer_checkout',)`
+13. `('created_workspace', '/home/fixture/wt/project/transport-creation', True)`
+14. `('peer_transport', False)`
+15. `('enabled', 'Retry', 'button', 90)`
+16. `('click', 'Retry', 'button')`
+17. `('absent', 'Opening workspace')`
+18. `('enabled', 'Terminal', 'terminal', 90)`
+19. `('type_shell_command', 'pwd > /home/fixture/project/transport-result.txt')`
+20. `('key', 'ENTER')`
+21. `('remote_file_text', 'transport-result.txt', '/home/fixture/wt/project/transport-creation\n')`
+22. `('peer_checkout', 'transport-creation')`
 
 ## CREATE-010: Local New Workspace opens one ready terminal at the user's home
 
@@ -3860,17 +3867,20 @@ Behaviors: `creation`, `creation-recovery`.
 7. `('peer_checkout', 'restart-creation')`
 8. `('peer_transport', True)`
 9. `('visible', 'Retry', 45)`
-10. `('release_peer_checkout',)`
-11. `('created_workspace', '/home/fixture/wt/project/restart-creation', True)`
-12. `('restart_peer_outside_client',)`
-13. `('peer_transport', False)`
-14. `('click', 'Retry', 'button')`
-15. `('absent', 'Retry')`
-16. `('type_terminal', 'pwd > /home/fixture/project/restart-result.txt')`
-17. `('key', 'ENTER')`
-18. `('remote_file_text', 'restart-result.txt', '/home/fixture/wt/project/restart-creation\n')`
-19. `('created_workspace', '/home/fixture/wt/project/restart-creation', True)`
-20. `('peer_checkout', 'restart-creation')`
+10. `('visible', 'Server unavailable', 90)`
+11. `('release_peer_checkout',)`
+12. `('created_workspace', '/home/fixture/wt/project/restart-creation', True)`
+13. `('restart_peer_outside_client',)`
+14. `('peer_transport', False)`
+15. `('enabled', 'Retry', 'button', 90)`
+16. `('click', 'Retry', 'button')`
+17. `('absent', 'Retry')`
+18. `('enabled', 'Terminal', 'terminal', 90)`
+19. `('type_shell_command', 'pwd > /home/fixture/project/restart-result.txt')`
+20. `('key', 'ENTER')`
+21. `('remote_file_text', 'restart-result.txt', '/home/fixture/wt/project/restart-creation\n')`
+22. `('created_workspace', '/home/fixture/wt/project/restart-creation', True)`
+23. `('peer_checkout', 'restart-creation')`
 
 ## CREATE-013: Retry refuses to resubmit an unconfirmed checkout after the remote daemon restarts
 
@@ -3887,14 +3897,16 @@ Behaviors: `creation`, `creation-recovery`.
 7. `('peer_checkout', 'restart-creation')`
 8. `('peer_transport', True)`
 9. `('visible', 'Retry', 45)`
-10. `('restart_peer_outside_client',)`
-11. `('peer_transport', False)`
-12. `('click', 'Retry', 'button')`
-13. `('visible', 'The server restarted. Check the workspace list before starting again.')`
-14. `('click', 'Dismiss', 'button')`
-15. `('remote_shell', 'printf original-shell-recovered')`
-16. `('remote_server_changed', 'restart')`
-17. `('peer_checkout', 'restart-creation')`
+10. `('visible', 'Server unavailable', 90)`
+11. `('restart_peer_outside_client',)`
+12. `('peer_transport', False)`
+13. `('enabled', 'Retry', 'button', 90)`
+14. `('click', 'Retry', 'button')`
+15. `('visible', 'The server restarted. Check the workspace list before starting again.')`
+16. `('click', 'Dismiss', 'button')`
+17. `('remote_shell', 'printf original-shell-recovered')`
+18. `('remote_server_changed', 'restart')`
+19. `('peer_checkout', 'restart-creation')`
 
 ## CREATE-014: Opening an existing remote worktree starts a shell in its selected branch
 
@@ -3909,9 +3921,10 @@ Behaviors: `creation`.
 5. `('enabled', 'Open', 'button')`
 6. `('key', 'ENTER')`
 7. `('created_workspace', '/home/fixture/remote-existing', True)`
-8. `('type_terminal', '{ pwd; git branch --show-current; } > /home/fixture/project/open-branch.txt')`
-9. `('key', 'ENTER')`
-10. `('remote_file_text', 'open-branch.txt', '/home/fixture/remote-existing\npeer-existing\n')`
+8. `('enabled', 'Terminal', 'terminal', 90)`
+9. `('type_shell_command', '{ pwd; git branch --show-current; } > /home/fixture/project/open-branch.txt')`
+10. `('key', 'ENTER')`
+11. `('remote_file_text', 'open-branch.txt', '/home/fixture/remote-existing\npeer-existing\n')`
 
 ## CREATE-015: A pending worktree protects the previous terminal from input during handoff
 
