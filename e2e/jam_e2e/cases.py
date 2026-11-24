@@ -2493,6 +2493,8 @@ case(
     ("click", "Retry", "button"),
     ("absent", "Opening workspace"),
     ("enabled", "Terminal", "terminal", 90),
+    ("visible", "fixture@jam-fixture:~/wt/project/transport-creation$", 90),
+    ("click", "Terminal", "terminal"),
     ("type_shell_command", "pwd > /home/fixture/project/transport-result.txt"),
     ("key", "ENTER"),
     ("remote_file_text", "transport-result.txt", "/home/fixture/wt/project/transport-creation\n"),

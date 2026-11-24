@@ -992,9 +992,14 @@ class Desktop:
         start_x, start_y = current["x"] + current["width"] / 2, current["y"] + 12
         self._window_drag(start_x, start_y, start_x + x - current["x"], start_y + y - current["y"])
         # AppKit can constrain the origin by a few points when fitting an
-        # oversized restored window onto the hosted runner's small display.
-        wait(lambda: abs(self.window_rect()["x"] - x) <= 4 and abs(self.window_rect()["y"] - y) <= 4,
-             f"native window position {x}, {y}")
+        # oversized window or moving it on the secondary Retina display.
+        tolerance = 10 if self.display_origin is not None else 4
+
+        def positioned():
+            actual = self.window_rect()
+            return abs(actual["x"] - x) <= tolerance and abs(actual["y"] - y) <= tolerance
+
+        wait(positioned, f"native window position {x}, {y}")
 
     def begin_composition(self):
         assert self.composition is None, "Composition is already in progress"
