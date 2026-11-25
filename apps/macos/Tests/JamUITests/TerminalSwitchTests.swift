@@ -1189,24 +1189,33 @@ struct WorktreeListFixture: View {
     let window = NSWindow(
       contentRect: NSRect(x: -3000, y: -3000, width: 700, height: 600),
       styleMask: [.titled], backing: .buffered, defer: false)
+    window.appearance = NSAppearance(named: .darkAqua)
+    var toolbarWidth: CGFloat = 0
+    let anchorWidth: CGFloat = 1
     let host = NSHostingView(
       rootView: VStack(alignment: .trailing) {
-        HStack {
-          Spacer()
+        HStack(spacing: 0) {
+          Color.clear.frame(width: anchorWidth, height: 24)
           UpgradeAvailableChip(controller: controller)
         }
+        .fixedSize()
+        .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { toolbarWidth = $0 }
         Spacer()
         AppStatusOverlay(store: store, controller: controller)
-      }.padding(8))
+      }.padding(8).background(Color(nsColor: .windowBackgroundColor)))
     window.contentView = host
     window.orderFront(nil)
     defer { window.orderOut(nil) }
+    try wait("upgrade toolbar laid out with no chip") {
+      toolbarWidth == anchorWidth
+    }
     controller.check()
     try wait("manual check finds update") { controller.available?.version == release.version }
-    RunLoop.current.run(until: Date().addingTimeInterval(0.3))
-    // Inspect the rendered UI: SwiftUI's lazy AX tree is unavailable to
-    // in-process traversal without an external accessibility client.
+    try wait("upgrade chip occupies space in the toolbar") { toolbarWidth - anchorWidth > 60 }
+    // Inspect the toast separately. The toolbar geometry measures the small chip
+    // even when Vision cannot read its caption on a hosted runner.
     func renderedText() throws -> String {
+      host.layoutSubtreeIfNeeded()
       let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
       host.cacheDisplay(in: host.bounds, to: bitmap)
       let recognition = VNRecognizeTextRequest()
@@ -1217,26 +1226,25 @@ struct WorktreeListFixture: View {
       return (recognition.results ?? []).compactMap { $0.topCandidates(1).first?.string }
         .joined(separator: " ")
     }
-    // Vision can mistake the caption's lowercase i for an l.
-    func containsUpgradeChip(_ text: String) -> Bool {
-      text.range(of: #"\bUpgrade ava[il]lable\b"#, options: .regularExpression) != nil
-    }
+    RunLoop.current.run(until: Date().addingTimeInterval(0.3))
     let text = try renderedText()
     assert(
-      containsUpgradeChip(text) && !text.contains("Jam 9.0.0 is available")
+      !text.contains("Jam 9.0.0 is available")
         && text.contains("Retry") && text.contains("The Jam server needs an update"),
-      "The rendered UI must show the warning and chip without an upgrade toast: \(text)")
+      "The rendered UI must show the server warning without an upgrade toast: \(text)")
     controller.managed = false
     controller.notice = "Jam 9.0.0 is available"
     store.error = serverWarning
+    try wait("unmanaged builds leave the toolbar empty") {
+      toolbarWidth == anchorWidth
+    }
     RunLoop.current.run(until: Date().addingTimeInterval(0.3))
     let developmentText = try renderedText()
     assert(
       developmentText.localizedCaseInsensitiveContains("Jam server needs an update"),
       "The server warning should still be visible: \(developmentText)")
     assert(
-      !containsUpgradeChip(developmentText)
-        && !developmentText.contains("Jam 9.0.0 is available"),
+      !developmentText.contains("Jam 9.0.0 is available"),
       "Development builds showed an upgrade notification: \(developmentText)")
     print(
       "Manual update checks show the upgrade chip alongside errors in release builds."
