@@ -621,10 +621,10 @@ struct WorktreeListFixture: View {
         timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
         context: nil, eventNumber: 0, clickCount: 2, pressure: 1)!
     }
-    func liveEditor(_ field: @escaping () -> InlineNameEditor?) throws -> (
+    func liveEditor(_ stage: String, _ field: @escaping () -> InlineNameEditor?) throws -> (
       InlineNameEditor, NSTextView
     ) {
-      try wait("inline rename focus") { field()?.currentEditor() != nil }
+      try wait("inline rename focus: " + stage) { field()?.currentEditor() != nil }
       let editor = field()!
       let text = editor.currentEditor() as! NSTextView
       text.setSelectedRange(NSRange(location: 1, length: 0))
@@ -651,10 +651,14 @@ struct WorktreeListFixture: View {
     var prematurelyFinished = false
     unattached.beginRename { _ in prematurelyFinished = true }
     assert(unattached.editor != nil && !prematurelyFinished)
+    // A real new-tab rename takes the store's input gate before attachment.
+    // Keep a queued terminal responder update from the rapid-focus test out.
+    store.editingTab = "unattached-rename-fixture"
     window.contentView!.addSubview(unattached)
-    let (_, newText) = try liveEditor { unattached.editor }
+    let (_, newText) = try liveEditor("attached standalone field") { unattached.editor }
     newText.doCommand(by: #selector(NSResponder.cancelOperation(_:)))
     unattached.removeFromSuperview()
+    store.editingTab = nil
     let workspace = store.workspaces[0].id
     let tab = store.workspaces[0].tabs[0].id
     store.select(workspace, tab: tab)
@@ -673,7 +677,7 @@ struct WorktreeListFixture: View {
       }
       let newID = store.editingTab!
       created.append(newID)
-      let (_, input) = try liveEditor {
+      let (_, input) = try liveEditor("new tab") {
         descendants(window.contentView!, of: TabDragView.self).first { $0.tabID == newID }?.editor
       }
       if index == 0 {
@@ -701,13 +705,13 @@ struct WorktreeListFixture: View {
     let tabView = descendants(window.contentView!, of: TabDragView.self).first { $0.tabID == tab }!
     // The context menu sets this same published action; its field must survive SwiftUI updates.
     store.editingTab = tab
-    let (_, contextText) = try liveEditor { tabView.editor }
+    let (_, contextText) = try liveEditor("tab context menu") { tabView.editor }
     contextText.doCommand(by: #selector(NSResponder.cancelOperation(_:)))
     try wait("tab rename cancellation") { tabView.editor == nil && store.editingTab == nil }
     let tabPoint = NSPoint(x: tabView.bounds.midX, y: tabView.bounds.midY)
     tabView.mouseDown(with: mouse(.leftMouseDown, in: tabView, point: tabPoint))
     tabView.mouseUp(with: mouse(.leftMouseUp, in: tabView, point: tabPoint))
-    let (_, doubleText) = try liveEditor { tabView.editor }
+    let (_, doubleText) = try liveEditor("tab double-click") { tabView.editor }
     let beforeTabRename = rpc("State")["State"] as! [String: Any]
     enter(doubleText, name: "Renamed tab")
     assert(
@@ -744,7 +748,7 @@ struct WorktreeListFixture: View {
       func field() -> InlineNameEditor? {
         outline.subviews.compactMap { $0 as? InlineNameEditor }.first
       }
-      let (_, menuText) = try liveEditor(field)
+      let (_, menuText) = try liveEditor(label + " context menu", field)
       menuText.doCommand(by: #selector(NSResponder.cancelOperation(_:)))
       try wait("sidebar rename cancellation") { field() == nil && store.editingWorkspace == nil }
       let row = outline.row(forItem: item)
@@ -752,7 +756,7 @@ struct WorktreeListFixture: View {
       let point = NSPoint(x: rect.midX, y: rect.midY)
       outline.mouseDown(with: mouse(.leftMouseDown, in: outline, point: point))
       outline.mouseUp(with: mouse(.leftMouseUp, in: outline, point: point))
-      let (_, text) = try liveEditor(field)
+      let (_, text) = try liveEditor(label + " double-click", field)
       let beforeRename = rpc("State")["State"] as! [String: Any]
       enter(text, name: "Renamed " + label)
       assert(
