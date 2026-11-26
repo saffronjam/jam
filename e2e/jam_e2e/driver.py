@@ -1021,8 +1021,8 @@ class Desktop:
             self.key("ESCAPE")
         self.composition = None
 
-    def context(self, name, role=None):
-        self._click_element(self.element(name, role), button=2)
+    def context(self, name, role=None, *, desktop=False):
+        self._click_element(self.element(name, role), button=2, desktop=desktop)
 
     def middle(self, name):
         self._click_element(self.element(name), button=1)

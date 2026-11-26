@@ -838,7 +838,7 @@ final class Store: ObservableObject {
       else {
         let completions = self.focusReportCompletions
         self.focusReportCompletions.removeAll()
-        completions.forEach { $0() }
+        for complete in completions { complete() }
         return
       }
       guard !self.sendingLayoutEdits.contains(endpoint),
@@ -861,7 +861,7 @@ final class Store: ObservableObject {
           }
           self.sendNextLayoutEdit(endpoint)
           self.flushDeferredFocus()
-          completions.forEach { $0() }
+          for complete in completions { complete() }
         }
       }
     }
@@ -1603,7 +1603,8 @@ struct PaneCard: View {
               withTransaction(transaction) { store.focus = id }
             }
             store.acknowledgePane(id)
-          }, onGeometryFocus: { ready in
+          },
+          onGeometryFocus: { ready in
             store.reportFocus(completion: ready)
           }, onError: { store.paneErrors[id] = $0 },
           onSelectionCopy: {

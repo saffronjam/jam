@@ -2125,7 +2125,7 @@ Fixture: `update-available`.
 
 Behaviors: `update-settings`.
 
-1. `('context', 'Upgrade available', 'button')`
+1. `('desktop_context', 'Upgrade available', 'button')`
 2. `('click', 'Skip This Version', 'menu')`
 3. `('absent', 'Upgrade available')`
 4. `('relaunch',)`
@@ -4040,7 +4040,7 @@ Fixture: `update-available`.
 
 Behaviors: `update-settings`.
 
-1. `('context', 'Upgrade available', 'button')`
+1. `('desktop_context', 'Upgrade available', 'button')`
 2. `('click', 'Skip This Version', 'menu')`
 3. `('absent', 'Upgrade available')`
 4. `('settings', 'General')`
@@ -4253,14 +4253,15 @@ Fixture: `usage-rate-limited`.
 
 Behaviors: `persistent-usage`.
 
-1. `('visible', 'Usage service rate limited. Retrying later')`
-2. `('remember_usage_requests',)`
-3. `('usage_service_error', None)`
-4. `('restart_server',)`
-5. `('relaunch',)`
-6. `('click', 'Codex, fixture@example.invalid', 'button')`
-7. `('visible', 'Usage service rate limited. Retrying later')`
-8. `('usage_requests_unchanged',)`
+1. `('resize', 950, 640)`
+2. `('visible', 'Usage service rate limited. Retrying later')`
+3. `('remember_usage_requests',)`
+4. `('usage_service_error', None)`
+5. `('restart_server',)`
+6. `('relaunch',)`
+7. `('click', 'Codex, fixture@example.invalid', 'button')`
+8. `('visible', 'Usage service rate limited. Retrying later')`
+9. `('usage_requests_unchanged',)`
 
 ## UPDATE-014: Expiry hides the interrupted-upgrade notice while Settings still offers recovery
 

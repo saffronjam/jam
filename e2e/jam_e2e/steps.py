@@ -200,8 +200,8 @@ done
         jam.save()
     elif op == "click":
         ui.click(*args)
-    elif op == "context":
-        ui.context(*args)
+    elif op in {"context", "desktop_context"}:
+        ui.context(*args, desktop=op == "desktop_context")
     elif op == "fill":
         ui.fill(*args)
     elif op == "query_burst":

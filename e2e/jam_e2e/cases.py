@@ -1028,7 +1028,7 @@ INTEGRATION = [
         "UPDATE-004",
         "update-available",
         [
-            ("context", "Upgrade available", "button"),
+            ("desktop_context", "Upgrade available", "button"),
             ("click", "Skip This Version", "menu"),
             ("absent", "Upgrade available"),
             ("relaunch",),
@@ -2705,7 +2705,7 @@ case(
 case(
     "UPDATE-SETTINGS-006",
     "Settings offers an explicitly requested upgrade after the user skipped its notice",
-    ("context", "Upgrade available", "button"),
+    ("desktop_context", "Upgrade available", "button"),
     ("click", "Skip This Version", "menu"),
     ("absent", "Upgrade available"),
     ("settings", "General"),
@@ -2913,6 +2913,7 @@ case(
 case(
     "USAGE-008",
     "Rate-limit backoff is shared by the client and survives daemon and app restarts",
+    ("resize", 950, 640),
     ("visible", "Usage service rate limited. Retrying later"),
     ("remember_usage_requests",),
     ("usage_service_error", None),
