@@ -21,4 +21,4 @@ Unreviewed mappings are incomplete, even when some scenarios exist.
 | Terminal geometry during layout transitions | Reviewed | LAYOUT-003 |
 | Continuity for manually started agents | Reviewed | RECOVERY-006, RECOVERY-007 |
 | Usage readings and rate-limit backoff across restarts | Reviewed | USAGE-007, USAGE-008 |
-| Upgrade toolbar and expiring notifications | Reviewed | UPDATE-014, UPDATE-015 |
+| Upgrade toolbar and expiring notifications | Reviewed | UPDATE-004, UPDATE-SETTINGS-006, UPDATE-014, UPDATE-015 |

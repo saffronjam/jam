@@ -512,23 +512,28 @@ struct UpgradeAvailableChip: View {
 
   var body: some View {
     if controller.managed, let release = controller.available, !controller.showSheet {
-      Button(action: controller.prepare) {
-        Text("Upgrade available")
-          .font(.caption.weight(.medium))
-          .padding(.horizontal, 10).padding(.vertical, 4)
-          .background(Color.yellow.opacity(0.08), in: Capsule())
-          .overlay(Capsule().strokeBorder(Color.yellow.opacity(0.8), lineWidth: 1))
-          .contentShape(Capsule())
+      HStack(spacing: 0) {
+        Button(action: controller.prepare) {
+          Text("Upgrade available")
+            .font(.caption.weight(.medium))
+            .padding(.leading, 10).padding(.trailing, 6).padding(.vertical, 4)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Install Jam \(release.version)")
+        .accessibilityHint("Install Jam \(release.version)")
+        Menu {
+          Button("Skip This Version", action: controller.skip)
+        } label: {
+          Image(systemName: "chevron.down").font(.caption2).padding(.trailing, 6)
+        }
+        .menuStyle(.borderlessButton).menuIndicator(.hidden)
+        .accessibilityLabel("Upgrade options")
       }
-      .buttonStyle(.plain)
       .fixedSize()
-      .help("Install Jam \(release.version)")
-      .accessibilityHint("Install Jam \(release.version)")
+      .background(Color.yellow.opacity(0.08), in: Capsule())
+      .overlay(Capsule().strokeBorder(Color.yellow.opacity(0.8), lineWidth: 1))
       .disabled(controller.busy)
-      .contextMenu {
-        Button("Skip This Version", action: controller.skip)
-          .disabled(controller.busy)
-      }
     }
   }
 }

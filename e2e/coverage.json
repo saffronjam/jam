@@ -401,11 +401,14 @@
       "title": "Upgrade toolbar and expiring notifications",
       "reviewed": true,
       "cases": [
+        "UPDATE-004",
+        "UPDATE-SETTINGS-006",
         "UPDATE-014",
         "UPDATE-015"
       ],
       "assertions": [
         "The available upgrade stays in the toolbar and returns after cancelling confirmation",
+        "Skipping from the toolbar menu hides that release across relaunch and Settings can still prepare it on request",
         "An interrupted upgrade notice expires and the pending recovery remains actionable in Settings"
       ],
       "supporting_tests": [

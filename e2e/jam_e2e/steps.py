@@ -200,8 +200,8 @@ done
         jam.save()
     elif op == "click":
         ui.click(*args)
-    elif op in {"context", "desktop_context"}:
-        ui.context(*args, desktop=op == "desktop_context")
+    elif op == "context":
+        ui.context(*args)
     elif op == "fill":
         ui.fill(*args)
     elif op == "query_burst":
@@ -817,6 +817,8 @@ done
              "original shell survives the addition of a pane or tab")
     elif op == "remember_local_server":
         memory["local_server"] = json.loads((profile.socket.parent / "release.json").read_text())
+    elif op == "stop_local_daemon":
+        profile.call("daemon", "stop")
     elif op in {"restart_server", "local_server_replaced"}:
         receipt = profile.socket.parent / "release.json"
         if op == "restart_server":
@@ -846,6 +848,12 @@ done
             lambda: args[0] in profile.git("branch", "--format=%(refname:short)").splitlines(),
             "created branch",
         )
+    elif op == "shell_cwd":
+        (name,) = args
+        jam.run("pwd -P > " + shlex.quote(name))
+        receipt = profile.repo / name
+        wait(lambda: receipt.is_file() and receipt.read_text() == f"{profile.repo.resolve()}\n",
+             "the shell started in the requested directory")
     elif op == "git_no_branch":
         assert args[0] not in profile.git("branch", "--format=%(refname:short)").splitlines()
     elif op == "config_symlink":

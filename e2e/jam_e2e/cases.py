@@ -1028,7 +1028,7 @@ INTEGRATION = [
         "UPDATE-004",
         "update-available",
         [
-            ("desktop_context", "Upgrade available", "button"),
+            ("click", "Upgrade options"),
             ("click", "Skip This Version", "menu"),
             ("absent", "Upgrade available"),
             ("relaunch",),
@@ -1184,6 +1184,8 @@ for id, recipe, steps in INTEGRATION:
         steps = [("click", "Coordinator", "row"), *steps]
     behaviors = {"USAGE": ("accounts",), "UPDATE": ("update-settings",)}
     mapped = behaviors.get(id.split("-")[0], ())
+    if id == "UPDATE-004":
+        mapped += ("update-notices",)
     if id in {"WT-008", "WT-009"}:
         mapped = ("creation",)
     case(id, recipe.replace("-", " ") + " external user workflow", *steps, fixture=recipe,
@@ -2705,7 +2707,7 @@ case(
 case(
     "UPDATE-SETTINGS-006",
     "Settings offers an explicitly requested upgrade after the user skipped its notice",
-    ("desktop_context", "Upgrade available", "button"),
+    ("click", "Upgrade options"),
     ("click", "Skip This Version", "menu"),
     ("absent", "Upgrade available"),
     ("settings", "General"),
@@ -2718,7 +2720,7 @@ case(
     ("visible", "Automatically check for updates"),
     ("installed_version", "0.0.4"),
     fixture="update-available",
-    behavior_ids=("update-settings",),
+    behavior_ids=("update-settings", "update-notices"),
 )
 
 case(
@@ -2913,12 +2915,13 @@ case(
 case(
     "USAGE-008",
     "Rate-limit backoff is shared by the client and survives daemon and app restarts",
-    ("resize", 950, 640),
     ("visible", "Usage service rate limited. Retrying later"),
     ("remember_usage_requests",),
     ("usage_service_error", None),
-    ("restart_server",),
+    ("remember_local_server",),
+    ("stop_local_daemon",),
     ("relaunch",),
+    ("local_server_replaced",),
     ("click", "Codex, fixture@example.invalid", "button"),
     ("visible", "Usage service rate limited. Retrying later"),
     ("usage_requests_unchanged",),

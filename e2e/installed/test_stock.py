@@ -17,7 +17,7 @@ from jam_e2e.steps import execute
         Case(
             "STOCK-002",
             "Installed release honors the launch directory",
-            (("run", "pwd"), ("output_repo",)),
+            (("shell_cwd", "stock-launch-directory"),),
         ),
         Case(
             "STOCK-003",
