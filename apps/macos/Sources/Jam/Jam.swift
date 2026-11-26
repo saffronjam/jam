@@ -1843,8 +1843,6 @@ final class TerminalNSView: NSView, NSTextInputClient, NSMenuItemValidation {
     displayTarget = nil
     if let occlusionObserver { NotificationCenter.default.removeObserver(occlusionObserver) }
     occlusionObserver = nil
-    for observer in geometryObservers { NotificationCenter.default.removeObserver(observer) }
-    geometryObservers.removeAll()
     ownsGeometry = false
     guard let window else { return }
     let reclaim: (Notification) -> Void = { [weak self] _ in
