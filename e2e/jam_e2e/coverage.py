@@ -51,8 +51,9 @@ def validate(ledger, cases):
 
 
 def render(ledger):
+    source_range = f"{ledger['source_base'][:7]}..{ledger['source_tip'][:7]}"
     lines = ["# New-main behavior coverage", "",
-             "Scope: `ac5d161..004cf26`. Runtime proof is recorded separately.", "",
+             f"Scope: `{source_range}`. Runtime proof is recorded separately.", "",
              "Unreviewed mappings are incomplete, even when some scenarios exist.", "",
              "| Behavior | Review | Shared cases |", "|---|---|---|"]
     for row in ledger["behaviors"]:

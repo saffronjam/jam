@@ -18,6 +18,25 @@ def terminal_pixels(ui):
     return surface_pixels(ui, "Terminal", "terminal", 0)
 
 
+def theme_pixels(jam, memory, name, reference=None, relation=None):
+    def observe():
+        png, _ = terminal_pixels(jam.ui)
+        image = Image.open(io.BytesIO(png)).convert("RGB")
+        median = ImageStat.Stat(image).median
+        if reference is not None:
+            baseline = memory["theme_colors"][reference]
+            distance = max(abs(current - previous) for current, previous in zip(median, baseline))
+            if relation == "same" and distance > 4 or relation == "different" and distance < 9:
+                return None
+        return png, median
+
+    png, median = wait(observe, f"native terminal colors for {name}")
+    memory.setdefault("theme_colors", {})[name] = median
+    root = jam.profile.repo
+    (root / f"visual-theme-{name}.png").write_bytes(png)
+    (root / "visual-theme-colors.json").write_text(json.dumps(memory["theme_colors"], indent=2))
+
+
 def surface_pixels(ui, name, role, index=None):
     capture, bounds = surface_sampler(ui, name, role, index)
     return capture(), bounds

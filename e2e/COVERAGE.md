@@ -1,6 +1,6 @@
 # New-main behavior coverage
 
-Scope: `ac5d161..004cf26`. Runtime proof is recorded separately.
+Scope: `ac5d161..d7b775c`. Runtime proof is recorded separately.
 
 Unreviewed mappings are incomplete, even when some scenarios exist.
 
@@ -16,3 +16,9 @@ Unreviewed mappings are incomplete, even when some scenarios exist.
 | Reported agent identity and lifetime | Reviewed | IDENTITY-001, IDENTITY-002, IDENTITY-003, IDENTITY-004, IDENTITY-005, IMAGE-004, FOCUS-001, FOCUS-002 |
 | Focus acknowledgement and close confirmations | Reviewed | CLOSE-001, CLOSE-002, CLOSE-003, CLOSE-004, FOCUS-001, FOCUS-002, RENAME-001, CREATE-015 |
 | Synchronized frames, cursor and sidebar presentation | Reviewed | LONG-001, VISUAL-001, VISUAL-002, VISUAL-003, RENDER-001, RENDER-002, RENDER-003, SIDEBAR-001, RENAME-001 |
+| Themes and default terminal selection | Reviewed | THEME-001, SELECT-003 |
+| Optimistic layout and pane focus | Reviewed | LAYOUT-003, LAYOUT-004, LAYOUT-005 |
+| Terminal geometry during layout transitions | Reviewed | LAYOUT-003 |
+| Continuity for manually started agents | Reviewed | RECOVERY-006, RECOVERY-007 |
+| Usage readings and rate-limit backoff across restarts | Reviewed | USAGE-007, USAGE-008 |
+| Upgrade toolbar and expiring notifications | Reviewed | UPDATE-014, UPDATE-015 |

@@ -227,11 +227,12 @@ done
     elif op == "single_sheet":
         ui.expect_single_sheet(*args)
     elif op == "stable_visible":
-        text, seconds = args
-        wait(lambda: ui.has_exact_label(text), f"visible label {text!r}")
+        text, seconds, *scope = args
+        visible = ui.has if scope == ["any"] else ui.has_exact_label
+        wait(lambda: visible(text), f"visible label {text!r}")
         until = time.monotonic() + seconds
         while time.monotonic() < until:
-            assert ui.has_exact_label(text), f"A later result replaced visible {text}"
+            assert visible(text), f"A later result replaced visible {text}"
             time.sleep(.1)
     elif op == "dialog":
         ui.dialog(*args)
@@ -243,6 +244,15 @@ done
         from .visual import terminal_text
 
         terminal_text(ui, *args)
+    elif op == "theme_pixels":
+        from .visual import theme_pixels
+
+        theme_pixels(jam, memory, *args)
+    elif op == "remember_terminal_width":
+        memory["terminal_width"] = ui.element("Terminal", "terminal", index=0).rect["width"]
+    elif op == "narrower_terminal":
+        wait(lambda: ui.element("Terminal", "terminal", index=0).rect["width"]
+             < memory["terminal_width"] * 0.65, "split terminal shrinks before daemon reply", timeout=5)
     elif op == "cursor_frames":
         from .visual import cursor_frames
 
@@ -412,6 +422,29 @@ done
             return hosts == {"local", "remote"}
 
         wait(received, "real usage requests from both fixture hosts", timeout=60)
+    elif op in {"remember_usage_requests", "usage_requests_unchanged"}:
+        events = profile.root / "https.events"
+
+        def readings():
+            if not events.exists():
+                return []
+            return [line for line in events.read_text().splitlines(keepends=True)
+                    if line.endswith("\n") and json.loads(line)["path"] == "/codex/usage"]
+
+        if op == "remember_usage_requests":
+            memory["usage_requests"] = wait(readings, "an actual Codex usage service request")
+        else:
+            deadline = time.monotonic() + 3
+            while time.monotonic() < deadline:
+                assert readings() == memory["usage_requests"], "Usage reached the server during backoff"
+                time.sleep(0.1)
+    elif op == "usage_service_error":
+        scenario = profile.root / "service-world.json"
+        state = json.loads(scenario.read_text())
+        state["http_error"] = args[0]
+        update = scenario.with_suffix(".new")
+        update.write_text(json.dumps(state))
+        update.replace(scenario)
     elif op == "usage_page_cycle":
         (values,) = args
 
@@ -508,7 +541,7 @@ done
         output = profile.repo / "geometry.json"
         script = Path(__file__).with_name("geometry_probe.py")
         jam.terminal()
-        ui.type(shlex.join([sys.executable, str(script), str(output), *map(str, args)]))
+        ui.type_shell_command(shlex.join([sys.executable, str(script), output.name, *map(str, args)]))
         ui.key("ENTER")
         wait(lambda: output.with_suffix(".ready").exists(), "PTY geometry observer startup")
         initial = json.loads(output.read_text())[0]
@@ -587,6 +620,13 @@ done
     elif op == "remember_pane":
         [pane] = profile.layout()["panes"]
         memory["pane"] = pane["id"]
+    elif op == "remember_split_pane":
+        [workspace] = profile.layout()["workspaces"]
+        [tab] = workspace["tabs"]
+        memory["pane"] = tab["root"]["Split"][args[0]]["Leaf"]
+    elif op == "remembered_output":
+        wait(lambda: args[0] in profile.capture(memory["pane"]),
+             f"physical input reached the original pane: {args[0]}")
     elif op in {"pane_field", "remembered_pane_field"}:
         def matches():
             panes = profile.layout()["panes"]
@@ -619,6 +659,23 @@ done
             memory["agent_session"] = current
         else:
             assert current == memory["agent_session"], "Resume replaced the saved conversation"
+    elif op == "provider_resumed_conversation":
+        _, session = memory["agent_session"]
+        events = profile.home / "provider-events.jsonl"
+
+        def resumed():
+            for line in events.read_text().splitlines(keepends=True):
+                if not line.endswith("\n"):
+                    continue
+                argv = json.loads(line).get("argv", [])
+                if "--resume" in argv and session in argv:
+                    return True
+            return False
+
+        wait(resumed, "real provider process resumed the saved conversation")
+    elif op == "no_registered_agents":
+        wait(lambda: not profile.call("coordinate", "list")["Coordination"]["agents"],
+             "the exited agent no longer owns the shell")
     elif op in ("remember_provider_inputs", "provider_inputs_unchanged"):
 
         def inputs():
@@ -755,6 +812,9 @@ done
     elif op == "remaining_pids":
         remaining = jam.pids()
         assert remaining and remaining.items() <= memory["pids"].items(), "An unaffected shell restarted"
+    elif op == "remaining_original_pids":
+        wait(lambda: memory["pids"].items() <= jam.pids().items(),
+             "original shell survives the addition of a pane or tab")
     elif op == "remember_local_server":
         memory["local_server"] = json.loads((profile.socket.parent / "release.json").read_text())
     elif op in {"restart_server", "local_server_replaced"}:

@@ -1,6 +1,6 @@
 # Desktop acceptance cases
 
-313 cases; identical collection on macOS and Linux. No skips or expected failures.
+324 cases; identical collection on macOS and Linux. No skips or expected failures.
 
 Each numbered step is performed externally. Fixture names identify required setup recipes, not alternate assertions.
 
@@ -402,7 +402,7 @@ Fixture: `isolated local installation`.
 1. `('settings', 'General')`
 2. `('click', 'Copy text on selection', 'toggle')`
 3. `('save',)`
-4. `('config', 'copy_on_select', True)`
+4. `('config', 'copy_on_select', False)`
 
 ## CFG-011: Copy text on selection: cancel
 
@@ -411,7 +411,7 @@ Fixture: `isolated local installation`.
 1. `('settings', 'General')`
 2. `('click', 'Copy text on selection', 'toggle')`
 3. `('click', 'Cancel')`
-4. `('config_default', 'copy_on_select', False)`
+4. `('config_default', 'copy_on_select', True)`
 
 ## CFG-012: Copy text on selection: reopen
 
@@ -421,7 +421,7 @@ Fixture: `isolated local installation`.
 2. `('click', 'Copy text on selection', 'toggle')`
 3. `('save',)`
 4. `('relaunch',)`
-5. `('config', 'copy_on_select', True)`
+5. `('config', 'copy_on_select', False)`
 
 ## CFG-013: Automatically check for updates: save
 
@@ -989,14 +989,14 @@ Fixture: `remote-incompatible`.
 
 Fixture: `update-available`.
 
-1. `('visible', 'Upgrade…')`
+1. `('visible', 'Upgrade available')`
 
 ## UPDATE-002: update required
 
 Fixture: `update-required`.
 
-1. `('visible', 'Upgrade…')`
-2. `('click', 'Upgrade…')`
+1. `('visible', 'Upgrade available')`
+2. `('click', 'Upgrade available')`
 3. `('visible', 'Upgrade Jam')`
 4. `('visible', 'Jam 0.0.5')`
 5. `('visible', 'Fixture')`
@@ -1087,7 +1087,7 @@ Fixture: `isolated local installation`.
 
 1. `('settings', 'General')`
 2. `('save',)`
-3. `('config', 'copy_on_select', False)`
+3. `('config', 'copy_on_select', True)`
 
 ## DEFAULT-003: Fresh profile uses documented automatic_check_updates
 
@@ -2125,10 +2125,11 @@ Fixture: `update-available`.
 
 Behaviors: `update-settings`.
 
-1. `('click', 'Skip This Version')`
-2. `('absent', 'Upgrade…')`
-3. `('relaunch',)`
-4. `('absent', 'Upgrade…')`
+1. `('context', 'Upgrade available', 'button')`
+2. `('click', 'Skip This Version', 'menu')`
+3. `('absent', 'Upgrade available')`
+4. `('relaunch',)`
+5. `('absent', 'Upgrade available')`
 
 ## UPDATE-005: update available external user workflow
 
@@ -2136,7 +2137,7 @@ Fixture: `update-available`.
 
 Behaviors: `update-settings`.
 
-1. `('click', 'Upgrade…')`
+1. `('click', 'Upgrade available')`
 2. `('visible', 'Upgrade and Restart')`
 3. `('click', 'Cancel')`
 
@@ -2167,7 +2168,7 @@ Fixture: `update-bad-checksum`.
 
 Behaviors: `update-settings`.
 
-1. `('click', 'Upgrade…')`
+1. `('click', 'Upgrade available')`
 2. `('click', 'Details', 'disclosure')`
 3. `('visible', 'checksum')`
 
@@ -2179,7 +2180,7 @@ Behaviors: `update-settings`.
 
 1. `('remember_pids',)`
 2. `('remember_layout',)`
-3. `('click', 'Upgrade…')`
+3. `('click', 'Upgrade available')`
 4. `('click', 'Details', 'disclosure')`
 5. `('visible', 'http status: 503')`
 6. `('click', 'Cancel')`
@@ -2196,7 +2197,7 @@ Behaviors: `update-settings`.
 1. `('run', 'printf x >> update-executions')`
 2. `('remember_layout',)`
 3. `('remember_client',)`
-4. `('click', 'Upgrade…')`
+4. `('click', 'Upgrade available')`
 5. `('enabled', 'Upgrade and Restart', 'button')`
 6. `('click', 'Upgrade and Restart', 'button')`
 7. `('installed_version', '0.0.5')`
@@ -2228,7 +2229,7 @@ Behaviors: `update-settings`.
 
 1. `('run', 'printf x >> rollback-executions')`
 2. `('remember_layout',)`
-3. `('click', 'Upgrade…')`
+3. `('click', 'Upgrade available')`
 4. `('enabled', 'Upgrade and Restart', 'button')`
 5. `('click', 'Upgrade and Restart', 'button')`
 6. `('upgrade_rolled_back',)`
@@ -2554,7 +2555,7 @@ Behaviors: `rendering`.
 
 Fixture: `update-available`.
 
-1. `('click', 'Upgrade…')`
+1. `('click', 'Upgrade available')`
 2. `('enabled', 'Upgrade and Restart', 'button')`
 3. `('open_client', 'second')`
 4. `('command', 'New Tab')`
@@ -2589,16 +2590,17 @@ Fixture: `isolated local installation`.
 2. `('remember_layout',)`
 3. `('remember_pids',)`
 4. `('settings', 'General')`
-5. `('save',)`
-6. `('config', 'copy_on_select', False)`
-7. `('run', "printf '\\033[2J\\033[H\\123\\105\\114\\105\\103\\124\\111\\117\\116\\n'")`
-8. `('clipboard', 'selection clipboard sentinel')`
-9. `('select_word', 'SELECTION')`
-10. `('clipboard_stable', 'selection clipboard sentinel')`
-11. `('copy',)`
-12. `('clipboard_equals', 'SELECTION')`
-13. `('same_layout',)`
-14. `('same_pids',)`
+5. `('click', 'Copy text on selection', 'toggle')`
+6. `('save',)`
+7. `('config', 'copy_on_select', False)`
+8. `('run', "printf '\\033[2J\\033[H\\123\\105\\114\\105\\103\\124\\111\\117\\116\\n'")`
+9. `('clipboard', 'selection clipboard sentinel')`
+10. `('select_word', 'SELECTION')`
+11. `('clipboard_stable', 'selection clipboard sentinel')`
+12. `('copy',)`
+13. `('clipboard_equals', 'SELECTION')`
+14. `('same_layout',)`
+15. `('same_pids',)`
 
 ## SELECT-002: copy_on_select=True controls physical drag selection and explicit Copy
 
@@ -2608,17 +2610,16 @@ Fixture: `isolated local installation`.
 2. `('remember_layout',)`
 3. `('remember_pids',)`
 4. `('settings', 'General')`
-5. `('click', 'Copy text on selection', 'toggle')`
-6. `('save',)`
-7. `('config', 'copy_on_select', True)`
-8. `('run', "printf '\\033[2J\\033[H\\123\\105\\114\\105\\103\\124\\111\\117\\116\\n'")`
-9. `('clipboard', 'selection clipboard sentinel')`
-10. `('select_word', 'SELECTION')`
-11. `('clipboard_equals', 'SELECTION')`
-12. `('copy',)`
-13. `('clipboard_equals', 'SELECTION')`
-14. `('same_layout',)`
-15. `('same_pids',)`
+5. `('save',)`
+6. `('config', 'copy_on_select', True)`
+7. `('run', "printf '\\033[2J\\033[H\\123\\105\\114\\105\\103\\124\\111\\117\\116\\n'")`
+8. `('clipboard', 'selection clipboard sentinel')`
+9. `('select_word', 'SELECTION')`
+10. `('clipboard_equals', 'SELECTION')`
+11. `('copy',)`
+12. `('clipboard_equals', 'SELECTION')`
+13. `('same_layout',)`
+14. `('same_pids',)`
 
 ## WT-010: Cancelling checkout closure preserves files, layout and running terminals
 
@@ -4039,17 +4040,18 @@ Fixture: `update-available`.
 
 Behaviors: `update-settings`.
 
-1. `('click', 'Skip This Version')`
-2. `('absent', 'Upgrade…')`
-3. `('settings', 'General')`
-4. `('visible', 'Jam 0.0.5 is available')`
-5. `('enabled', 'Upgrade…', 'button')`
-6. `('click', 'Upgrade…', 'button')`
-7. `('single_sheet', 'Upgrade Jam')`
-8. `('enabled', 'Upgrade and Restart', 'button')`
-9. `('click', 'Cancel', 'button')`
-10. `('visible', 'Automatically check for updates')`
-11. `('installed_version', '0.0.4')`
+1. `('context', 'Upgrade available', 'button')`
+2. `('click', 'Skip This Version', 'menu')`
+3. `('absent', 'Upgrade available')`
+4. `('settings', 'General')`
+5. `('visible', 'Jam 0.0.5 is available')`
+6. `('enabled', 'Upgrade…', 'button')`
+7. `('click', 'Upgrade…', 'button')`
+8. `('single_sheet', 'Upgrade Jam')`
+9. `('enabled', 'Upgrade and Restart', 'button')`
+10. `('click', 'Cancel', 'button')`
+11. `('visible', 'Automatically check for updates')`
+12. `('installed_version', '0.0.4')`
 
 ## UPDATE-SETTINGS-007: Settings opens one recovery sheet for an actual unfinished app upgrade
 
@@ -4068,3 +4070,224 @@ Behaviors: `update-settings`.
 9. `('installed_version', '0.0.4')`
 10. `('same_layout',)`
 11. `('same_pids',)`
+
+## THEME-001: Warm is applied only on Save and survives relaunch without changing dark appearance
+
+Fixture: `isolated local installation`.
+
+Behaviors: `theme-and-selection`.
+
+1. `('settings', 'Appearance')`
+2. `('click', 'Dark')`
+3. `('click', 'Midnight')`
+4. `('save',)`
+5. `('config', 'appearance', 'dark')`
+6. `('theme_pixels', 'midnight')`
+7. `('settings', 'Appearance')`
+8. `('click', 'Warm')`
+9. `('click', 'Cancel')`
+10. `('theme_pixels', 'cancelled', 'midnight', 'same')`
+11. `('settings', 'Appearance')`
+12. `('click', 'Warm')`
+13. `('save',)`
+14. `('theme_pixels', 'warm', 'midnight', 'different')`
+15. `('relaunch',)`
+16. `('theme_pixels', 'restored', 'warm', 'same')`
+17. `('config', 'appearance', 'dark')`
+18. `('settings', 'Appearance')`
+19. `('click', 'Midnight')`
+20. `('save',)`
+21. `('theme_pixels', 'restored-midnight', 'midnight', 'same')`
+22. `('run', 'printf shell-survives-theme-changes')`
+23. `('output', 'shell-survives-theme-changes')`
+
+## SELECT-003: An untouched profile copies a native drag selection and its confirmation clears
+
+Fixture: `isolated local installation`.
+
+Behaviors: `theme-and-selection`.
+
+1. `('run', "printf '\\033[2J\\033[H\\123\\105\\114\\105\\103\\124\\111\\117\\116\\n'")`
+2. `('clipboard', 'before-default-selection')`
+3. `('select_word', 'SELECTION')`
+4. `('visible', 'Copied to clipboard', 3)`
+5. `('clipboard_equals', 'SELECTION')`
+6. `('absent', 'Copied to clipboard', 5)`
+7. `('copy',)`
+8. `('clipboard_equals', 'SELECTION')`
+9. `('absent', 'Copied to clipboard', 3)`
+10. `('config_default', 'copy_on_select', True)`
+
+## LAYOUT-003: A split previews geometry before an unavailable daemon can commit it
+
+Fixture: `isolated local installation`.
+
+Behaviors: `optimistic-layout`, `render-lifecycle`.
+
+1. `('resize', 1100, 650)`
+2. `('remember_pane',)`
+3. `('remember_pids',)`
+4. `('remember_terminal_width',)`
+5. `('suspend_daemon',)`
+6. `('chord', 'ctrl+shift+e')`
+7. `('visible', 'Starting terminal', 5)`
+8. `('narrower_terminal',)`
+9. `('resume_daemon',)`
+10. `('count', 'panes', 2)`
+11. `('remaining_original_pids',)`
+12. `('absent', 'Starting terminal')`
+13. `('run_focused', 'printf committed-split-terminal')`
+14. `('output', 'committed-split-terminal')`
+
+## LAYOUT-004: A second tab appears before the daemon replies and becomes one live terminal
+
+Fixture: `isolated local installation`.
+
+Behaviors: `optimistic-layout`.
+
+1. `('remember_pids',)`
+2. `('suspend_daemon',)`
+3. `('chord', 'ctrl+shift+t')`
+4. `('target_visible', 'Tab 2', 'button')`
+5. `('visible', 'Starting terminal', 5)`
+6. `('resume_daemon',)`
+7. `('count', 'tabs', 2)`
+8. `('count', 'panes', 2)`
+9. `('remaining_original_pids',)`
+10. `('run', 'printf optimistic-tab-now-live')`
+11. `('output', 'optimistic-tab-now-live')`
+
+## LAYOUT-005: Closing the bottom-right pane delivers the next input to its nearest sibling
+
+Fixture: `isolated local installation`.
+
+Behaviors: `optimistic-layout`.
+
+1. `('resize', 1280, 560)`
+2. `('chord', 'ctrl+shift+e')`
+3. `('count', 'panes', 2)`
+4. `('remember_split_pane', 'b')`
+5. `('click', 'Terminal', 'terminal', 1)`
+6. `('chord', 'ctrl+shift+o')`
+7. `('count', 'panes', 3)`
+8. `('click', 'Terminal', 'terminal', 2)`
+9. `('chord', 'ctrl+shift+w')`
+10. `('count', 'panes', 2)`
+11. `('run_focused', "printf 'NEAREST PANE %s' 3524")`
+12. `('remembered_output', 'NEAREST PANE 3524')`
+
+## RECOVERY-006: A manually started agent restores its conversation after a daemon restart and returns to a shell
+
+Fixture: `provider-detected`.
+
+Behaviors: `agent-recovery`.
+
+1. `('remember_layout',)`
+2. `('remember_pane',)`
+3. `('click', 'Terminal', 'terminal', 0)`
+4. `('type_shell_command', 'claude --dangerously-skip-permissions')`
+5. `('key', 'ENTER')`
+6. `('output', 'fixture-agent-resumed')`
+7. `('agent_field', 'shell_launched', True)`
+8. `('remember_agent_session',)`
+9. `('remember_provider_inputs',)`
+10. `('restart_server',)`
+11. `('same_layout',)`
+12. `('same_agent_session',)`
+13. `('provider_resumed_conversation',)`
+14. `('provider_inputs_unchanged',)`
+15. `('click', 'Terminal', 'terminal', 0)`
+16. `('chord', 'ctrl+c')`
+17. `('pane_field', 'agent_provider', None)`
+18. `('pane_field', 'exited', False)`
+19. `('run', 'pwd; printf resumed-agent-returned-to-shell')`
+20. `('output_repo',)`
+21. `('output', 'resumed-agent-returned-to-shell')`
+22. `('no_registered_agents',)`
+23. `('same_layout',)`
+
+## RECOVERY-007: Exiting a manually launched agent leaves the original shell responsive
+
+Fixture: `provider-detected`.
+
+Behaviors: `agent-recovery`.
+
+1. `('remember_layout',)`
+2. `('remember_pids',)`
+3. `('click', 'Terminal', 'terminal', 0)`
+4. `('type_shell_command', 'claude --dangerously-skip-permissions')`
+5. `('key', 'ENTER')`
+6. `('output', 'fixture-agent-resumed')`
+7. `('agent_field', 'shell_launched', True)`
+8. `('type_terminal', 'exit')`
+9. `('key', 'ENTER')`
+10. `('pane_field', 'agent_provider', None)`
+11. `('run', 'pwd; printf original-shell-after-agent')`
+12. `('output_repo',)`
+13. `('output', 'original-shell-after-agent')`
+14. `('same_layout',)`
+15. `('same_pids',)`
+16. `('no_registered_agents',)`
+
+## USAGE-007: The same signed-in account keeps its last successful usage after a daemon restart
+
+Fixture: `usage-configured-login`.
+
+Behaviors: `persistent-usage`.
+
+1. `('click', 'Codex, fixture@example.invalid', 'button')`
+2. `('visible', '25%')`
+3. `('key', 'ESCAPE')`
+4. `('remember_usage_requests',)`
+5. `('usage_service_error', 503)`
+6. `('restart_server',)`
+7. `('relaunch',)`
+8. `('click', 'Codex, fixture@example.invalid', 'button')`
+9. `('visible', '25%')`
+10. `('visible', '50%')`
+11. `('usage_requests_unchanged',)`
+
+## USAGE-008: Rate-limit backoff is shared by the client and survives daemon and app restarts
+
+Fixture: `usage-rate-limited`.
+
+Behaviors: `persistent-usage`.
+
+1. `('visible', 'Usage service rate limited. Retrying later')`
+2. `('remember_usage_requests',)`
+3. `('usage_service_error', None)`
+4. `('restart_server',)`
+5. `('relaunch',)`
+6. `('click', 'Codex, fixture@example.invalid', 'button')`
+7. `('visible', 'Usage service rate limited. Retrying later')`
+8. `('usage_requests_unchanged',)`
+
+## UPDATE-014: Expiry hides the interrupted-upgrade notice while Settings still offers recovery
+
+Fixture: `update-interrupted`.
+
+Behaviors: `update-notices`.
+
+1. `('visible', 'A Jam upgrade was interrupted')`
+2. `('enabled', 'Recover…', 'button')`
+3. `('absent', 'A Jam upgrade was interrupted', 15)`
+4. `('absent', 'Recover…')`
+5. `('settings', 'General')`
+6. `('click', 'Recover Interrupted Upgrade…', 'button')`
+7. `('single_sheet', 'Recover Interrupted Upgrade')`
+8. `('click', 'Cancel', 'button')`
+9. `('installed_version', '0.0.4')`
+
+## UPDATE-015: The upgrade chip persists on the toolbar and returns after a cancelled confirmation
+
+Fixture: `update-available`.
+
+Behaviors: `update-notices`.
+
+1. `('enabled', 'Upgrade available', 'button')`
+2. `('stable_visible', 'Upgrade available', 10, 'any')`
+3. `('click', 'Upgrade available', 'button')`
+4. `('enabled', 'Upgrade and Restart', 'button')`
+5. `('click', 'Cancel', 'button')`
+6. `('enabled', 'Upgrade available', 'button')`
+7. `('installed_version', '0.0.4')`
