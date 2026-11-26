@@ -296,6 +296,12 @@ final class Store: ObservableObject {
   let terminalViews = TerminalViewPool()
   @Published var availableAgents: [String: Set<String>] = [:]
   @Published var config: JamConfig?
+  @Published var theme =
+    JamDefaults.shared.string(forKey: "theme").flatMap(JamTheme.init)
+    ?? .midnight
+  {
+    didSet { JamDefaults.shared.set(theme.rawValue, forKey: "theme") }
+  }
   var monitor: Any?
   var selections: [String: (String, String)] =
     (JamDefaults.shared.dictionary(forKey: "workspaceSelections") as? [String: [String]] ?? [:])
@@ -324,6 +330,7 @@ final class Store: ObservableObject {
   var gitSummaryTime = Date.distantPast
   var tintPicker: WorkspaceTintPicker?
   @Published var paneSizes: [String: CGSize] = [:]
+  var paneCanvas: (tab: String, size: CGSize)?
   @Published var restartingPanes = Set<String>()
   var serverIncarnations: [String: String] = [:]
   var pendingServerRecovery = Set<String>()
@@ -865,23 +872,38 @@ final class Store: ObservableObject {
   }
   func restartPane(_ id: String, automatic: Bool = false) {
     guard let pane = panes[id], pane.needsResume else { return }
+    let endpoint = WorkspaceSelection.endpoint(of: id)
     var request: [String: Any] = ["Restart": ["pane": id]]
     if pane.agentRole != nil {
       guard !automatic, case .managed(let agent) = resumeState(for: pane) else { return }
       request = ["Coordination": ["action": "resume", "agent": agent]]
     }
-    guard !serverBusy.contains(WorkspaceSelection.endpoint(of: id)) else { return }
+    guard !serverBusy.contains(endpoint) else { return }
     guard restartingPanes.insert(id).inserted else { return }
-    let endpoint = WorkspaceSelection.endpoint(of: id)
     let generation = serverGenerations[endpoint, default: 0]
+    let connection = remoteConnectionGenerations[endpoint, default: 0]
     paneErrors.removeValue(forKey: id)
     endpointQueue(endpoint).async { [request] in
-      let reply = rpc(request, endpoint: endpoint)
+      let response = rpc(request, endpoint: endpoint)
+      // Coordination.Resume returns the agent record. The pane stays pending
+      // until we have also read the state of the replacement terminal.
+      let reply = response["Coordination"] != nil ? rpc("State", endpoint: endpoint) : response
       DispatchQueue.main.async {
-        self.restartingPanes.remove(id)
-        guard self.serverGenerations[endpoint, default: 0] == generation else { return }
-        if let error = reply["error"] as? String { self.error = error }
-        if let state = reply["State"] as? [String: Any] { self.apply(state, endpoint: endpoint) }
+        defer { self.restartingPanes.remove(id) }
+        guard self.serverGenerations[endpoint, default: 0] == generation,
+          self.remoteConnectionGenerations[endpoint, default: 0] == connection
+        else { return }
+        if let state = reply["State"] as? [String: Any] {
+          self.apply(state, endpoint: endpoint)
+          if let updated = self.panes[id], updated.needsResume {
+            self.error =
+              updated.launchError
+              ?? (pane.agentRole != nil
+                ? "The agent stopped during resume" : "The shell stopped during startup")
+          }
+        } else {
+          self.error = reply["error"] as? String ?? "Could not confirm the terminal restarted"
+        }
       }
     }
   }
@@ -928,9 +950,33 @@ final class Store: ObservableObject {
       return
     }
     let removeEmptyTab = config?.closeEmptyTabs ?? true
-    submitLayout(["Close": ["pane": pane]], endpoint: WorkspaceSelection.endpoint(of: pane)) {
-      layout in
-      OptimisticLayout.removePane(pane, from: &layout, removeEmptyTab: removeEmptyTab)
+    let owner = selected
+    let tab = currentTab
+    let wasFocused = focus == pane
+    var previewFocus: String?
+    let next = tab.flatMap { tab in
+      let size =
+        paneCanvas.flatMap { $0.tab == tab.id ? $0.size : nil }
+        ?? tab.root.minimumSize
+      return PaneLayout(node: tab.root, size: size).neighbor(of: pane)
+    }
+    let accepted = submitLayout(
+      ["Close": ["pane": pane]], endpoint: WorkspaceSelection.endpoint(of: pane),
+      preview: { layout in
+        OptimisticLayout.removePane(pane, from: &layout, removeEmptyTab: removeEmptyTab)
+      },
+      complete: { [weak self] reply in
+        guard let self, wasFocused, reply["error"] != nil,
+          self.selected == owner, self.currentTab?.id == tab?.id,
+          self.focus == previewFocus, self.visiblePaneIDs.contains(pane)
+        else { return }
+        self.focus = pane
+        self.focusTerminal()
+      })
+    if accepted && wasFocused {
+      focus = next ?? visiblePaneIDs.first ?? ""
+      previewFocus = focus
+      focusTerminal()
     }
   }
   func closeTab(_ target: Tab) {
@@ -1106,16 +1152,10 @@ struct ContentView: View {
         MachineList().environmentObject(store)
       }
       .padding(.vertical, 4)
-      .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-      .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-      .overlay {
-        RoundedRectangle(cornerRadius: 14, style: .continuous)
-          .strokeBorder(Color.primary.opacity(0.12), lineWidth: 1)
-      }
       .padding(.horizontal, 8)
       .padding(.top, 4)
       .padding(.bottom, 8)
-      .background(Color(nsColor: .windowBackgroundColor))
+      .background(Color(nsColor: store.theme.background))
       .navigationSplitViewColumnWidth(min: 196, ideal: 236, max: 336)
     } detail: {
       ZStack {
@@ -1151,9 +1191,10 @@ struct ContentView: View {
                       ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 3) {
                           ForEach(store.current?.tabs ?? []) { t in
+                            let selected = store.currentTab?.id == t.id
                             DraggableTab(
                               id: t.id, title: t.name,
-                              selected: store.currentTab?.id == t.id,
+                              selected: selected,
                               activityStatus: store.activityStatus(for: t),
                               editing: store.editingTab == t.id,
                               edit: { store.editingTab = t.id },
@@ -1187,14 +1228,20 @@ struct ContentView: View {
                                 for: t.name, showsStatus: store.activityStatus(for: t) != nil),
                               height: 28
                             )
-                            .background(
-                              store.currentTab?.id == t.id ? Color.primary.opacity(0.07) : .clear,
-                              in: RoundedRectangle(cornerRadius: 5)
-                            )
+                            .background {
+                              let shape = RoundedRectangle(cornerRadius: 5)
+                              if selected {
+                                shape.fill(Color.primary.opacity(0.07))
+                              } else {
+                                shape.strokeBorder(
+                                  Color(nsColor: store.theme.paneBorder(focused: false)),
+                                  lineWidth: 1)
+                              }
+                            }
                             .opacity(store.draggingTab == t.id ? 0 : 1)
                             .transition(.opacity.combined(with: .scale(scale: 0.96)))
                             .id(t.id).accessibilityLabel(t.name).accessibilityValue(
-                              store.currentTab?.id == t.id ? "Selected" : ""
+                              selected ? "Selected" : ""
                             )
                             .buttonStyle(.plain).contextMenu {
                               Button("Rename") { store.editingTab = t.id }
@@ -1288,7 +1335,6 @@ struct ContentView: View {
                     Button("New Tab") { store.execute("new_tab") }
                   }
                 }.frame(maxWidth: .infinity, maxHeight: .infinity)
-                  .background(Color(nsColor: .windowBackgroundColor))
               }
             }
             if store.busy && !store.movingLayout {
@@ -1301,7 +1347,7 @@ struct ContentView: View {
         reduceMotion ? nil : .easeInOut(duration: 0.2), value: store.isLoadingSelectedRemote
       )
       .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-      .background(Color(nsColor: .windowBackgroundColor))
+      .background(Color(nsColor: store.theme.background))
       .overlay(alignment: .bottom) {
         QuickToast(message: $store.quickToast)
           .padding(.bottom, 14)
@@ -1316,7 +1362,8 @@ struct ContentView: View {
             .transition(.move(edge: .top).combined(with: .opacity))
         }
       }
-    }.tint(Color(nsColor: .controlAccentColor))
+    }.tint(Color(nsColor: store.theme.accent))
+      .accentColor(Color(nsColor: store.theme.accent))
       .toolbar {
         ToolbarItem(placement: .primaryAction) {
           UpgradeAvailableChip(controller: store.appUpgrade)
@@ -1330,7 +1377,6 @@ struct PaneTree: View {
   let tab: String
   @State private var ratios: [String: Double] = [:]
   @State private var ratioPaneIDs: [String] = []
-  @State private var resizing: String?
   var body: some View {
     GeometryReader { geometry in
       let pending = store.pendingPaneSplits[tab]
@@ -1338,30 +1384,19 @@ struct PaneTree: View {
       let showingPreview = preview.ids.contains(where: { $0 == pending?.placeholder })
       let layout = PaneLayout(
         node: preview, size: geometry.size, ratios: ratioPaneIDs == preview.ids ? ratios : [:])
+      let sizes: [String: CGSize] = Dictionary(
+        uniqueKeysWithValues: layout.panes.compactMap { pane in
+          Store.layoutPlaceholder(pane.id) ? nil : (pane.id, pane.frame.size)
+        })
       ZStack(alignment: .topLeading) {
         ForEach(layout.panes) { pane in
-          let placeholder = pane.id == pending?.placeholder || Store.layoutPlaceholder(pane.id)
-          GeometryReader { proxy in
-            PaneCard(
-              id: pane.id, starting: placeholder,
-              desiredSize: pane.frame.size
-            )
-            .frame(width: proxy.size.width, height: proxy.size.height)
+          let placeholder = Store.layoutPlaceholder(pane.id)
+          PaneCard(id: pane.id, starting: placeholder, desiredSize: pane.frame.size)
+            .frame(width: pane.frame.width, height: pane.frame.height)
             .clipped()
-          }.frame(width: pane.frame.width, height: pane.frame.height)
-            .offset(x: pane.frame.minX, y: pane.frame.minY)
+            .position(x: pane.frame.midX, y: pane.frame.midY)
             .zIndex(placeholder ? -1 : 0)
             .transition(.identity)
-            .onAppear {
-              if !placeholder && store.paneSizes[pane.id] != pane.frame.size {
-                store.paneSizes[pane.id] = pane.frame.size
-              }
-            }
-            .onChange(of: pane.frame.size) { _, size in
-              if !placeholder && store.paneSizes[pane.id] != size {
-                store.paneSizes[pane.id] = size
-              }
-            }
         }
         ForEach(layout.dividers) { divider in
           Rectangle().fill(Color.clear)
@@ -1383,7 +1418,6 @@ struct PaneTree: View {
             .gesture(
               DragGesture(coordinateSpace: .named("pane-layout-\(tab)"))
                 .onChanged { value in
-                  resizing = divider.id
                   ratioPaneIDs = node.ids
                   let total = divider.vertical ? divider.parent.height : divider.parent.width
                   let position =
@@ -1394,7 +1428,6 @@ struct PaneTree: View {
                     0.9, max(0.1, position / max(1, total - SplitLayout.divider)))
                 }
                 .onEnded { _ in
-                  resizing = nil
                   if let ratio = ratios[divider.id] {
                     store.commitDivider(tab: tab, path: divider.path, ratio: ratio)
                     ratios.removeValue(forKey: divider.id)
@@ -1406,6 +1439,12 @@ struct PaneTree: View {
       }.coordinateSpace(name: "pane-layout-\(tab)")
         .animation(WorkspaceFinder.animation, value: preview.ids)
         .onChange(of: preview.ids) { _, _ in ratios.removeAll() }
+        .onChange(of: geometry.size, initial: true) { _, size in
+          if store.currentTab?.id == tab { store.paneCanvas = (tab, size) }
+        }
+        .onChange(of: sizes, initial: true) { _, sizes in
+          if store.currentTab?.id == tab && store.paneSizes != sizes { store.paneSizes = sizes }
+        }
     }.transition(.identity)
   }
 }
@@ -1499,7 +1538,7 @@ struct PaneCard: View {
       if starting {
         ProgressView().accessibilityLabel("Starting terminal")
           .frame(maxWidth: .infinity, maxHeight: .infinity)
-          .background(Color(nsColor: TerminalAppearance.background))
+          .background(Color(nsColor: store.theme.terminalBackground))
       } else if id.hasPrefix("preview") {
         Text(
           id == "preview-a"
@@ -1507,11 +1546,12 @@ struct PaneCard: View {
             : "❯ cargo build\n   Compiling jam-core\n   Compiling jam-render\n\n    Finished dev profile\n\nWatching for changes…"
         ).font(.system(size: 12, design: .monospaced)).foregroundStyle(.primary)
           .padding(16).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-          .background(Color(nsColor: TerminalAppearance.background))
+          .background(Color(nsColor: store.theme.terminalBackground))
       } else if pane?.exited == true {
         Group {
           if store.restartingPanes.contains(id) {
-            ProgressView("Starting shell…").frame(maxWidth: .infinity, maxHeight: .infinity)
+            ProgressView(pane?.agentRole != nil ? "Resuming agent…" : "Starting shell…")
+              .frame(maxWidth: .infinity, maxHeight: .infinity)
           } else {
             if pane?.agentRole != nil {
               AgentStoppedView(pane: pane!).environmentObject(store)
@@ -1531,7 +1571,7 @@ struct PaneCard: View {
         }
       } else {
         TerminalSurface(
-          pool: store.terminalViews, pane: id, fontScale: store.fontScale,
+          pool: store.terminalViews, pane: id, fontScale: store.fontScale, theme: store.theme,
           desiredSize: store.dragGridSizes[id] ?? terminalSize,
           copyOnSelect: store.config?.copyOnSelect ?? true,
           isAIPane: pane?.isAIPane ?? false,
@@ -1555,11 +1595,11 @@ struct PaneCard: View {
           "\(id)-\(pane?.exited ?? false)"
         ).frame(maxWidth: .infinity, maxHeight: .infinity)
           .padding(terminalInset)
-          .background(Color(nsColor: TerminalAppearance.background))
+          .background(Color(nsColor: store.theme.terminalBackground))
           .overlay {
             if store.awaitingCreatedFrames.contains(id) && store.paneErrors[id] == nil {
               ZStack {
-                Color(nsColor: TerminalAppearance.background)
+                Color(nsColor: store.theme.terminalBackground)
                 ProgressView()
               }.transition(.opacity)
             }
@@ -1575,8 +1615,7 @@ struct PaneCard: View {
       }
     }.clipShape(RoundedRectangle(cornerRadius: 10)).overlay(
       RoundedRectangle(cornerRadius: 10).strokeBorder(
-        store.focus == id
-          ? Color(nsColor: .controlAccentColor).opacity(0.45) : Color.primary.opacity(0.12),
+        Color(nsColor: store.theme.paneBorder(focused: store.focus == id)),
         lineWidth: 1)
     ).shadow(color: .black.opacity(0.07), radius: 10, y: 4).padding(cardInset)
       .background {
@@ -1622,6 +1661,7 @@ struct TerminalSurface: NSViewRepresentable {
   let pool: TerminalViewPool
   let pane: String
   let fontScale: Double
+  let theme: JamTheme
   var desiredSize: CGSize?
   let copyOnSelect: Bool
   let isAIPane: Bool
@@ -1636,10 +1676,15 @@ struct TerminalSurface: NSViewRepresentable {
   }
   func updateNSView(_ host: TerminalSurfaceHost, context: Context) {
     let v = host.terminal
+    guard v.layoutHost === host else { return }
     v.copyOnSelect = copyOnSelect
     v.isAIPane = isAIPane
     v.fontScale = fontScale
-    v.desiredSize = desiredSize
+    v.theme = theme
+    if v.desiredSize != desiredSize {
+      v.desiredSize = desiredSize
+      host.needsLayout = true
+    }
     v.onFocus = onFocus
     v.isCurrentFocus = isCurrentFocus
     v.onReady = onReady
@@ -1681,6 +1726,9 @@ final class TerminalNSView: NSView, NSTextInputClient, NSMenuItemValidation {
   var lastError: String?
   var receivedErrorState = false
   var fontScale: Double = 1
+  var theme = JamTheme.midnight {
+    didSet { if oldValue != theme { updateTerminalAppearance() } }
+  }
   var desiredSize: CGSize?
   var focused = false
   var tracking: NSTrackingArea?
@@ -1717,7 +1765,7 @@ final class TerminalNSView: NSView, NSTextInputClient, NSMenuItemValidation {
     self.pane = pane
     super.init(frame: .zero)
     wantsLayer = true
-    layer?.backgroundColor = TerminalAppearance.background.cgColor
+    layer?.backgroundColor = theme.terminalBackground.cgColor
     setAccessibilityElement(true)
     setAccessibilityRole(.textArea)
     setAccessibilityLabel("Terminal")
@@ -1818,7 +1866,7 @@ final class TerminalNSView: NSView, NSTextInputClient, NSMenuItemValidation {
   }
   private func updateTerminalAppearance() {
     effectiveAppearance.performAsCurrentDrawingAppearance {
-      guard let background = TerminalAppearance.background.usingColorSpace(.sRGB),
+      guard let background = theme.terminalBackground.usingColorSpace(.sRGB),
         let foreground = NSColor.labelColor.usingColorSpace(.sRGB)
       else { return }
       layer?.backgroundColor = background.cgColor

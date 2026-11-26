@@ -61,6 +61,11 @@ enum CoordinateCmd {
     Run {
         agent: String,
     },
+    #[command(hide = true)]
+    ShellReturn {
+        agent: String,
+        status: i32,
+    },
     List {
         /// Include archived tasks, agents, and messages.
         #[arg(long)]
@@ -410,6 +415,9 @@ fn main() -> Result<()> {
     if let Command::Coordinate(CoordinateCmd::Run { ref agent }) = a.command {
         return coordination::run(agent);
     }
+    if let Command::Coordinate(CoordinateCmd::ShellReturn { ref agent, status }) = a.command {
+        return coordination::return_to_shell(agent, status);
+    }
 
     if let Command::Skill(command) = &a.command {
         if a.remote.is_some() {
@@ -543,7 +551,7 @@ fn main() -> Result<()> {
         Command::Coordinate(cmd) => {
             use CoordinateCmd::*;
             let mut value = match cmd {
-                Run { .. } | Models { .. } => unreachable!(),
+                Run { .. } | ShellReturn { .. } | Models { .. } => unreachable!(),
                 List { all } => serde_json::json!({"action":"list","include_archived":all}),
                 Start {
                     workspace,

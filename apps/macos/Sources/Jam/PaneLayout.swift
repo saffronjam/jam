@@ -21,6 +21,23 @@ struct PaneLayout {
   init(node: Node, size: CGSize, ratios: [String: Double] = [:]) {
     append(node, in: CGRect(origin: .zero, size: size), path: [], ratios: ratios)
   }
+
+  func neighbor(of id: String) -> String? {
+    guard let source = panes.first(where: { $0.id == id })?.frame else { return nil }
+    func rank(_ target: CGRect) -> (Int, CGFloat, CGFloat) {
+      let sharedWidth = min(source.maxX, target.maxX) - max(source.minX, target.minX)
+      let sharedHeight = min(source.maxY, target.maxY) - max(source.minY, target.minY)
+      let gap = SplitLayout.divider + 0.001
+      let sharesEdge =
+        (sharedWidth > 0 && sharedHeight >= -gap) || (sharedHeight > 0 && sharedWidth >= -gap)
+      let dx = max(0, target.minX - source.midX, source.midX - target.maxX)
+      let dy = max(0, target.minY - source.midY, source.midY - target.maxY)
+      let centerX = target.midX - source.midX
+      let centerY = target.midY - source.midY
+      return (sharesEdge ? 0 : 1, dx * dx + dy * dy, centerX * centerX + centerY * centerY)
+    }
+    return panes.lazy.filter { $0.id != id }.min { rank($0.frame) < rank($1.frame) }?.id
+  }
   private mutating func append(
     _ node: Node, in rect: CGRect, path: [Bool], ratios: [String: Double]
   ) {

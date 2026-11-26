@@ -1,9 +1,18 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
-  <title>Jam</title>
-  <rect x="40" y="40" width="944" height="944" rx="220" fill="#191817"/>
-  <rect x="164" y="220" width="696" height="584" rx="64" fill="#252320" stroke="#ff9b45" stroke-width="24"/>
-  <path d="M164 356H860M512 356V804" fill="none" stroke="#ff9b45" stroke-width="24"/>
-  <path d="M260 464L332 528L260 592M606 650H736" fill="none" stroke="#fff1df" stroke-width="36" stroke-linecap="round" stroke-linejoin="round"/>
-  <circle cx="256" cy="288" r="16" fill="#ff9b45"/>
-  <circle cx="316" cy="288" r="16" fill="#ff9b45"/>
+  <title>Blue preserve jar with a terminal prompt</title>
+  <rect width="1024" height="1024" rx="212" fill="#809bc1"/>
+
+  <g stroke="#17283f" stroke-width="18" stroke-linejoin="round">
+    <!-- Glass shoulders taper into a straight-sided jar with a heavy round foot. -->
+    <path d="M192 272H832L907 392Q932 430 932 483V801C932 906 872 967 770 967H254C152 967 92 906 92 801V483Q92 430 117 392Z" fill="#324f91"/>
+    <path d="M92 461Q512 495 932 461V730Q512 777 92 730Z" fill="#f6efdc"/>
+
+    <!-- Scalloped fabric held by a narrow band below the metal lid. -->
+    <path d="M197 195H827Q903 213 961 284C975 301 966 316 947 316C919 316 909 306 886 306C847 306 841 341 800 341C758 341 755 312 712 312C669 312 662 341 620 341C577 341 573 312 531 312C488 312 482 341 439 341C397 341 392 312 350 312C307 312 301 341 259 341C216 341 208 306 168 306C137 306 114 316 79 316C58 316 49 301 63 284Q121 213 197 195Z" fill="#a7c9e6"/>
+    <path d="M152 130H872V205H152Z" fill="#7196be"/>
+    <path d="M135 143V100Q135 41 196 41H828Q889 41 889 100V143Q889 158 874 158H150Q135 158 135 143Z" fill="#cee0ee"/>
+  </g>
+
+  <path d="M183 380Q160 405 155 433M150 783V815Q150 858 177 879" fill="none" stroke="#6887be" stroke-width="22" stroke-linecap="round"/>
+  <path d="M340 526L446 611L340 696M538 680H688" fill="none" stroke="#17283f" stroke-width="40" stroke-linecap="square" stroke-linejoin="miter"/>
 </svg>

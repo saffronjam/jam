@@ -78,14 +78,18 @@ def macos_ui_tests():
         shell = directory / 'test-shell'
         shell.write_text("#!/bin/sh\nPS1='jam-test> ' exec /bin/bash --noprofile --norc -i\n")
         shell.chmod(0o700)
+        claude = directory / 'claude'
+        claude.write_text("#!/bin/sh\nprintf '\\nJam fixture agent ready\\n'\nexec /bin/cat\n")
+        claude.chmod(0o700)
         env = dict(os.environ, JAM_SOCKET=str(socket), JAM_STATE_DIR=str(state), SHELL=str(shell),
                    JAM_DAEMON=str(ROOT / 'target/debug/jamd'),
+                   PATH=f'{directory}{os.pathsep}{os.environ["PATH"]}',
                    XDG_CONFIG_HOME=str(directory / 'config'),
                    JAM_DEFAULTS_SUITE='dev.saffronjam.fixture.' + directory.name)
         # Usage discovery can include configured logins without a running agent.
         # Use fixture-owned profile directories for every provider.
-        env.update(CODEX_HOME=str(directory / 'codex'), CLAUDE_CONFIG_DIR=str(directory / 'claude'),
-                   CLAUDE_SECURESTORAGE_CONFIG_DIR=str(directory / 'claude'))
+        env.update(CODEX_HOME=str(directory / 'codex'), CLAUDE_CONFIG_DIR=str(directory / 'claude-home'),
+                   CLAUDE_SECURESTORAGE_CONFIG_DIR=str(directory / 'claude-home'))
         env.pop('CLAUDE_CODE_OAUTH_TOKEN', None)
         daemon = subprocess.Popen([str(ROOT / 'target/debug/jamd')], env=env)
         try:

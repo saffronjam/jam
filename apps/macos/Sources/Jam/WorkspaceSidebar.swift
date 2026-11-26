@@ -6,7 +6,7 @@ struct WorkspaceSidebar: NSViewRepresentable {
   @ObservedObject var store: Store
   func makeCoordinator() -> Coordinator { Coordinator(store) }
   func makeNSView(context: Context) -> NSScrollView {
-    let scroll = WorkspaceScrollView()
+    let scroll = WorkspaceScrollView(frame: .zero)
     scroll.contentView = WorkspaceClipView()
     scroll.contentView.drawsBackground = false
     scroll.horizontalScrollElasticity = .none
@@ -29,10 +29,6 @@ struct WorkspaceSidebar: NSViewRepresentable {
     outline.coordinator = context.coordinator
     context.coordinator.outline = outline
     scroll.documentView = outline
-    scroll.hasVerticalScroller = true
-    scroll.hasHorizontalScroller = false
-    scroll.autohidesScrollers = true
-    scroll.scrollerStyle = .overlay
     scroll.drawsBackground = false
     updateNSView(scroll, context: context)
     return scroll
@@ -41,6 +37,10 @@ struct WorkspaceSidebar: NSViewRepresentable {
     guard let outline = view.documentView as? WorkspaceOutline else { return }
     context.coordinator.store = store
     context.coordinator.update(outline)
+    if context.coordinator.lastTheme != store.theme {
+      context.coordinator.lastTheme = store.theme
+      outline.enumerateAvailableRowViews { row, _ in row.needsDisplay = true }
+    }
   }
   final class Item {
     let key: String
@@ -72,6 +72,7 @@ struct WorkspaceSidebar: NSViewRepresentable {
     var rowHeights: [String: CGFloat] = [:]
     var updating = false
     var lastSelected = ""
+    var lastTheme: JamTheme?
     var editing: String?
     init(_ store: Store) { self.store = store }
     var activeItems: [Item] {
@@ -992,7 +993,10 @@ final class WorkspaceRow: NSTableRowView {
     }
   }
   override func drawSelection(in dirtyRect: NSRect) {
-    fill(tint ?? groupTint ?? .controlAccentColor, opacity: 0.10)
+    let outline = enclosingScrollView?.documentView as? WorkspaceOutline
+    fill(
+      tint ?? groupTint ?? outline?.coordinator?.store.theme.accent ?? .controlAccentColor,
+      opacity: 0.10)
     drawTreeAndStatus()
   }
 }
@@ -1017,6 +1021,36 @@ final class WorkspaceClipView: NSClipView {
 }
 
 final class WorkspaceScrollView: NSScrollView {
+  private var scrollerTimer: Timer?
+
+  override init(frame frameRect: NSRect) {
+    super.init(frame: frameRect)
+    scrollerStyle = .overlay
+    hasVerticalScroller = true
+    hasHorizontalScroller = false
+    autohidesScrollers = true
+    verticalScroller?.alphaValue = 0
+  }
+  required init?(coder: NSCoder) { fatalError("unsupported") }
+  deinit { scrollerTimer?.invalidate() }
+
+  override func scrollWheel(with event: NSEvent) {
+    if event.scrollingDeltaY != 0,
+      let documentView, documentView.frame.height > contentView.bounds.height
+    {
+      verticalScroller?.alphaValue = 1
+      scrollerTimer?.invalidate()
+      scrollerTimer = Timer.scheduledTimer(withTimeInterval: 0.75, repeats: false) {
+        [weak self] _ in
+        NSAnimationContext.runAnimationGroup { context in
+          context.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : 0.2
+          self?.verticalScroller?.animator().alphaValue = 0
+        }
+      }
+    }
+    super.scrollWheel(with: event)
+  }
+
   override func rightMouseDown(with event: NSEvent) {
     guard let outline = documentView as? WorkspaceOutline,
       let menu = outline.coordinator?.menu(nil)

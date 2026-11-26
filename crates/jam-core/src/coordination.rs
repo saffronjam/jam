@@ -307,13 +307,20 @@ impl Board {
         Ok(self.all("agent")?.into_iter().find(|a| a["pane"] == pane))
     }
     pub fn add(&mut self, spec: AgentSpec<'_>) -> Result<Value> {
+        self.add_with_origin(spec, false)
+    }
+    pub(crate) fn add_with_origin(
+        &mut self,
+        spec: AgentSpec<'_>,
+        shell_launched: bool,
+    ) -> Result<Value> {
         self.db.execute_batch("BEGIN IMMEDIATE")?;
-        let result = self.add_inner(spec);
+        let result = self.add_inner(spec, shell_launched);
         self.db
             .execute_batch(if result.is_ok() { "COMMIT" } else { "ROLLBACK" })?;
         result
     }
-    fn add_inner(&mut self, spec: AgentSpec<'_>) -> Result<Value> {
+    fn add_inner(&mut self, spec: AgentSpec<'_>, shell_launched: bool) -> Result<Value> {
         let AgentSpec {
             workspace,
             root,
@@ -363,7 +370,7 @@ impl Board {
                 crate::config::host_settings().max_agents_per_coordinator
             )
         }
-        let agent = json!({"id":id(),"workspace":workspace,"root":root,"pane":pane,"provider":provider,"role":role,"path":path,"parent":parent,"session":null,"paused":false,"verified_launch":true,"bypass":role == "coordinator","started":false});
+        let agent = json!({"id":id(),"workspace":workspace,"root":root,"pane":pane,"provider":provider,"role":role,"path":path,"parent":parent,"session":null,"paused":false,"verified_launch":!shell_launched,"shell_launched":shell_launched,"bypass":role == "coordinator","started":false});
         let mut agent = agent;
         if let Some(parent) = parent {
             let owner = self.get(parent)?;
@@ -518,6 +525,18 @@ impl Board {
                 }
                 if v["session"].as_str().is_none() {
                     bail!("Provider did not supply a session ID")
+                }
+                if v["event"] == "SessionEnd" && shell_launched(&a) {
+                    // Only a deliberate exit releases a manually started session. A server
+                    // shutdown also ends the provider, but must preserve it for restore.
+                    if v["run_id"].is_null()
+                        && v["session"] == a["session"]
+                        && matches!(v["reason"].as_str(), Some("prompt_input_exit" | "logout"))
+                    {
+                        detach_shell_session(&mut a);
+                        self.put("agent", &a)?;
+                    }
+                    return Ok(a);
                 }
                 a["session"] = v["session"].clone();
                 if v["ready"].is_boolean() {
@@ -1062,9 +1081,92 @@ fn instructions(a: &Value) -> Result<Value> {
     }
     Ok(result)
 }
-pub fn pane_command(pane: &str) -> Result<Option<Vec<String>>> {
+fn shell_launched(agent: &Value) -> bool {
+    // Before origins were stored, explicit Jam launches always wrote an operation
+    // key (even when null). Hook-created workers had neither that key nor a parent.
+    agent["shell_launched"].as_bool().unwrap_or_else(|| {
+        agent["role"] == "worker" && agent["parent"].is_null() && agent.get("operation").is_none()
+    })
+}
+
+fn detach_shell_session(agent: &mut Value) {
+    agent["pane"] = Value::Null;
+    agent["ready"] = json!(false);
+    agent["paused"] = json!(true);
+    agent["closed"] = json!(true);
+    agent["archived"] = json!(true);
+    agent["recovery"] = Value::Null;
+}
+
+pub(crate) fn release_legacy_shell(agent: &mut Value, exited: bool) -> bool {
+    if exited
+        && agent.get("shell_launched").is_none()
+        && shell_launched(agent)
+        && agent["activity_event"] == "SessionEnd"
+        && agent["cancel_hold"] == true
+        && agent["recovery"]["state"] == "suppressed"
+        && agent["paused"] != true
+    {
+        detach_shell_session(agent);
+        return true;
+    }
+    false
+}
+
+/// The restored pane's launcher execs this after the foreground provider exits.
+pub fn return_to_shell(agent: &str, status: i32) -> Result<()> {
+    use std::os::unix::process::CommandExt;
+    let pane = std::env::var("JAM_PANE_ID").context("Missing shell pane")?;
+    let mut returning = false;
+    Board::open()?.update_agent(agent, |a| {
+        if !shell_launched(a) || a["pane"] != pane || a["paused"] == true {
+            return;
+        }
+        // Let the daemon surface a launch failure or recover a crashed working
+        // agent. Neither is an intentional exit back to the prompt.
+        if a["launch_error"].is_string()
+            || (status != 0 && status != 128 + libc::SIGINT && crate::recovery::should_restart(a))
+        {
+            return;
+        }
+        detach_shell_session(a);
+        returning = true;
+    })?;
+    if !returning {
+        return Ok(());
+    }
+    let args = shell_command();
+    Err(std::process::Command::new(&args[0]).args(&args[1..]).exec())
+        .context("Could not start login shell")
+}
+
+pub(crate) fn release_shell_binding(agent: &str, pane: &str, session: &str) -> Result<()> {
+    Board::open()?.update_agent(agent, |a| {
+        if shell_launched(a) && a["pane"] == pane && a["paused"] != true && a["session"] == session
+        {
+            detach_shell_session(a);
+        }
+    })
+}
+
+fn shell_command() -> Vec<std::ffi::OsString> {
+    let shell = std::env::var_os("SHELL").unwrap_or_else(|| "/bin/sh".into());
+    let login = matches!(
+        std::path::Path::new(&shell)
+            .file_name()
+            .and_then(|n| n.to_str()),
+        Some("zsh" | "bash" | "sh" | "fish")
+    );
+    let mut args = vec![shell];
+    if login {
+        args.push("-l".into());
+    }
+    args
+}
+
+pub(crate) fn pane_command(pane: &str) -> Result<Vec<std::ffi::OsString>> {
     let Some(a) = Board::open()?.agent_for_pane(pane)? else {
-        return Ok(None);
+        return Ok(shell_command());
     };
     if !crate::config::agent_enabled(field(&a, "provider")?) {
         bail!("Agent integration is disabled in Settings")
@@ -1073,12 +1175,32 @@ pub fn pane_command(pane: &str) -> Result<Option<Vec<String>>> {
         bail!("Coordinator is paused. Resume it explicitly")
     }
     let exe = crate::cli_path()?;
-    Ok(Some(vec![
-        exe.to_string_lossy().into(),
+    let id = field(&a, "id")?;
+    if shell_launched(&a) {
+        // Keep a PTY session leader across the handoff. Caught signals reset
+        // in the child, so Ctrl-C still reaches the provider. Pass all paths as
+        // argv, never as shell source or keystrokes into a user's startup files.
+        let script = r#"trap : INT QUIT
+tty_state=$(stty -g)
+"$1" coordinate run "$2"
+status=$?
+stty "$tty_state"
+exec "$1" coordinate shell-return "$2" "$status""#;
+        return Ok(vec![
+            "/bin/sh".into(),
+            "-c".into(),
+            script.into(),
+            "jam".into(),
+            exe.into_os_string(),
+            id.into(),
+        ]);
+    }
+    Ok(vec![
+        exe.into_os_string(),
         "coordinate".into(),
         "run".into(),
-        field(&a, "id")?.into(),
-    ]))
+        id.into(),
+    ])
 }
 fn hook_ready(input: &Value) -> Option<bool> {
     match input["hook_event_name"].as_str()? {
@@ -1092,7 +1214,7 @@ pub fn hook(input: &Value, provider: &str) -> Option<String> {
     let pane = std::env::var("JAM_PANE_ID").ok()?;
     crate::recovery::record_hook(&pane, input);
     let flags = observed_flags(provider);
-    let v = json!({"launch_flags":flags,"action":"register","pane":pane,"provider":provider,"session":input["session_id"],"permission_mode":input["permission_mode"],"model":input["model"],"config_directory":std::env::var(if provider == "claude" { "CLAUDE_CONFIG_DIR" } else { "CODEX_HOME" }).ok(),"bypass":input["bypass"],"ready": hook_ready(input),"event":input["hook_event_name"],"run_id":std::env::var("JAM_AGENT_RUN_ID").ok(),"socket":std::env::var("CLAUDE_CODE_MESSAGING_SOCKET").ok(),"token":std::env::var("CLAUDE_CODE_MESSAGING_TOKEN").ok()});
+    let v = json!({"launch_flags":flags,"action":"register","pane":pane,"provider":provider,"session":input["session_id"],"permission_mode":input["permission_mode"],"model":input["model"],"config_directory":std::env::var(if provider == "claude" { "CLAUDE_CONFIG_DIR" } else { "CODEX_HOME" }).ok(),"bypass":input["bypass"],"ready": hook_ready(input),"event":input["hook_event_name"],"reason":input["reason"],"run_id":std::env::var("JAM_AGENT_RUN_ID").ok(),"socket":std::env::var("CLAUDE_CODE_MESSAGING_SOCKET").ok(),"token":std::env::var("CLAUDE_CODE_MESSAGING_TOKEN").ok()});
     if !["SessionStart", "UserPromptSubmit"]
         .contains(&input["hook_event_name"].as_str().unwrap_or(""))
     {
@@ -1454,6 +1576,26 @@ pub(crate) fn notify_agent(agent: &Value, nudge: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn legacy_shell_exit_is_distinct_from_a_dedicated_worker_or_an_interrupt() {
+        let shell = json!({"role":"worker","pane":"terminal","activity_event":"SessionEnd","cancel_hold":true,"recovery":{"state":"suppressed"},"session":"saved"});
+        let mut exiting = shell.clone();
+        assert!(release_legacy_shell(&mut exiting, true));
+        assert!(exiting["pane"].is_null());
+        assert_eq!(exiting["session"], "saved");
+        assert!(!release_legacy_shell(&mut shell.clone(), false));
+        for (key, value) in [
+            ("operation", Value::Null),
+            ("parent", json!("coordinator")),
+            ("role", json!("coordinator")),
+            ("shell_launched", json!(false)),
+            ("activity_event", json!("Interrupt")),
+        ] {
+            let mut active = shell.clone();
+            active[key] = value;
+            assert!(!release_legacy_shell(&mut active, true));
+        }
+    }
     #[test]
     fn claude_resumes_only_when_a_transcript_exists() {
         let root = tempfile::tempdir().unwrap();

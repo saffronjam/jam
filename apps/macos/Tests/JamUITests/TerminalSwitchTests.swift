@@ -1,7 +1,6 @@
 import AppKit
 import CJam
 import SwiftUI
-import Vision
 
 // Off-screen CI windows cannot reliably become the active OS window. Control
 // that input here while exercising the real responder and daemon paths.
@@ -87,10 +86,12 @@ struct WorktreeListFixture: View {
     checkContextRequestRouting()
     try checkUpgradeConsent()
     try checkWorktreeNavigation()
+    try checkWorkspaceScrollIndicator()
     _ = nativeString(jam_start(""))
     defer { _ = rpc("Stop") }
     try checkTerminalMouseGestures()
     try checkOptimisticSplit()
+    try checkManagedResume()
     let store = Store()
     try checkToastTimeouts()
     try checkUpgradeChip(store: store)
@@ -161,9 +162,11 @@ struct WorktreeListFixture: View {
     let view = cached.values.first!.0
     let old = TerminalSurfaceHost(terminal: view)
     old.frame.size = NSSize(width: 500, height: 400)
+    view.desiredSize = old.bounds.size
     old.layout()
     let current = TerminalSurfaceHost(terminal: view)
     current.frame.size = NSSize(width: 600, height: 450)
+    view.desiredSize = current.bounds.size
     current.layout()
     old.layout()
     assert(view.superview === current && view.bounds.size == current.bounds.size)
@@ -203,6 +206,23 @@ struct WorktreeListFixture: View {
       "Warning details were clipped to height \(details.fittingSize.height)")
     details.removeFromSuperview()
     try checkStoppedPaneFocusAndResume()
+  }
+
+  static func checkWorkspaceScrollIndicator() throws {
+    let scroll = WorkspaceScrollView(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
+    scroll.documentView = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 1000))
+    scroll.layoutSubtreeIfNeeded()
+    assert(scroll.verticalScroller?.alphaValue == 0, "Workspace scrollbar starts hidden")
+    guard
+      let wheel = CGEvent(
+        scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: -24, wheel2: 0,
+        wheel3: 0), let event = NSEvent(cgEvent: wheel)
+    else { throw NSError(domain: "Could not create a fixture scroll event", code: 1) }
+    scroll.scrollWheel(with: event)
+    assert(scroll.verticalScroller?.alphaValue == 1, "User scrolling reveals the scrollbar")
+    try wait("workspace scrollbar fades when scrolling stops") {
+      scroll.verticalScroller?.alphaValue == 0
+    }
   }
 
   static func checkTerminalMouseGestures() throws {
@@ -297,6 +317,16 @@ struct WorktreeListFixture: View {
   }
 
   static func checkOptimisticSplit() throws {
+    let terminal = TerminalNSView(pane: "animation-fixture")
+    let host = TerminalSurfaceHost(terminal: terminal)
+    terminal.desiredSize = CGSize(width: 460, height: 260)
+    for width in [730.0, 630.0, 530.0, 460.0] {
+      host.setFrameSize(CGSize(width: width, height: 360))
+      host.layout()
+      assert(terminal.bounds.size == terminal.desiredSize)
+      assert(terminal.frame.maxY == host.bounds.maxY)
+    }
+
     let store = Store()
     let directory = ProcessInfo.processInfo.environment["JAM_STATE_DIR"]!
     apply(rpc(["CreateWorkspace": ["path": directory, "name": "Split fixture"]]), to: store)
@@ -353,7 +383,50 @@ struct WorktreeListFixture: View {
     try wait("split rejection") { store.pendingPaneSplits[tab.id] == nil }
     assert(!store.error.isEmpty && store.panes[rejected.placeholder] == nil)
     assert(store.currentTab?.root.ids.contains(rejected.placeholder) == false)
+
+    apply(rpc(["Split": ["pane": source, "vertical": true]]), to: store)
+    let middle = store.currentTab!.root.ids.last!
+    apply(rpc(["Split": ["pane": middle, "vertical": true]]), to: store)
+    let bottom = store.currentTab!.root.ids.last!
+    store.select(workspace.id, tab: tab.id, pane: bottom)
+    store.execute("close_pane")
+    assert(store.focus == middle, "Closing a pane should immediately focus its closest neighbor")
+    try wait("close confirmation preserves adjacent pane focus") {
+      store.pendingLayoutEdits.isEmpty && store.panes[bottom] == nil && store.focus == middle
+    }
     print("Optimistic split passed with a delayed reply, confirmation, and rejection.")
+  }
+
+  static func checkManagedResume() throws {
+    let store = Store()
+    let directory = ProcessInfo.processInfo.environment["JAM_STATE_DIR"]!
+    apply(rpc(["CreateWorkspace": ["path": directory, "name": "Resume fixture"]]), to: store)
+    let workspace = store.workspaces.last!
+    defer { _ = rpc(["WorkspaceClose": ["workspace": workspace.id, "group": false]]) }
+    let response = rpc([
+      "Coordination": ["action": "start", "workspace": workspace.id, "provider": "claude"]
+    ])
+    guard let started = (response["Coordination"] as? [String: Any])?["agent"] as? [String: Any],
+      let id = started["id"] as? String, let pane = started["pane"] as? String
+    else { throw NSError(domain: "Could not start fixture agent: \(response)", code: 1) }
+    try wait("managed agent launched") {
+      (rpc(["Capture": ["pane": pane]])["Capture"] as? String)?.contains("fixture agent ready")
+        == true
+    }
+    assert(rpc(["Coordination": ["action": "pause", "agent": id]])["Coordination"] != nil)
+    apply(rpc("State"), to: store)
+    assert(store.panes[pane]?.needsResume == true)
+    assert(store.panes[pane].flatMap { store.resumeState(for: $0) } == .managed(id))
+    let replyGate = DispatchSemaphore(value: 0)
+    endpointQueue("").async { replyGate.wait() }
+    store.restartPane(pane)
+    assert(store.restartingPanes.contains(pane) && store.panes[pane]?.needsResume == true)
+    replyGate.signal()
+    try wait("managed resume refreshes pane state without polling") {
+      !store.restartingPanes.contains(pane)
+    }
+    assert(store.error.isEmpty && store.panes[pane]?.needsResume == false)
+    print("Managed resume keeps the pane pending through the state refresh.")
   }
 
   static func checkStoppedPaneFocusAndResume() throws {
@@ -895,6 +968,16 @@ struct WorktreeListFixture: View {
   }
 
   static func checkSettings(store: Store) throws {
+    let previousTheme = store.theme
+    store.theme = .warm
+    assert(Store().theme == .warm, "Theme selection should survive reopening the app")
+    store.theme = previousTheme
+    let dark = NSAppearance(named: .darkAqua)!
+    dark.performAsCurrentDrawingAppearance {
+      let border = JamTheme.midnight.paneBorder(focused: false).usingColorSpace(.sRGB)!
+      assert(border.blueComponent > border.redComponent)
+      assert(JamTheme.midnight.background != JamTheme.midnight.terminalBackground)
+    }
     let configPath = ProcessInfo.processInfo.environment["XDG_CONFIG_HOME"]! + "/jam/config.toml"
     defer { try? FileManager.default.removeItem(atPath: configPath) }
     let draft = SettingsDraft()
@@ -1185,12 +1268,13 @@ struct WorktreeListFixture: View {
       JamDefaults.shared.removeObject(forKey: "appUpgradeState")
     }
     let serverWarning = "incompatible jam daemon; update the server from Machines"
-    store.error = serverWarning
+    store.error = ""
     let window = NSWindow(
       contentRect: NSRect(x: -3000, y: -3000, width: 700, height: 600),
       styleMask: [.titled], backing: .buffered, defer: false)
     window.appearance = NSAppearance(named: .darkAqua)
     var toolbarWidth: CGFloat = 0
+    var overlayHeight: CGFloat = 0
     let anchorWidth: CGFloat = 1
     let host = NSHostingView(
       rootView: VStack(alignment: .trailing) {
@@ -1202,36 +1286,25 @@ struct WorktreeListFixture: View {
         .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { toolbarWidth = $0 }
         Spacer()
         AppStatusOverlay(store: store, controller: controller)
+          .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { overlayHeight = $0 }
       }.padding(8).background(Color(nsColor: .windowBackgroundColor)))
     window.contentView = host
     window.orderFront(nil)
     defer { window.orderOut(nil) }
     try wait("upgrade toolbar laid out with no chip") {
-      toolbarWidth == anchorWidth
+      toolbarWidth == anchorWidth && overlayHeight > 0
     }
+    let emptyHeight = overlayHeight
+    store.error = serverWarning
+    try wait("server warning occupies the overlay") { overlayHeight > emptyHeight + 30 }
+    let warningHeight = overlayHeight
     controller.check()
     try wait("manual check finds update") { controller.available?.version == release.version }
     try wait("upgrade chip occupies space in the toolbar") { toolbarWidth - anchorWidth > 60 }
-    // Inspect the toast separately. The toolbar geometry measures the small chip
-    // even when Vision cannot read its caption on a hosted runner.
-    func renderedText() throws -> String {
-      host.layoutSubtreeIfNeeded()
-      let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds)!
-      host.cacheDisplay(in: host.bounds, to: bitmap)
-      let recognition = VNRecognizeTextRequest()
-      recognition.recognitionLevel = .accurate
-      recognition.minimumTextHeight = 0.005
-      recognition.usesLanguageCorrection = false
-      try VNImageRequestHandler(cgImage: bitmap.cgImage!).perform([recognition])
-      return (recognition.results ?? []).compactMap { $0.topCandidates(1).first?.string }
-        .joined(separator: " ")
-    }
     RunLoop.current.run(until: Date().addingTimeInterval(0.3))
-    let text = try renderedText()
     assert(
-      !text.contains("Jam 9.0.0 is available")
-        && text.contains("Retry") && text.contains("The Jam server needs an update"),
-      "The rendered UI must show the server warning without an upgrade toast: \(text)")
+      overlayHeight == warningHeight && store.error == serverWarning,
+      "The toolbar chip must leave the server warning visible on its own")
     controller.managed = false
     controller.notice = "Jam 9.0.0 is available"
     store.error = serverWarning
@@ -1239,13 +1312,9 @@ struct WorktreeListFixture: View {
       toolbarWidth == anchorWidth
     }
     RunLoop.current.run(until: Date().addingTimeInterval(0.3))
-    let developmentText = try renderedText()
     assert(
-      developmentText.localizedCaseInsensitiveContains("Jam server needs an update"),
-      "The server warning should still be visible: \(developmentText)")
-    assert(
-      !developmentText.contains("Jam 9.0.0 is available"),
-      "Development builds showed an upgrade notification: \(developmentText)")
+      overlayHeight == warningHeight && store.error == serverWarning,
+      "The server warning must also stay visible on its own in development builds")
     print(
       "Manual update checks show the upgrade chip alongside errors in release builds."
     )

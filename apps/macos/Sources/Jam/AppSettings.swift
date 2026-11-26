@@ -104,6 +104,7 @@ struct AppSettingsView: View {
   let close: () -> Void
   @StateObject private var draft = SettingsDraft()
   @State private var section = "General"
+  @State private var theme: JamTheme
   @State private var modelProvider = "claude"
   @State private var modelEndpoint = ""
   @State private var catalogs: [String: AgentModelCatalog] = [:]
@@ -112,16 +113,19 @@ struct AppSettingsView: View {
   @State private var recording: String?
   @State private var recorder: Any?
   private let categories = [
-    ("General", "slider.horizontal.3"), ("Agents", "person.2"),
-    ("Coordination", "person.3.sequence"),
-    ("Appearance", "paintbrush"), ("Keyboard", "keyboard"),
+    ("General", Image(systemName: "slider.horizontal.3")),
+    ("Agents", Image(systemName: "person.2")),
+    ("Coordination", Image(nsImage: CoordinatorMark.image).renderingMode(.template)),
+    ("Appearance", Image(systemName: "paintbrush")), ("Keyboard", Image(systemName: "keyboard")),
   ]
   init(store: Store, initialSection: String = "General", close: @escaping () -> Void) {
     self.store = store
     self.close = close
     _section = State(initialValue: initialSection)
+    _theme = State(initialValue: store.theme)
   }
   var body: some View {
+    let appearance = draft.loaded ? draft.config.appearance : store.config?.appearance
     HStack(spacing: 0) {
       sidebar
       VStack(alignment: .leading, spacing: 0) {
@@ -149,12 +153,10 @@ struct AppSettingsView: View {
         }
         footer
       }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }.background(Color(nsColor: .windowBackgroundColor))
+    }.background(Color(nsColor: theme.background))
+      .tint(Color(nsColor: theme.accent))
       .interactiveDismissDisabled(draft.saving)
-      .preferredColorScheme(
-        store.config?.appearance == "dark"
-          ? .dark : store.config?.appearance == "light" ? .light : nil
-      )
+      .preferredColorScheme(appearance == "dark" ? .dark : appearance == "light" ? .light : nil)
       .onAppear {
         recorder = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
           guard store.showSettings, event.window?.sheetParent != nil,
@@ -181,7 +183,7 @@ struct AppSettingsView: View {
         }
       }.onDisappear { if let recorder { NSEvent.removeMonitor(recorder) } }
   }
-  private func categoryButton(_ title: String, symbol: String) -> some View {
+  private func categoryButton(_ title: String, icon: Image) -> some View {
     Button {
       recording = nil
       section = title
@@ -190,13 +192,13 @@ struct AppSettingsView: View {
       Label {
         Text(title).font(.system(size: 13, weight: .medium))
       } icon: {
-        Image(systemName: symbol).font(.system(size: 13)).frame(width: 20)
+        icon.font(.system(size: 13)).frame(width: 20)
       }.frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 10).frame(height: 34)
         .contentShape(Rectangle())
         .foregroundStyle(section == title ? Color.white : Color.primary)
         .background(
-          section == title ? Color.accentColor : Color.clear,
+          section == title ? Color(nsColor: theme.selectionFill) : Color.clear,
           in: RoundedRectangle(cornerRadius: 6))
     }.buttonStyle(.plain)
       .accessibilityAddTraits(section == title ? .isSelected : [])
@@ -204,10 +206,10 @@ struct AppSettingsView: View {
   private var sidebar: some View {
     VStack(alignment: .leading, spacing: 4) {
       ForEach(categories, id: \.0) { category in
-        categoryButton(category.0, symbol: category.1)
+        categoryButton(category.0, icon: category.1)
       }
       Spacer(minLength: 16)
-      categoryButton("Tasks and Agents", symbol: "checklist")
+      categoryButton("Tasks and Agents", icon: Image(systemName: "checklist"))
       Button {
         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: draft.path)])
       } label: {
@@ -222,8 +224,7 @@ struct AppSettingsView: View {
     }.padding(.horizontal, 8).padding(.top, 16).padding(.bottom, 8)
       .frame(width: 180, alignment: .leading)
       .frame(maxHeight: .infinity)
-      .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-      .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.primary.opacity(0.1)))
+      .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 12))
       .padding(.leading, 8).padding(.vertical, 8)
   }
   private var footer: some View {
@@ -240,10 +241,12 @@ struct AppSettingsView: View {
         if section != "Tasks and Agents" {
           Button("Save") {
             draft.save {
+              store.theme = theme
               store.reloadConfig()
               close()
             }
           }.keyboardShortcut(.defaultAction).buttonStyle(.borderedProminent)
+            .tint(Color(nsColor: theme.selectionFill))
             .disabled(
               !draft.loaded || draft.conflict || draft.saving
                 || WorktreePathPreview(template: draft.config.worktreesDirectory).error != nil)
@@ -316,12 +319,17 @@ struct AppSettingsView: View {
       )
       modelSettings
     case "Appearance":
+      settingsGroup("Theme") {
+        Picker("Theme", selection: $theme) {
+          ForEach(JamTheme.allCases) { theme in Text(theme.title).tag(theme) }
+        }.pickerStyle(.segmented).labelsHidden().tint(Color(nsColor: theme.selectionFill))
+      }
       settingsGroup("Color scheme") {
         Picker("Color scheme", selection: $draft.config.appearance) {
           Text("System").tag("system")
           Text("Light").tag("light")
           Text("Dark").tag("dark")
-        }.pickerStyle(.segmented).labelsHidden()
+        }.pickerStyle(.segmented).labelsHidden().tint(Color(nsColor: theme.selectionFill))
       }
     default:
       settingsGroup("Shortcuts") {

@@ -189,6 +189,116 @@ impl Drop for Fixture {
     }
 }
 #[test]
+fn restored_shell_agent_returns_to_a_usable_prompt_on_interrupt() {
+    let mut f = Fixture::with_test_shell(true);
+    let dir = f.dir.path();
+    let session = jam_core::id();
+    std::fs::write(dir.join("session"), &session).unwrap();
+    std::fs::write(dir.join("claude"), r#"#!/bin/sh
+session=$(cat "$HOME/session")
+mkdir -p "$HOME/.claude/projects/test"
+echo '{}' > "$HOME/.claude/projects/test/$session.jsonl"
+printf '{"hook_event_name":"SessionStart","session_id":"%s","permission_mode":"bypassPermissions"}' "$session" | jam skill context --agent claude >/dev/null
+echo "$*" >> "$FAKE_LOG"
+echo PROVIDER_READY
+exec /bin/cat
+"#).unwrap();
+    let Message::State(state) = f.rpc(Request::CreateWorkspace {
+        path: dir.to_str().unwrap().into(),
+        name: "test".into(),
+    }) else {
+        panic!("missing workspace")
+    };
+    let pane = &state.panes[0].id;
+    let send = |f: &Fixture, data: &[u8]| {
+        f.rpc(Request::Send {
+            pane: pane.clone(),
+            data: data.to_vec(),
+        });
+    };
+    send(&f, b"claude --dangerously-skip-permissions\r");
+    f.wait(|| matches!(f.rpc(Request::Capture { pane: pane.clone() }), Message::Capture(text) if text.contains("PROVIDER_READY")));
+    let record = f.coord(json!({"action":"list"}))["agents"][0].clone();
+    assert_eq!(record["shell_launched"], true);
+    assert_eq!(record["session"], session);
+    f.rpc(Request::Stop);
+    f.child.wait().unwrap();
+    f.child = Fixture::launch(dir);
+    f.wait(|| connect_to(&f.socket).is_ok());
+    f.wait(|| {
+        std::fs::read_to_string(dir.join("launches"))
+            .unwrap()
+            .lines()
+            .nth(1)
+            .is_some_and(|args| args.contains(&format!("--resume {session}")))
+    });
+    let Message::State(restored) = f.rpc(Request::State) else {
+        panic!()
+    };
+    send(&f, b"\x03");
+    f.wait(|| matches!(f.rpc(Request::Capture { pane: pane.clone() }), Message::Capture(text) if text.contains("JAM_TEST_READY>")));
+    send(&f, b"pwd > shell-cwd\r");
+    let expected_cwd = dir.canonicalize().unwrap();
+    f.wait(|| {
+        std::fs::read_to_string(dir.join("shell-cwd"))
+            .is_ok_and(|cwd| std::path::Path::new(cwd.trim()) == expected_cwd)
+    });
+    let Message::State(state) = f.rpc(Request::State) else {
+        panic!()
+    };
+    assert_eq!(
+        state.panes[0].session_generation,
+        restored.panes[0].session_generation
+    );
+    assert!(!state.panes[0].exited);
+    assert!(state.panes[0].agent_role.is_none() && state.panes[0].agent_provider.is_none());
+    assert!(
+        f.coord(json!({"action":"list"}))["agents"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    // A new foreground job can claim this terminal. This provider intentionally
+    // sends no SessionEnd hook, including on this second, shell-owned launch.
+    send(&f, b"claude\r");
+    f.wait(|| {
+        std::fs::read_to_string(dir.join("launches"))
+            .unwrap()
+            .lines()
+            .count()
+            == 3
+    });
+    send(&f, b"\x03");
+    f.wait(|| {
+        f.coord(json!({"action":"list"}))["agents"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    });
+    f.rpc(Request::Stop);
+    f.child.wait().unwrap();
+    f.child = Fixture::launch(dir);
+    f.wait(|| connect_to(&f.socket).is_ok());
+    f.rpc(Request::Restart { pane: pane.clone() });
+    f.wait(|| matches!(f.rpc(Request::Capture { pane: pane.clone() }), Message::Capture(text) if text.contains("JAM_TEST_READY>")));
+    assert_eq!(
+        std::fs::read_to_string(dir.join("launches"))
+            .unwrap()
+            .lines()
+            .count(),
+        3
+    );
+    let dedicated = f.coord(json!({"action":"start","workspace":state.workspaces[0].id,"provider":"claude","role":"worker"}));
+    let dedicated_pane = dedicated["agent"]["pane"].as_str().unwrap();
+    f.wait(|| matches!(f.rpc(Request::Capture { pane: dedicated_pane.into() }), Message::Capture(text) if text.contains("PROVIDER_READY")));
+    f.rpc(Request::Send {
+        pane: dedicated_pane.into(),
+        data: vec![3],
+    });
+    f.wait(|| matches!(f.rpc(Request::State), Message::State(state) if state.panes.iter().any(|p| p.id == dedicated_pane && p.exited && p.agent_resume.is_some())));
+}
+
+#[test]
 fn takeover_commit_resumes_saved_managed_panes_only() {
     let mut f = Fixture::new();
     let Message::State(state) = f.rpc(Request::CreateWorkspace {

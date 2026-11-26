@@ -30,6 +30,12 @@ struct PaneLayoutTests {
     let resized = PaneLayout(node: split, size: size, ratios: ["b": 0.7])
     assert(resized.panes[0].frame == after.panes[0].frame)
     assert(resized.panes[1].frame.height > after.panes[1].frame.height)
+    let stacked = Node.split(
+      true, 0.45, .leaf("top"),
+      .split(true, 0.5, .leaf("middle"), .split(false, 0.5, .leaf("left"), .leaf("closing"))))
+    assert(PaneLayout(node: stacked, size: size).neighbor(of: "closing") == "middle")
+    assert(after.neighbor(of: "new") == "right")
+    assert(dragged.neighbor(of: "left") == nil)
     print(
       "Flat pane layout checks passed: stable identities, unaffected siblings, split/close/lift frames, nested dividers, and bounded small windows."
     )

@@ -25,15 +25,21 @@ final class TerminalSurfaceHost: NSView {
   init(terminal: TerminalNSView) {
     self.terminal = terminal
     super.init(frame: .zero)
+    wantsLayer = true
+    layer?.masksToBounds = true
     terminal.layoutHost = self
   }
   required init?(coder: NSCoder) { fatalError("unsupported") }
   override func layout() {
     super.layout()
     guard terminal.layoutHost === self, bounds.width > 0, bounds.height > 0 else { return }
-    // SwiftUI creates hosts at zero size. Keep the cached surface intact until
-    // its destination has real geometry, then attach it at that size in one pass.
-    terminal.frame = bounds
+    // Animate the clip around the terminal while the drawable and PTY use the
+    // destination size. Resizing a Metal surface every frame causes stalls.
+    let size = terminal.desiredSize ?? bounds.size
+    let frame = NSRect(
+      x: bounds.minX, y: bounds.maxY - size.height,
+      width: size.width, height: size.height)
+    if terminal.frame != frame { terminal.frame = frame }
     if terminal.superview !== self {
       terminal.invalidateFrame()
       addSubview(terminal)

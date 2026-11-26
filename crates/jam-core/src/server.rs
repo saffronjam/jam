@@ -200,6 +200,7 @@ struct Handle {
 enum Op {
     Output(Vec<u8>),
     Exit,
+    WatchShellAgent { agent: String, session: String },
     Request(Box<Request>, Sender<Message>),
     Attach(Sender<Message>),
 }
@@ -388,6 +389,10 @@ fn spawn(mut pane: Pane) -> Result<Handle> {
     pane.session_generation = Some(id());
     pane.agent_provider = None;
     pane.agent_source = None;
+    pane.agent_role = None;
+    pane.agent_resume = None;
+    pane.reports.clear();
+    pane.status = "unknown".into();
     let info = Arc::new(Mutex::new(pane.clone()));
     let meta = info.clone();
     let root_pid = Arc::new(std::sync::atomic::AtomicU32::new(0));
@@ -403,22 +408,9 @@ fn spawn(mut pane: Pane) -> Result<Handle> {
                 pixel_width: 0,
                 pixel_height: 0,
             })?;
-            let managed = crate::coordination::pane_command(&pane.id)?;
-            let mut cmd = if let Some(args) = &managed {
-                let mut c = CommandBuilder::new(&args[0]);
-                c.args(&args[1..]);
-                c
-            } else {
-                CommandBuilder::new(std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into()))
-            };
-            if managed.is_none()
-                && let Some(shell) = std::path::Path::new(cmd.get_argv()[0].as_os_str())
-                    .file_name()
-                    .and_then(|s| s.to_str())
-                && ["zsh", "bash", "sh", "fish"].contains(&shell)
-            {
-                cmd.arg("-l");
-            }
+            let args = crate::coordination::pane_command(&pane.id)?;
+            let mut cmd = CommandBuilder::new(&args[0]);
+            cmd.args(&args[1..]);
             cmd.cwd(&pane.cwd);
             cmd.env("TERM", "xterm-256color");
             cmd.env("COLORTERM", "truecolor");
@@ -486,6 +478,7 @@ fn spawn(mut pane: Pane) -> Result<Handle> {
             let (mut seq, mut cols, mut rows) = (0u64, 80, 24);
             let mut exited = false;
             let mut root_reaped = false;
+            let mut shell_job: Option<(i32, String, String)> = None;
             let input = actor.clone();
             thread::spawn(move || {
                 let mut b = [0u8; 65536];
@@ -502,12 +495,29 @@ fn spawn(mut pane: Pane) -> Result<Handle> {
             drop(actor);
             ready.send(Ok(())).ok();
             loop {
+                let foreground = pair.master.process_group_leader();
+                let root = child.child.process_id().map(|p| p as i32);
+                // Some providers exit without a SessionEnd hook. A stopped job
+                // can also yield the terminal, so wait for its group to be gone.
+                if foreground == root
+                    && foreground.is_some()
+                    && let Some((group, _, _)) = &shell_job
+                    && unsafe { libc::kill(-*group, 0) } == -1
+                    && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
+                    && let Some((_, agent, session)) = shell_job.take()
+                {
+                    let pane = pane.id.clone();
+                    thread::spawn(move || {
+                        if let Err(error) =
+                            crate::coordination::release_shell_binding(&agent, &pane, &session)
+                        {
+                            eprintln!("Could not release finished shell session: {error:#}");
+                        }
+                    });
+                }
                 {
                     let mut activity = status.lock().unwrap();
-                    if activity.foreground(
-                        pair.master.process_group_leader(),
-                        child.child.process_id().map(|p| p as i32),
-                    ) {
+                    if activity.foreground(foreground, root) {
                         let mut m = meta.lock().unwrap();
                         m.agent_provider = None;
                         m.agent_source = None;
@@ -534,6 +544,14 @@ fn spawn(mut pane: Pane) -> Result<Handle> {
                     Err(_) => break,
                 };
                 match op {
+                    Op::WatchShellAgent { agent, session } => {
+                        if let Some(group) = pair.master.process_group_leader()
+                            && group > 1
+                            && Some(group) != root
+                        {
+                            shell_job = Some((group, agent, session));
+                        }
+                    }
                     Op::Output(b) => {
                         vt.vt_write(&b);
                         {
@@ -2233,6 +2251,12 @@ pub fn serve() -> Result<()> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => State::default(),
         Err(e) => return Err(e.into()),
     };
+    let previously_exited: std::collections::HashSet<_> = state
+        .panes
+        .iter()
+        .filter(|p| p.exited)
+        .map(|p| p.id.clone())
+        .collect();
     for p in &mut state.panes {
         p.exited = true;
         p.session_generation = None;
@@ -2278,6 +2302,12 @@ pub fn serve() -> Result<()> {
     let monitor_board = crate::coordination::Board::open()?;
     let mut agents = monitor_board.agents()?;
     for agent in &mut agents {
+        let exited = agent["pane"]
+            .as_str()
+            .is_some_and(|id| previously_exited.contains(id));
+        if crate::coordination::release_legacy_shell(agent, exited) {
+            monitor_board.put("agent", agent)?;
+        }
         // Legacy closed tabs were recorded as paused, with no corresponding pane.
         if agent["paused"] == true
             && agent["closed"] != true
@@ -2628,6 +2658,16 @@ pub fn serve() -> Result<()> {
                                 && let Some(pane) = value["pane"].as_str()
                                 && board.agent_for_pane(pane)?.is_none()
                             {
+                                if value["run_id"].is_string()
+                                    || !matches!(
+                                        value["event"].as_str(),
+                                        Some("SessionStart" | "UserPromptSubmit") | None
+                                    )
+                                {
+                                    // A late hook from the previous conversation cannot
+                                    // claim a pane that has already returned to its shell.
+                                    return Ok(Message::Coordination(serde_json::Value::Null));
+                                }
                                 let s = server.lock().unwrap();
                                 let p = s
                                     .state
@@ -2636,18 +2676,19 @@ pub fn serve() -> Result<()> {
                                     .find(|p| p.id == pane)
                                     .context("Registration requires a live Jam pane")?;
                                 let root = crate::workspaces::owner(&s.state, &p.workspace)?;
-                                let mut a = board.add(crate::coordination::AgentSpec {
-                                    workspace: &p.workspace,
-                                    root: &root,
-                                    pane,
-                                    provider: value["provider"].as_str().unwrap_or("claude"),
-                                    role: "worker",
-                                    path: &p.cwd,
-                                    parent: None,
-                                    complex: false,
-                                })?;
-                                a["verified_launch"] = serde_json::json!(false);
-                                board.put("agent", &a)?;
+                                board.add_with_origin(
+                                    crate::coordination::AgentSpec {
+                                        workspace: &p.workspace,
+                                        root: &root,
+                                        pane,
+                                        provider: value["provider"].as_str().unwrap_or("claude"),
+                                        role: "worker",
+                                        path: &p.cwd,
+                                        parent: None,
+                                        complex: false,
+                                    },
+                                    true,
+                                )?;
                             }
                             if value["action"] == "recover" {
                                 let agent =
@@ -2668,6 +2709,24 @@ pub fn serve() -> Result<()> {
                                 return Ok(Message::Coordination(result));
                             }
                             let result = board.action(value.clone())?;
+                            if value["action"] == "register"
+                                && value["run_id"].is_null()
+                                && matches!(
+                                    value["event"].as_str(),
+                                    Some("SessionStart" | "UserPromptSubmit")
+                                )
+                                && let (Some(pane), Some(agent), Some(session)) = (
+                                    result["pane"].as_str(),
+                                    result["id"].as_str(),
+                                    result["session"].as_str(),
+                                )
+                                && let Some(handle) = server.lock().unwrap().panes.get(pane)
+                            {
+                                let _ = handle.tx.try_send(Op::WatchShellAgent {
+                                    agent: agent.into(),
+                                    session: session.into(),
+                                });
+                            }
                             if value["action"] == "pause"
                                 && let Some(pane) = result["pane"].as_str()
                             {

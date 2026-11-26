@@ -230,6 +230,7 @@ private struct UsageCard: View {
 }
 
 private struct UsageBar: View {
+  @Environment(\.colorScheme) private var colorScheme
   let window: AgentUsageWindow
   var body: some View {
     HStack(spacing: 6) {
@@ -239,7 +240,7 @@ private struct UsageBar: View {
         ZStack(alignment: .leading) {
           Capsule().fill(Color.primary.opacity(0.08))
           if let percent = window.percent {
-            Capsule().fill(percent >= 90 ? Color.orange : Color.accentColor.opacity(0.65))
+            Capsule().fill(colorScheme == .dark ? Color.white : Color.primary)
               .frame(width: geometry.size.width * min(1, max(0, percent / 100)))
           }
         }
