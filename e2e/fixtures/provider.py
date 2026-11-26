@@ -145,20 +145,19 @@ def jam(*args, data=None):
     return json.loads(result.stdout) if result.stdout.strip().startswith("{") else result.stdout
 
 
-def hook(event, session, prompt=""):
-    jam(
-        "skill",
-        "context",
-        "--agent",
-        PROVIDER,
-        data={
-            "hook_event_name": event,
-            "source": "startup",
-            "session_id": session,
-            "prompt": prompt,
-            "model": "fixture-model",
-        },
-    )
+def hook(event, session, prompt="", reason=None):
+    payload = {
+        "hook_event_name": event,
+        "source": "startup",
+        "session_id": session,
+        "prompt": prompt,
+        "model": "fixture-model",
+    }
+    if PROVIDER == "claude" and "--dangerously-skip-permissions" in sys.argv:
+        payload["permission_mode"] = "bypassPermissions"
+    if reason is not None:
+        payload["reason"] = reason
+    jam("skill", "context", "--agent", PROVIDER, data=payload)
 
 
 def accept_message(message, session):
@@ -196,6 +195,11 @@ def interactive():
         raise SystemExit(2)
     session = sys.argv[-1] if len(sys.argv) > 1 else str(uuid.uuid4())
     if PROVIDER == "claude":
+        session = next(
+            (value for flag, value in zip(sys.argv, sys.argv[1:])
+             if flag in ("--session-id", "--resume")),
+            str(uuid.uuid4()),
+        )
         folder = Path(os.environ.get("CLAUDE_CONFIG_DIR", HOME / ".claude")) / "projects/fixture"
         folder.mkdir(parents=True, exist_ok=True)
         (folder / (session + ".jsonl")).write_text(
@@ -227,7 +231,7 @@ def interactive():
     print("fixture-agent-resumed", flush=True)
     for line in sys.stdin:
         if "exit" == line.strip():
-            hook("SessionEnd", session)
+            hook("SessionEnd", session, reason="prompt_input_exit")
             return
         if line.strip():
             record({"input": line.strip()})
