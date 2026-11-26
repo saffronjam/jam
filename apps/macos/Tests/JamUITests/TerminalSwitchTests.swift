@@ -343,8 +343,11 @@ struct WorktreeListFixture: View {
       contentRect: NSRect(x: -3000, y: -3000, width: 1100, height: 700),
       styleMask: [.titled, .resizable], backing: .buffered, defer: false)
     window.contentView = NSHostingView(rootView: ServerSheetFixture(store: store))
-    window.orderFront(nil)
+    window.makeKeyAndOrderFront(nil)
+    let application = NSApplication.shared
+    application.activate(ignoringOtherApps: true)
     defer { window.orderOut(nil) }
+    try wait("split fixture owns PTY geometry") { application.isActive && window.isKeyWindow }
     try wait("initial split terminal") {
       guard let view = store.terminalViews.existing(source) else { return false }
       return view.desiredSize != nil && matchesGeometry(view) && store.paneSizes[source] != nil
