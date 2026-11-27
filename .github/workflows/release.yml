@@ -23,6 +23,13 @@ jobs:
     uses: ./.github/workflows/check.yml
     with:
       ref: ${{ inputs.tag || github.ref_name }}
+  desktop-acceptance:
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/e2e-acceptance.yml
+    with:
+      ref: ${{ inputs.tag || github.ref_name }}
   linux:
     strategy:
       fail-fast: false
@@ -99,7 +106,7 @@ jobs:
           if-no-files-found: error
   publish:
     if: github.event_name == 'push' || inputs.publish == true
-    needs: [checks, macos]
+    needs: [checks, macos, desktop-acceptance]
     runs-on: ubuntu-24.04
     permissions:
       contents: write

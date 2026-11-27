@@ -1,0 +1,71 @@
+name: Linux automation proof
+on:
+  push:
+    paths:
+      - .github/workflows/e2e-linux-driver.yml
+      - e2e/environments/linux/**
+      - e2e/driver_checks/**
+      - e2e/native/linux/**
+      - e2e/fixtures/native_ime_service.py
+      - e2e/fixtures/ibus_engine.py
+      - e2e/fixtures/native_preferences.py
+      - e2e/fixtures/build_bundle.py
+      - e2e/jam_e2e/preferences.py
+      - e2e/jam_e2e/driver.py
+      - e2e/jam_e2e/clipboard.py
+      - e2e/conftest.py
+      - e2e/pyproject.toml
+      - e2e/uv.lock
+  pull_request:
+    paths:
+      - .github/workflows/e2e-linux-driver.yml
+      - e2e/environments/linux/**
+      - e2e/driver_checks/**
+      - e2e/native/linux/**
+      - e2e/fixtures/native_ime_service.py
+      - e2e/fixtures/ibus_engine.py
+      - e2e/fixtures/native_preferences.py
+      - e2e/fixtures/build_bundle.py
+      - e2e/jam_e2e/preferences.py
+      - e2e/jam_e2e/driver.py
+      - e2e/jam_e2e/clipboard.py
+      - e2e/conftest.py
+      - e2e/pyproject.toml
+      - e2e/uv.lock
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: linux-driver-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  wayland-driver:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          repository: KDE/selenium-webdriver-at-spi
+          ref: 4199d3ea3ccdcaa175b5a06ed3ad8f1af498f38a
+          path: e2e/environments/linux/upstream
+          persist-credentials: false
+      - name: Build pinned AT-SPI and KWin environment
+        run: docker build --memory=2g -t jam-e2e-wayland e2e/environments/linux
+      - name: Verify the driver against real GTK4 widgets
+        run: |
+          mkdir -p e2e/artifacts/linux-driver
+          chmod 777 e2e/artifacts/linux-driver
+          docker run --rm --memory=2g --cpus=2 -v "$PWD:/work" \
+            -e UV_PROJECT_ENVIRONMENT=/tmp/jam-e2e-venv \
+            -e APPIUM_ARTIFACT_OUTPUT_PATH=/work/e2e/artifacts/linux-driver \
+            jam-e2e-wayland /opt/atspi/bin/uv run --project e2e --locked \
+              pytest -c e2e/pyproject.toml e2e/driver_checks \
+              -o cache_dir=/tmp/pytest-cache --artifacts-dir e2e/artifacts/linux-driver \
+              --junitxml=e2e/artifacts/linux-driver/results.xml
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: linux-wayland-driver-proof
+          path: e2e/artifacts/linux-driver/
+          if-no-files-found: error

@@ -1,0 +1,17 @@
+{
+  "version": "4.6.1",
+  "patches": [
+    {
+      "file": "WebDriverAgentMac/WebDriverAgentLib/Commands/AMActionCommands.m",
+      "original_sha256": "02eebc30aae34a485689f467cc2480cdd385f72b67267e8c0eba218655326d7f",
+      "patched_sha256": "fce50ee2966bc45681c525f3080a6315130580fc3e2103d260f6e47817d2badb",
+      "patch": "desktop-input.patch"
+    },
+    {
+      "file": "WebDriverAgentMac/WebDriverAgentLib/Routing/FBSession.m",
+      "patch": "process-attach.patch",
+      "original_sha256": "57ca3a3026ea50c4d664594990321e8559e97de99c5829bbd50557fffc188d8d",
+      "patched_sha256": "57f041332d288a60d25284fcd67b68382088a74c9c5f8e69e3a36f32912dce89"
+    }
+  ]
+}
