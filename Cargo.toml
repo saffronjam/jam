@@ -5,7 +5,7 @@ members = ["crates/jam-core", "crates/jam", "crates/jam-render", "crates/jam-nat
 license = "MIT"
 repository = "https://github.com/saffronjam/jam"
 edition = "2024"
-version = "0.0.13"
+version = "0.0.14"
 [workspace.dependencies]
 anyhow = "1"
 rusqlite = { version = "0.39", features = ["bundled"] }

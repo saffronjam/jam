@@ -1289,7 +1289,9 @@ struct ContentView: View {
       }
       .toolbar {
         let workspaceToolbar = ToolbarItem(placement: .primaryAction) {
-          let width = max(80, detailWidth - (columns == .detailOnly ? 138 : 8))
+          // AppKit moves the whole item into the overflow menu if its fitted
+          // width leaves too little room for the native toolbar margins.
+          let width = max(80, detailWidth - (columns == .detailOnly ? 138 : 24))
           WorkspaceTitleBar(store: store)
             .frame(minWidth: 80, idealWidth: width, maxWidth: width)
         }

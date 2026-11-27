@@ -1160,7 +1160,7 @@ struct WorktreeListFixture: View {
     store.availableAgents[""] = ["claude", "codex"]
     store.select(workspace.id, tab: other.id)
     let window = NSWindow(
-      contentRect: NSRect(x: -3000, y: -3000, width: 1100, height: 700),
+      contentRect: NSRect(x: -3000, y: -3000, width: 1024, height: 700),
       styleMask: [.titled, .resizable], backing: .buffered, defer: false)
     let hosting = NSHostingController(rootView: ContentView().environmentObject(store))
     window.titleVisibility = .hidden
@@ -1169,10 +1169,13 @@ struct WorktreeListFixture: View {
     hosting.sceneBridgingOptions = .toolbars
     hosting.sizingOptions = []
     window.contentViewController = hosting
-    window.setContentSize(NSSize(width: 1100, height: 700))
+    window.setContentSize(NSSize(width: 1024, height: 700))
     window.toolbar?.isVisible = true
     window.orderFront(nil)
     defer { window.orderOut(nil) }
+    try wait("selected tab visible in the compact title bar") {
+      toolbarTabs(window).contains { $0.tabID == other.id }
+    }
     try wait("coordinator sidebar children") {
       findSidebar(in: window)?.numberOfRows == 4
     }
