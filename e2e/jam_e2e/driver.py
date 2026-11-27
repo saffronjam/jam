@@ -205,17 +205,6 @@ class Desktop:
             if self.observed_process is None:
                 self.session.execute_script("macos: activateApp", {"path": str(self.app)})
             self.activate_owned_client()
-            # Bringing a process forward does not guarantee a key window in
-            # XCTest. Select its actual title bar, like a user switching clients.
-            rectangle = self.window_rect()
-            x, y = rectangle["x"] + rectangle["width"] / 2, rectangle["y"] + 12
-            if self.observed_process is None:
-                self.session.execute_script("macos: click", {"x": x, "y": y})
-            else:
-                actions = self._actions()
-                actions.pointer_action.move_to_location(round(x), round(y)).click()
-                actions.perform()
-            self.observations.append({"action": "focus_native_window", "rect": rectangle})
             self.activate_owned_client(inspect=True)
         else:
             self.session.execute_script("linux: activateWindow", {})
@@ -942,6 +931,25 @@ class Desktop:
             main = windows
         assert len(main) == 1, "Expected one main application window"
         return main[0]["rect"]
+
+    def fit_initial_window(self):
+        # AppKit can restore the frame left by a wide-window or Retina case
+        # on a smaller desktop. Physical clicks must land inside the display.
+        displays = self.session.execute_script("macos: listDisplays", {})
+        (display,) = displays.values()
+        screen = display["rect"]
+
+        def contained(frame):
+            return (frame["x"] >= screen["x"] and frame["y"] >= screen["y"]
+                    and frame["x"] + frame["width"] <= screen["x"] + screen["width"] + 1
+                    and frame["y"] + frame["height"] <= screen["y"] + screen["height"] + 1)
+
+        before = self.window_rect()
+        if not contained(before):
+            self.session.execute_script("macos: adjustWindow", {"state": "maximized"})
+            wait(lambda: contained(self.window_rect()), "entire initial window on the desktop")
+            self.observations.append({"action": "fit_initial_window", "before": before,
+                                      "after": self.window_rect()})
 
     def resize(self, width, height):
         if self.platform == "macos":

@@ -3639,7 +3639,7 @@ Behaviors: `accounts`.
 5. `('visible', 'Sign in again to read usage')`
 6. `('absent', 'Allow Keychain Access')`
 7. `('click', 'Done', 'button')`
-8. `('absent', 'Codex usage')`
+8. `('no_control', 'Done', 'button')`
 9. `('click', 'Next usage account', 'button')`
 10. `('click', 'Show Codex usage details', 'button')`
 11. `('visible', '25%')`

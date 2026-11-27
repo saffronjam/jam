@@ -2327,7 +2327,7 @@ case(
     ("visible", "Sign in again to read usage"),
     ("absent", "Allow Keychain Access"),
     ("click", "Done", "button"),
-    ("absent", "Codex usage"),
+    ("no_control", "Done", "button"),
     ("click", "Next usage account", "button"),
     ("click", "Show Codex usage details", "button"),
     ("visible", "25%"),
