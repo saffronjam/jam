@@ -184,7 +184,8 @@ def capture(item, jam, phase="call"):
             predicate = "(" + " OR ".join(clauses) + (
                 ') AND (eventMessage BEGINSWITH "Jam terminal geometry:" '
                 'OR eventMessage BEGINSWITH "Jam server status:" '
-                'OR eventMessage BEGINSWITH "Jam remote connection:")')
+                'OR eventMessage BEGINSWITH "Jam remote connection:" '
+                'OR (subsystem == "dev.saffronjam.jam" AND category == "remote"))')
             (folder / "native-log-ownership.json").write_text(json.dumps({
                 "pids": sorted(pids), "predicate": predicate,
             }, indent=2))
@@ -384,7 +385,7 @@ def jam(request, case):
                             evidence = Path(options.getoption("--artifacts-dir")) / kind / case.id
                             evidence.mkdir(parents=True, exist_ok=True)
                             shutil.copy2(source, evidence / source.name)
-                for kind in ("visual", "dialog", "selection", "scale", "motion", "ime"):
+                for kind in ("visual", "dialog", "selection", "scale", "motion", "ime", "file-link"):
                     for source in profile.repo.glob(kind + "-*"):
                         if source.is_file():
                             evidence = Path(options.getoption("--artifacts-dir")) / kind / case.id

@@ -708,6 +708,22 @@ done
         ui.type_shell_command(shlex.join([sys.executable, str(probe), args[0], output.name, *args[1:]]))
         ui.key("ENTER")
         wait(output.exists, "foreground program status receipt")
+    elif op in {"set_progress", "reject_progress"}:
+        [pane] = profile.layout()["panes"]
+        options = [value for step in args for value in ("--step", step)] if args else ["--clear"]
+        try:
+            profile.call("status", "progress", "--pane", pane["id"], *options)
+        except (subprocess.CalledProcessError, AssertionError) as error:
+            if op != "reject_progress":
+                raise
+            message = error.stderr if isinstance(error, subprocess.CalledProcessError) else str(error)
+            assert "distinct label" in message.lower(), message
+        else:
+            assert op == "set_progress", "The public CLI accepted duplicate step labels"
+            expected = [{"label": name, "percent": int(percent)}
+                        for name, percent in (step.rsplit("=", 1) for step in args)]
+            wait(lambda: profile.layout()["panes"][0].get("progress", []) == expected,
+                 "the foreground program's complete step list")
     elif op == "program_phase":
         ui.type(args[0])
         ui.key("ENTER")
@@ -745,8 +761,13 @@ done
                    for arg in resumed[0]) == 1
         assert "fixture pending job" not in resumed[0]
     elif op == "worker_permission":
+        events = profile.home / "provider-events.jsonl"
+
         def launched():
-            records = [json.loads(line) for line in (profile.home / "provider-events.jsonl").read_text().splitlines()]
+            if not events.exists():
+                return None
+            records = (json.loads(line) for line in events.read_text().splitlines(keepends=True)
+                       if line.endswith("\n"))
             return next((r for r in records if r.get("provider") == "codex"
                          and r.get("agent") and r.get("argv")), None)
         row = wait(launched, "standalone worker provider launch")

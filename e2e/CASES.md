@@ -2006,7 +2006,7 @@ Fixture: `usage-no-sessions`.
 
 Behaviors: `accounts`.
 
-1. `('absent', 'USAGE')`
+1. `('absent', 'Show usage details')`
 
 ## USAGE-005: usage auth error external user workflow
 
@@ -3191,7 +3191,7 @@ Fixture: `usage-configured-login`.
 
 Behaviors: `accounts`.
 
-1. `('visible', 'USAGE')`
+1. `('target_visible', 'Show usage details', 'button')`
 2. `('click', 'Show Codex usage details', 'button')`
 3. `('visible', 'Codex usage')`
 4. `('visible', 'fixture@example.invalid')`
@@ -4445,19 +4445,22 @@ Fixture: `isolated local installation`.
 
 Behaviors: `pane-progress`.
 
-1. `('run', "jam status progress --step 'Build=20' --step 'Check=80'")`
-2. `('control_value', 'Task progress', '50 percent across 2 steps')`
-3. `('click', 'Task progress', 'button')`
-4. `('control_value', 'Build', '20 percent')`
-5. `('control_value', 'Check', '80 percent')`
-6. `('key', 'ESCAPE')`
-7. `('run', "jam status progress --step 'Review=75'")`
-8. `('control_value', 'Review', '75 percent')`
-9. `('absent', 'Task progress')`
-10. `('run', 'jam status progress --clear')`
-11. `('no_control', 'Review')`
-12. `('run', 'printf progress-cleared')`
-13. `('output', 'progress-cleared')`
+1. `('program_identity', 'codex')`
+2. `('pane_field', 'agent_provider', 'codex')`
+3. `('set_progress', 'Build=20', 'Check=80')`
+4. `('control_value', 'Task progress', '50 percent across 2 steps')`
+5. `('click', 'Task progress', 'button')`
+6. `('control_value', 'Build', '20 percent')`
+7. `('control_value', 'Check', '80 percent')`
+8. `('key', 'ESCAPE')`
+9. `('set_progress', 'Review=75')`
+10. `('control_value', 'Review', '75 percent')`
+11. `('absent', 'Task progress')`
+12. `('set_progress',)`
+13. `('no_control', 'Review')`
+14. `('program_phase', 'exit')`
+15. `('run', 'printf progress-cleared')`
+16. `('output', 'progress-cleared')`
 
 ## PROGRESS-002: Invalid duplicate steps leave the previous progress attached only to its owning tab
 
@@ -4465,16 +4468,17 @@ Fixture: `isolated local installation`.
 
 Behaviors: `pane-progress`.
 
-1. `('run', "jam status progress --step 'Upload=40'")`
-2. `('control_value', 'Upload', '40 percent')`
-3. `('run', "jam status progress --step 'Build=50' --step 'Build=80' || printf duplicate-rejected")`
-4. `('output', 'duplicate-rejected')`
-5. `('control_value', 'Upload', '40 percent')`
-6. `('command', 'New Tab')`
-7. `('target_visible', 'Tab 2', 'button')`
-8. `('no_control', 'Upload')`
-9. `('click', 'Tab 1', 'button')`
-10. `('control_value', 'Upload', '40 percent')`
+1. `('program_identity', 'codex')`
+2. `('pane_field', 'agent_provider', 'codex')`
+3. `('set_progress', 'Upload=40')`
+4. `('control_value', 'Upload', '40 percent')`
+5. `('reject_progress', 'Build=50', 'Build=80')`
+6. `('control_value', 'Upload', '40 percent')`
+7. `('command', 'New Tab')`
+8. `('target_visible', 'Tab 2', 'button')`
+9. `('no_control', 'Upload')`
+10. `('click', 'Tab 1', 'button')`
+11. `('control_value', 'Upload', '40 percent')`
 
 ## TAB-005: A new toolbar tab accepts typing immediately and a background tab can be closed in place
 
@@ -4672,21 +4676,22 @@ Fixture: `provider-detected`.
 
 Behaviors: `agent-recovery`.
 
-1. `('remember_layout',)`
-2. `('click', 'Terminal', 'terminal', 0)`
-3. `('type_shell_command', 'claude --dangerously-skip-permissions')`
-4. `('key', 'ENTER')`
-5. `('output', 'fixture-agent-resumed')`
-6. `('agent_field', 'shell_launched', True)`
-7. `('remember_agent_session',)`
-8. `('type_terminal', 'fixture pending job')`
-9. `('key', 'ENTER')`
-10. `('agent_field', 'activity', 'working')`
-11. `('restart_server',)`
-12. `('output', 'fixture-continuation-received')`
-13. `('same_agent_session',)`
-14. `('one_launch_continuation',)`
-15. `('same_layout',)`
+1. `('run', 'mkdir Worker && jam workspace create "$PWD/Worker" --agent claude > worker-created.json')`
+2. `('count', 'workspaces', 2)`
+3. `('click', 'Worker', 'row')`
+4. `('output', 'fixture-agent-resumed')`
+5. `('agent_field', 'verified_launch', True)`
+6. `('remember_layout',)`
+7. `('click', 'Terminal', 'terminal', 0)`
+8. `('remember_agent_session',)`
+9. `('type_terminal', 'fixture pending job')`
+10. `('key', 'ENTER')`
+11. `('agent_field', 'activity', 'working')`
+12. `('restart_server',)`
+13. `('output', 'fixture-continuation-received')`
+14. `('same_agent_session',)`
+15. `('one_launch_continuation',)`
+16. `('same_layout',)`
 
 ## WORKER-001: A standalone worker receives provider defaults
 

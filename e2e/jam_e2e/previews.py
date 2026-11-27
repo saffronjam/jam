@@ -1,6 +1,7 @@
 """Drive terminal file links and observe the drawer through the native desktop."""
 
 import io
+import json
 import shlex
 import shutil
 from pathlib import Path
@@ -50,10 +51,16 @@ def open_file(jam, recipe, remote=False):
     anchor = screen_target(ui, "PREVIEW", prefix="file-link", bounds=True, terminal=True)
     x = round(anchor["x"] + anchor["width"] * 12 / 7)
     y = round(anchor["y"] + anchor["height"] / 2)
-    actions = ui._actions(desktop=True)
-    actions.pointer_action.move_to_location(x, y).click()
-    actions.key_action.key_down(Keys.CONTROL).pause().pause().key_up(Keys.CONTROL)
-    actions.perform()
+    (profile.repo / "file-link-click.json").write_text(json.dumps({"x": x, "y": y, "file": filename}))
+    if ui.platform == "macos":
+        ui.activate_owned_client(inspect=True)
+        # XCTest applies the Control modifier to the same native click event.
+        ui.session.execute_script("macos: click", {"x": x, "y": y, "keyModifierFlags": 1 << 2})
+    else:
+        actions = ui._actions(desktop=True)
+        actions.pointer_action.move_to_location(x, y).click()
+        actions.key_action.key_down(Keys.CONTROL).pause().pause().key_up(Keys.CONTROL)
+        actions.perform()
 
 
 def preview_pixels(jam, color, reveal_controls=False):
