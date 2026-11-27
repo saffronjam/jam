@@ -1897,7 +1897,24 @@ struct WorktreeListFixture: View {
     store: Store, destinations: [(String, String, [String])], window: NSWindow
   ) throws {
     let (workspace, tab, visible) = destinations[0]
+    window.makeKeyAndOrderFront(nil)
+    NSApp.activate(ignoringOtherApps: true)
     store.select(workspace, tab: tab)
+    func mirrorState() -> String {
+      let panes = visible.map { id -> String in
+        guard let view = store.terminalViews.existing(id) else { return "\(id): no view" }
+        return "\(id): mounted=\(view.window === window) ready=\(view.meta["ready"] ?? false) "
+          + "matchingSize=\(matchesGeometry(view)) error=\(store.paneErrors[id] ?? "none")"
+      }
+      return "key=\(window.isKeyWindow) active=\(NSApp.isActive) " + panes.joined(separator: ", ")
+    }
+    try wait("recovery fixture owns its visible terminals", details: mirrorState()) {
+      NSApp.isActive && window.isKeyWindow && window.attachedSheet == nil
+        && visible.allSatisfy { id in
+          guard let view = store.terminalViews.existing(id) else { return false }
+          return view.window === window && matchesGeometry(view)
+        }
+    }
     let host = rpc("HostInfo")["HostInfo"] as! [String: Any]
     store.observeServer(host, endpoint: "")
     apply(rpc("State"), to: store)
@@ -1928,7 +1945,7 @@ struct WorktreeListFixture: View {
     }
     let hidden = destinations.dropFirst().flatMap { $0.2 }
     assert(hidden.allSatisfy { store.panes[$0]?.exited == true }, "Hidden tabs started eagerly")
-    try wait("terminal mirrors reattach") {
+    try wait("terminal mirrors reattach", details: mirrorState()) {
       visible.allSatisfy { id in
         guard let view = store.terminalViews.existing(id) else { return false }
         return view.window === window && view.meta["ready"] as? Bool == true
