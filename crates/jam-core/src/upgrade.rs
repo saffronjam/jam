@@ -14,7 +14,7 @@ use std::{
 const ORIGIN: &str = "https://github.com/saffronjam/jam/releases/download";
 const LATEST: &str = "https://api.github.com/repos/saffronjam/jam/releases/latest";
 const KEY: &str = include_str!("../../../assets/update-public-key.hex");
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Asset {
     pub name: String,
@@ -23,7 +23,7 @@ pub struct Asset {
     pub sha256: String,
     pub size: u64,
 }
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Release {
     pub schema: u32,
@@ -354,6 +354,69 @@ fn verify_file(path: &Path, asset: &Asset) -> Result<()> {
     }
     Ok(())
 }
+impl Staged {
+    fn verify_manifest(&self, key: &str) -> Result<()> {
+        let signed = authenticate(
+            &fs::read(self.directory.join("manifest.json"))?,
+            &fs::read_to_string(self.directory.join("manifest.sig"))?,
+            key,
+        )?;
+        if signed != self.release {
+            bail!("Staged release metadata changed");
+        }
+        Ok(())
+    }
+
+    fn verify_cached_files(&self, key: &str) -> Result<()> {
+        self.verify_manifest(key)?;
+        anyhow::ensure!(
+            self.directory.join("extracted").is_dir(),
+            "Staged installation is missing"
+        );
+        let asset = self
+            .release
+            .assets
+            .iter()
+            .find(|a| a.platform == platform() && a.arch == std::env::consts::ARCH)
+            .context("No release for this platform")?;
+        verify_file(&self.archive, asset)?;
+        for asset in self.release.assets.iter().filter(|a| a.platform == "linux") {
+            verify_file(
+                &self.directory.join(format!("remote-{}.tar.gz", asset.arch)),
+                asset,
+            )?;
+        }
+        Ok(())
+    }
+}
+
+/// Keep the verified download for the lifetime of the app. A reopened sheet
+/// can join an in-flight download, but always builds a fresh interruption plan.
+pub fn stage_for_app(release: &Release) -> Result<Staged> {
+    static DOWNLOAD: std::sync::Mutex<Option<Staged>> = std::sync::Mutex::new(None);
+    let mut cached = DOWNLOAD
+        .lock()
+        .map_err(|_| anyhow::anyhow!("Upgrade download lock failed"))?;
+    reuse_or_stage(&mut cached, release, KEY, stage)
+}
+
+fn reuse_or_stage(
+    cached: &mut Option<Staged>,
+    release: &Release,
+    key: &str,
+    download: impl FnOnce(&Release) -> Result<Staged>,
+) -> Result<Staged> {
+    if let Some(staged) = cached.as_ref()
+        && &staged.release == release
+        && staged.verify_cached_files(key).is_ok()
+    {
+        return Ok(staged.clone());
+    }
+    let staged = download(release)?;
+    *cached = Some(staged.clone());
+    Ok(staged)
+}
+
 pub fn stage(release: &Release) -> Result<Staged> {
     if semver::Version::parse(&release.version)? <= semver::Version::parse(crate::RELEASE_VERSION)?
     {
@@ -942,15 +1005,7 @@ fn read_journal(path: &Path) -> Result<Journal> {
     if journal.schema != 1 {
         bail!("Unsupported upgrade journal");
     }
-    let staged = &journal.staged;
-    let verified = authenticate(
-        &fs::read(staged.directory.join("manifest.json"))?,
-        &fs::read_to_string(staged.directory.join("manifest.sig"))?,
-        KEY,
-    )?;
-    if serde_json::to_vec(&verified)? != serde_json::to_vec(&staged.release)? {
-        bail!("Staged release metadata changed");
-    }
+    journal.staged.verify_manifest(KEY)?;
     Ok(journal)
 }
 fn save_journal(path: &Path, journal: &mut Journal, phase: &str) -> Result<()> {
@@ -1788,6 +1843,70 @@ mod tests {
         release.assets[0].name = "../../bad.zip".into();
         let bytes = serde_json::to_vec(&release).unwrap();
         assert!(authenticate(&bytes, &hex(&key.sign(&bytes).to_bytes()), &public).is_err());
+    }
+    #[test]
+    fn reopening_an_upgrade_reuses_only_matching_verified_downloads() {
+        let directory = tempfile::tempdir().unwrap();
+        let key = SigningKey::from_bytes(&[7; 32]);
+        let public = hex(&key.verifying_key().to_bytes());
+        let mut release = Release {
+            schema: 1,
+            version: "1.0.0".into(),
+            protocol: "jam/test".into(),
+            min_macos: "14.0".into(),
+            assets: [
+                ("macos", "aarch64", "Jam-v1.0.0-macos-arm64.zip"),
+                ("linux", "aarch64", "jam-v1.0.0-linux-aarch64.tar.gz"),
+                ("linux", "x86_64", "jam-v1.0.0-linux-x86_64.tar.gz"),
+            ]
+            .into_iter()
+            .map(|(platform, arch, name)| Asset {
+                name: name.into(),
+                platform: platform.into(),
+                arch: arch.into(),
+                size: 4,
+                sha256: hex(&Sha256::digest(b"good")),
+            })
+            .collect(),
+        };
+        let download = |release: &Release| -> Result<Staged> {
+            let path = directory.path();
+            let bytes = serde_json::to_vec(release)?;
+            fs::write(path.join("manifest.sig"), hex(&key.sign(&bytes).to_bytes()))?;
+            fs::write(path.join("manifest.json"), bytes)?;
+            fs::create_dir_all(path.join("extracted"))?;
+            let asset = release
+                .assets
+                .iter()
+                .find(|a| a.platform == platform() && a.arch == std::env::consts::ARCH)
+                .unwrap();
+            let archive = path.join(&asset.name);
+            fs::write(&archive, b"good")?;
+            for a in release.assets.iter().filter(|a| a.platform == "linux") {
+                fs::write(path.join(format!("remote-{}.tar.gz", a.arch)), b"good")?;
+            }
+            Ok(Staged {
+                directory: path.to_owned(),
+                release: release.clone(),
+                archive,
+            })
+        };
+        let mut cached = None;
+        reuse_or_stage(&mut cached, &release, &public, download).unwrap();
+        reuse_or_stage(&mut cached, &release, &public, |_| {
+            panic!("re-downloaded a verified release")
+        })
+        .unwrap();
+        fs::write(directory.path().join("remote-x86_64.tar.gz"), b"evil").unwrap();
+        let mut downloads = 0;
+        let mut counted = |r: &Release| {
+            downloads += 1;
+            download(r)
+        };
+        reuse_or_stage(&mut cached, &release, &public, &mut counted).unwrap();
+        release.min_macos = "15.0".into();
+        reuse_or_stage(&mut cached, &release, &public, &mut counted).unwrap();
+        assert_eq!(downloads, 2);
     }
     #[test]
     fn archive_paths_and_checksums_are_verified() {

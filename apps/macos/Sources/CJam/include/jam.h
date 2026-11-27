@@ -13,6 +13,7 @@
 void jam_free(char *p);
 char *jam_config(const char *request);
 char *jam_start(const char *path);
+char *jam_configured_usage_reset(const char *provider, const char *request);
 char *jam_request(const char *request);
 char *jam_request_endpoint(const char *endpoint, const char *request);
 char *jam_remote(const char *request);

@@ -1,7 +1,9 @@
 import AppKit
 import CJam
 import SwiftUI
+import os
 
+private let remoteLog = Logger(subsystem: "dev.saffronjam.jam", category: "remote")
 private let endpointQueueLock = NSLock()
 private var endpointQueues: [String: DispatchQueue] = [:]
 func endpointQueue(_ endpoint: String) -> DispatchQueue {
@@ -24,11 +26,28 @@ func remoteCommand(_ command: [String: String]) -> [String: Any] {
   return (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] ?? [:]
 }
 extension Store {
+  private func recordRemoteResult(_ id: String, error: String?, connecting: Bool) {
+    if let error {
+      // One warning per failure episode even if SSH varies its error on each retry.
+      if loggedRemoteFailures.insert(id).inserted {
+        let stage = connecting ? "connect" : "read state"
+        remoteLog.warning(
+          "Remote \(id, privacy: .public) failed to \(stage, privacy: .public): \(error, privacy: .private)"
+        )
+      }
+    } else {
+      loggedRemoteFailures.remove(id)
+    }
+    let message = error ?? "Connected"
+    if remoteMessages[id] != message { remoteMessages[id] = message }
+  }
+
   func disconnectRemote(_ id: String) {
     appUpgrade.forgetRequirement(endpoint: id)
     remoteConnectionGenerations[id, default: 0] &+= 1
     remoteConnecting.remove(id)
     remoteLoading.remove(id)
+    loggedRemoteFailures.remove(id)
     pausedRemotes.insert(id)
     remoteMessages[id] = "Disconnected"
     DispatchQueue.global().async { _ = remoteCommand(["action": "disconnect", "id": id]) }
@@ -73,9 +92,13 @@ extension Store {
         self.appUpgrade.forgetRequirement(endpoint: id)
         self.workspaces.removeAll { $0.id.hasPrefix(id + "|") }
         self.workspaceCreations = self.workspaceCreations.filter { $0.value.endpoint != id }
+        self.workspaceRemovals = self.workspaceRemovals.filter {
+          WorkspaceSelection.endpoint(of: $0.key) != id
+        }
         self.loadedRemotes.remove(id)
         self.remoteConnecting.remove(id)
         self.remoteLoading.remove(id)
+        self.loggedRemoteFailures.remove(id)
         self.remoteConnectionGenerations[id, default: 0] &+= 1
         self.panes = self.panes.filter { !$0.key.hasPrefix(id + "|") }
         self.reloadRemotes()
@@ -104,7 +127,7 @@ extension Store {
         else { return }
         self.remoteLoading.remove(id)
         self.remoteConnecting.remove(id)
-        self.remoteMessages[id] = result["error"] as? String ?? "Connected"
+        self.recordRemoteResult(id, error: result["error"] as? String, connecting: true)
         if let required = result["upgrade_required"] as? [String: Any],
           let minimum = required["minimum"] as? String
         {
@@ -157,7 +180,7 @@ extension Store {
           guard self.remoteConnectionGenerations[remote.id, default: 0] == connectionGeneration
           else { return }
           self.remoteLoading.remove(remote.id)
-          self.remoteConnecting.remove(remote.id)
+          if self.remoteConnecting.contains(remote.id) { self.remoteConnecting.remove(remote.id) }
           guard self.remotes.contains(where: { $0.id == remote.id }) else { return }
           if let error = state["error"] as? String {
             if let required = connection["upgrade_required"] as? [String: Any],
@@ -166,7 +189,7 @@ extension Store {
               self.appUpgrade.requireClientUpgrade(
                 endpoint: remote.id, minimum: minimum, manual: false)
             }
-            self.remoteMessages[remote.id] = error
+            self.recordRemoteResult(remote.id, error: error, connecting: connection["error"] != nil)
             self.checkServer(remote.id)
             let delay = min(30, (self.remoteDelay[remote.id] ?? 0.5) * 2)
             self.remoteDelay[remote.id] = delay
@@ -174,13 +197,13 @@ extension Store {
               delay * Double.random(in: 0.8...1.2))
           } else {
             self.appUpgrade.forgetRequirement(endpoint: remote.id)
-            if self.remoteMessages[remote.id] != "Connected" {
-              self.remoteMessages[remote.id] = "Connected"
-            }
+            self.recordRemoteResult(remote.id, error: nil, connecting: false)
             if let agents, self.availableAgents[remote.id] != agents {
               self.availableAgents[remote.id] = agents
             }
-            if let persistent = connection["persistent"] as? Bool {
+            if let persistent = connection["persistent"] as? Bool,
+              self.remotePersistence[remote.id] != persistent
+            {
               self.remotePersistence[remote.id] = persistent
             }
             if !self.ready { self.ready = true }
@@ -200,9 +223,9 @@ extension Store {
                 if changed, let encoded {
                   JamDefaults.shared.set(encoded, forKey: "remoteState." + remote.id)
                 }
-                let firstLoad = self.loadedRemotes.insert(remote.id).inserted
-                if firstLoad && self.currentEndpoint == remote.id {
-                  self.refreshCapabilities(force: true)
+                if !self.loadedRemotes.contains(remote.id) {
+                  self.loadedRemotes.insert(remote.id)
+                  if self.currentEndpoint == remote.id { self.refreshCapabilities(force: true) }
                 }
               }
             }
@@ -236,9 +259,9 @@ struct RemoteForm: View {
       .foregroundStyle(.secondary)
       if !error.isEmpty { ErrorNotice(message: error) }
       HStack {
-        Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
-        Spacer()
         if busy { ProgressView().controlSize(.small) }
+        Spacer()
+        Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
         Button(remote == nil ? "Add" : "Save") {
           busy = true
           DispatchQueue.global().async {
@@ -315,11 +338,11 @@ struct RemoteDirectoryPicker: View {
         }
       }
       HStack {
+        Spacer()
         Button("Cancel") {
           generation = UUID()
           dismiss()
         }.keyboardShortcut(.cancelAction)
-        Spacer()
         Button("Open") {
           store.beginCreation(.open(path))
           dismiss()

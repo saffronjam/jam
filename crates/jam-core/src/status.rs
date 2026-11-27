@@ -11,6 +11,9 @@ pub struct Status {
     shell: Option<i32>,
     provider_group: Option<i32>,
     returned_to_shell: bool,
+    session: Option<String>,
+    progress: Vec<crate::ProgressStep>,
+    progress_group: Option<i32>,
 }
 impl Status {
     pub fn report(&mut self, r: ProgramStatus<'_>) {
@@ -39,6 +42,9 @@ impl Status {
                     .as_ref()
                     .is_none_or(|(_, old)| *old != provider)
                 {
+                    if self.provider.is_some() {
+                        self.clear_progress();
+                    }
                     self.records.clear();
                     self.order.clear();
                 }
@@ -46,6 +52,14 @@ impl Status {
                 self.provider = Some((id.clone(), provider));
                 self.provider_group = self.foreground;
             }
+        }
+        if matches!(terminal_state.as_str(), "done" | "error")
+            && self
+                .provider
+                .as_ref()
+                .is_some_and(|(owner, _)| owner == &id)
+        {
+            self.clear_progress();
         }
         self.order
             .retain(|k| self.records.contains_key(k) && k != &id);
@@ -84,8 +98,10 @@ impl Status {
         }
         if group.is_some()
             && group == shell
-            && self.provider_group.is_some()
-            && self.provider_group != shell
+            && [self.provider_group, self.progress_group]
+                .into_iter()
+                .flatten()
+                .any(|group| Some(group) != shell)
         {
             self.end();
             self.returned_to_shell = true;
@@ -99,7 +115,34 @@ impl Status {
             self.end();
         }
     }
+    pub fn enter_session(&mut self, session: &str) {
+        if self.session.as_deref() == Some(session) {
+            return;
+        }
+        if self.session.replace(session.to_owned()).is_some() {
+            self.clear_progress();
+        }
+    }
+    pub fn set_progress(&mut self, steps: Vec<crate::ProgressStep>) -> anyhow::Result<()> {
+        crate::ProgressStep::validate(&steps)?;
+        self.progress_group = (!steps.is_empty()).then_some(self.foreground).flatten();
+        self.progress = steps;
+        Ok(())
+    }
+    fn clear_progress(&mut self) {
+        self.progress.clear();
+        self.progress_group = None;
+    }
+    pub fn update_pane(&self, pane: &mut crate::Pane) {
+        pane.status = self.state();
+        pane.reports = self.records();
+        if pane.progress != self.progress {
+            pane.progress.clone_from(&self.progress);
+        }
+    }
     pub fn end(&mut self) {
+        self.clear_progress();
+        self.session = None;
         self.provider = None;
         self.provider_group = None;
         self.records
@@ -110,6 +153,9 @@ impl Status {
             .retain(|_, r| !["done", "error"].contains(&r.state.as_str()));
     }
     pub fn set(&mut self, state: String) {
+        if matches!(state.as_str(), "idle" | "done" | "error") {
+            self.clear_progress();
+        }
         self.order.retain(|k| !k.is_empty());
         self.order.push_back(String::new());
         self.records.insert(
@@ -156,6 +202,21 @@ impl Status {
 mod tests {
     use super::*;
     use std::sync::{Arc, Mutex};
+    #[test]
+    fn progress_belongs_to_one_conversation() {
+        let mut status = Status::default();
+        status.enter_session("one");
+        status
+            .set_progress(vec![crate::ProgressStep {
+                label: "Build".into(),
+                percent: 40,
+            }])
+            .unwrap();
+        status.enter_session("one");
+        assert_eq!(status.progress[0].percent, 40);
+        status.enter_session("two");
+        assert!(status.progress.is_empty());
+    }
     #[test]
     fn identity_is_separate_from_activity_and_nested_tool_reports() {
         let status = Arc::new(Mutex::new(Status::default()));

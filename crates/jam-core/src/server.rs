@@ -200,7 +200,11 @@ struct Handle {
 enum Op {
     Output(Vec<u8>),
     Exit,
-    WatchShellAgent { agent: String, session: String },
+    AgentSession {
+        agent: String,
+        session: String,
+        watch_shell: bool,
+    },
     Request(Box<Request>, Sender<Message>),
     Attach(Sender<Message>),
 }
@@ -278,19 +282,34 @@ fn upgrade_boot_hold(path: &std::path::Path) -> Result<Option<UpgradeBoot>> {
     Ok(Some(hold))
 }
 fn restart_saved_agents(server: &mut Server, resume_panes: Option<&[String]>) -> Result<()> {
-    let board = crate::coordination::Board::open()?;
-    let ids: Vec<String> = board.snapshot()?["agents"]
-        .as_array()
-        .context("Invalid saved agent list")?
-        .iter()
-        .filter(|a| a["paused"] != true && a["closed"] != true && a["verified_launch"] == true)
-        .filter(|a| resume_panes.is_none() || a["session"].is_string())
-        .filter_map(|a| a["pane"].as_str())
-        .filter(|pane| resume_panes.is_none_or(|panes| panes.iter().any(|id| id == pane)))
-        .map(str::to_owned)
-        .collect();
-    for pane in ids {
-        let _ = request(server, Request::Restart { pane });
+    for agent in crate::coordination::Board::open()?.agents()? {
+        let Some(pane) = agent["pane"].as_str() else {
+            continue;
+        };
+        if agent["closed"] == true || agent["paused"] == true {
+            continue;
+        }
+        if resume_panes.is_some_and(|panes| !panes.iter().any(|id| id == pane)) {
+            continue;
+        }
+        let reason = if agent["verified_launch"] != true {
+            Some("unknown_launch_permissions")
+        } else if resume_panes.is_some() && !agent["session"].is_string() {
+            Some("missing_conversation")
+        } else {
+            None
+        };
+        if let Some(reason) = reason {
+            eprintln!(
+                "WARN restore skipped pane={pane} workspace={} reason={reason}",
+                agent["workspace"]
+            );
+        } else if let Err(error) = request(server, Request::Restart { pane: pane.into() }) {
+            eprintln!(
+                "WARN restore failed pane={pane} workspace={} reason={error}",
+                agent["workspace"]
+            );
+        }
     }
     Ok(())
 }
@@ -380,7 +399,10 @@ fn cwd_path(value: &str) -> Option<String> {
         None
     }
 }
-fn spawn(mut pane: Pane) -> Result<Handle> {
+fn spawn(pane: Pane) -> Result<Handle> {
+    spawn_command(pane, None)
+}
+fn spawn_command(mut pane: Pane, command: Option<Vec<std::ffi::OsString>>) -> Result<Handle> {
     let directory = fs::metadata(&pane.cwd)
         .with_context(|| format!("Cannot open terminal directory: {}", pane.cwd))?;
     if !directory.is_dir() {
@@ -392,6 +414,7 @@ fn spawn(mut pane: Pane) -> Result<Handle> {
     pane.agent_role = None;
     pane.agent_resume = None;
     pane.reports.clear();
+    pane.progress.clear();
     pane.status = "unknown".into();
     let info = Arc::new(Mutex::new(pane.clone()));
     let meta = info.clone();
@@ -408,7 +431,10 @@ fn spawn(mut pane: Pane) -> Result<Handle> {
                 pixel_width: 0,
                 pixel_height: 0,
             })?;
-            let args = crate::coordination::pane_command(&pane.id)?;
+            let args = match command {
+                Some(args) => args,
+                None => crate::coordination::pane_command(&pane.id)?,
+            };
             let mut cmd = CommandBuilder::new(&args[0]);
             cmd.args(&args[1..]);
             cmd.cwd(&pane.cwd);
@@ -521,8 +547,7 @@ fn spawn(mut pane: Pane) -> Result<Handle> {
                         let mut m = meta.lock().unwrap();
                         m.agent_provider = None;
                         m.agent_source = None;
-                        m.status = activity.state();
-                        m.reports = activity.records();
+                        activity.update_pane(&mut m);
                     }
                 }
                 // PTY EOF and root exit are independent: reap the root even
@@ -531,7 +556,10 @@ fn spawn(mut pane: Pane) -> Result<Handle> {
                     root_reaped = true;
                     if !exited {
                         exited = true;
+                        let mut activity = status.lock().unwrap();
+                        activity.end();
                         let mut m = meta.lock().unwrap();
+                        activity.update_pane(&mut m);
                         m.exited = true;
                         m.agent_provider = None;
                         m.agent_source = None;
@@ -544,8 +572,16 @@ fn spawn(mut pane: Pane) -> Result<Handle> {
                     Err(_) => break,
                 };
                 match op {
-                    Op::WatchShellAgent { agent, session } => {
-                        if let Some(group) = pair.master.process_group_leader()
+                    Op::AgentSession {
+                        agent,
+                        session,
+                        watch_shell,
+                    } => {
+                        let mut activity = status.lock().unwrap();
+                        activity.enter_session(&session);
+                        activity.update_pane(&mut meta.lock().unwrap());
+                        if watch_shell
+                            && let Some(group) = pair.master.process_group_leader()
                             && group > 1
                             && Some(group) != root
                         {
@@ -565,8 +601,7 @@ fn spawn(mut pane: Pane) -> Result<Handle> {
                                 m.cwd = path;
                             }
                             let status = status.lock().unwrap();
-                            m.status = status.state();
-                            m.reports = status.records();
+                            status.update_pane(&mut m);
                             let identity = crate::agents::Agent::resolve(None, status.provider());
                             m.agent_provider = identity.map(|(p, _)| p.name().to_owned());
                             m.agent_source = identity.map(|(_, source)| source);
@@ -591,8 +626,7 @@ fn spawn(mut pane: Pane) -> Result<Handle> {
                             m.exited = true;
                             m.agent_provider = None;
                             m.agent_source = None;
-                            m.status = status.state();
-                            m.reports = status.records();
+                            status.update_pane(&mut m);
                         }
                         clients.retain(|c| c.try_send(Message::Exited).is_ok());
                     }
@@ -742,8 +776,7 @@ fn spawn(mut pane: Pane) -> Result<Handle> {
                                     let mut status = status.lock().unwrap();
                                     status.acknowledge();
                                     let mut m = meta.lock().unwrap();
-                                    m.status = status.state();
-                                    m.reports = status.records();
+                                    status.update_pane(&mut m);
                                     Ok(Message::Ok)
                                 }
                                 Request::Capture { .. } => Ok(Message::Capture(vt::text(&vt)?)),
@@ -793,7 +826,18 @@ fn spawn(mut pane: Pane) -> Result<Handle> {
                                         }
                                     }
                                     child.terminate()?;
-                                    meta.lock().unwrap().exited = true;
+                                    let mut m = meta.lock().unwrap();
+                                    m.progress.clear();
+                                    m.exited = true;
+                                    Ok(Message::Ok)
+                                }
+                                Request::TaskProgress { steps, .. } => {
+                                    if exited {
+                                        bail!("Pane has stopped")
+                                    }
+                                    let mut activity = status.lock().unwrap();
+                                    activity.set_progress(steps)?;
+                                    activity.update_pane(&mut meta.lock().unwrap());
                                     Ok(Message::Ok)
                                 }
                                 Request::Status { state, .. } => {
@@ -802,8 +846,9 @@ fn spawn(mut pane: Pane) -> Result<Handle> {
                                     {
                                         bail!("invalid status")
                                     }
-                                    status.lock().unwrap().set(state.clone());
-                                    meta.lock().unwrap().status = state;
+                                    let mut activity = status.lock().unwrap();
+                                    activity.set(state);
+                                    activity.update_pane(&mut meta.lock().unwrap());
                                     Ok(Message::Ok)
                                 }
                                 _ => bail!("unsupported pane request"),
@@ -883,6 +928,14 @@ fn save(s: &Server) -> Result<()> {
     Ok(())
 }
 fn new_pane(s: &mut Server, path: String, workspace: String) -> Result<String> {
+    new_pane_command(s, path, workspace, None)
+}
+fn new_pane_command(
+    s: &mut Server,
+    path: String,
+    workspace: String,
+    command: Option<Vec<std::ffi::OsString>>,
+) -> Result<String> {
     let id = id();
     let p = Pane {
         session_generation: None,
@@ -897,12 +950,39 @@ fn new_pane(s: &mut Server, path: String, workspace: String) -> Result<String> {
         status: "unknown".into(),
         exited: false,
         reports: Vec::new(),
+        progress: vec![],
         workspace,
     };
-    let h = spawn(p.clone())?;
+    let h = spawn_command(p.clone(), command)?;
     s.change_handle(id.clone(), Some(h));
     s.state.panes.push(p);
     Ok(id)
+}
+fn add_terminal_tab(
+    s: &mut Server,
+    workspace: String,
+    cwd: String,
+    command: Option<Vec<std::ffi::OsString>>,
+) -> Result<()> {
+    let index = s
+        .state
+        .workspaces
+        .iter()
+        .position(|w| w.id == workspace)
+        .context("Workspace missing")?;
+    let pane = new_pane_command(s, cwd, workspace, command)?;
+    let tabs = &mut s.state.workspaces[index].tabs;
+    let number = (1..)
+        .find(|n| !tabs.iter().any(|t| t.name == format!("Tab {n}")))
+        .unwrap();
+    tabs.push(Tab {
+        agent_role: None,
+        id: id(),
+        name: format!("Tab {number}"),
+        root: Node::Leaf(pane),
+    });
+
+    Ok(())
 }
 pub(crate) fn prune(n: Node, id: &str) -> Option<Node> {
     match n {
@@ -1344,6 +1424,7 @@ fn request(s: &mut Server, r: Request) -> Result<Message> {
                 "input_stream".into(),
                 "layout_revision".into(),
                 "remote_files".into(),
+                "file_preview".into(),
                 "move_tab".into(),
                 "workspace_names".into(),
                 "workspace_creation_v1".into(),
@@ -1351,10 +1432,14 @@ fn request(s: &mut Server, r: Request) -> Result<Message> {
                 "move_pane".into(),
                 "git_summary".into(),
                 "agent_usage".into(),
+                "usage_reset_credits".into(),
+                "claude_usage_resets".into(),
                 "coordination_v1".into(),
                 "coordinator_surface".into(),
                 "agent_recovery_v1".into(),
                 "workspace_initial_tab".into(),
+                "agent_launch_permissions".into(),
+                "task_progress".into(),
                 "coordination_models".into(),
                 "app_settings_v1".into(),
                 "worktree_templates".into(),
@@ -1606,6 +1691,7 @@ fn request(s: &mut Server, r: Request) -> Result<Message> {
                         status: "unknown".into(),
                         exited: true,
                         reports: vec![],
+                        progress: vec![],
                         workspace: workspace.clone(),
                     });
                 }
@@ -1627,19 +1713,27 @@ fn request(s: &mut Server, r: Request) -> Result<Message> {
             if v["action"] == "open" {
                 bail!("No coordinator exists in this workspace")
             }
+            let permissions =
+                serde_json::from_value::<Option<AgentPermissions>>(v["permissions"].clone())?
+                    .map(|mode| mode.for_provider(provider))
+                    .transpose()?;
             let pane_id = id();
             let root = crate::workspaces::owner(&s.state, &workspace)?;
             let path = crate::workspaces::active_path(&s.state, &w);
-            let mut a = board.add(crate::coordination::AgentSpec {
-                workspace: &workspace,
-                root: &root,
-                pane: &pane_id,
-                provider,
-                role,
-                path: &path,
-                parent: v["parent"].as_str(),
-                complex: v["complex"].as_bool().unwrap_or(false),
-            })?;
+            let mut a = board.add_with_origin(
+                crate::coordination::AgentSpec {
+                    workspace: &workspace,
+                    root: &root,
+                    pane: &pane_id,
+                    provider,
+                    role,
+                    path: &path,
+                    parent: v["parent"].as_str(),
+                    complex: v["complex"].as_bool().unwrap_or(false),
+                },
+                false,
+                permissions.as_ref(),
+            )?;
             a["operation"] = v["operation"].clone();
             board.put("agent", &a)?;
             let pane = Pane {
@@ -1655,6 +1749,7 @@ fn request(s: &mut Server, r: Request) -> Result<Message> {
                 status: "unknown".into(),
                 exited: true,
                 reports: vec![],
+                progress: vec![],
                 workspace: workspace.clone(),
             };
             s.state.panes.push(pane);
@@ -1703,24 +1798,19 @@ fn request(s: &mut Server, r: Request) -> Result<Message> {
                 .workspaces
                 .iter()
                 .find(|w| w.id == workspace)
-                .context("workspace not found")?;
-            let path = w.last_cwd.as_ref().unwrap_or(&w.path).clone();
-            let p = new_pane(s, path, workspace.clone())?;
-            let w = s
+                .context("Workspace missing")?;
+            let cwd = w.last_cwd.as_ref().unwrap_or(&w.path).clone();
+            add_terminal_tab(s, workspace, cwd, None)?;
+        }
+        Request::EditPreviewFile { pane, path } => {
+            let owner = s
                 .state
-                .workspaces
-                .iter_mut()
-                .find(|w| w.id == workspace)
-                .unwrap();
-            let number = (1..)
-                .find(|n| !w.tabs.iter().any(|t| t.name == format!("Tab {n}")))
-                .unwrap();
-            w.tabs.push(Tab {
-                agent_role: None,
-                id: id(),
-                name: format!("Tab {number}"),
-                root: Node::Leaf(p),
-            });
+                .panes
+                .iter()
+                .find(|p| p.id == pane)
+                .context("Pane missing")?;
+            let args = crate::file_preview::editor_command(std::path::Path::new(&path))?;
+            add_terminal_tab(s, owner.workspace.clone(), owner.cwd.clone(), Some(args))?;
         }
         Request::Split { pane, vertical } => {
             if s.state
@@ -1923,9 +2013,13 @@ fn validate_initial_tab(s: &Server, location: &WorkspaceLocation, tab: &InitialT
         role,
         parent,
         complex,
+        permissions,
         ..
     } = tab
     {
+        if let Some(mode) = permissions {
+            mode.clone().for_provider(provider)?;
+        }
         if !["claude", "codex"].contains(&provider.as_str())
             || !["worker", "coordinator", "reviewer"].contains(&role.as_str())
         {
@@ -2059,13 +2153,14 @@ fn create_with_initial_tab(
                 provider,
                 role,
                 parent,
+                permissions,
                 complex,
                 name,
             } => {
                 let Message::Coordination(result) = request(
                     &mut s,
                     Request::Coordination(
-                        serde_json::json!({"action":"start","workspace":workspace,"provider":provider,"role":role,"parent":parent,"complex":complex}),
+                        serde_json::json!({"action":"start","workspace":workspace,"provider":provider,"role":role,"parent":parent,"complex":complex,"permissions":permissions}),
                     ),
                 )?
                 else {
@@ -2202,6 +2297,7 @@ fn input_pane(request: &Request) -> Option<&str> {
         | Request::Paste { pane, .. }
         | Request::Mouse { pane, .. }
         | Request::Capture { pane }
+        | Request::TaskProgress { pane, .. }
         | Request::Acknowledge { pane } => Some(pane),
         _ => None,
     }
@@ -2257,11 +2353,18 @@ pub fn serve() -> Result<()> {
         .filter(|p| p.exited)
         .map(|p| p.id.clone())
         .collect();
+    let reported_agents: Vec<_> = state
+        .panes
+        .iter()
+        .filter(|p| !p.exited && p.agent_source == Some(crate::AgentSource::Reported))
+        .map(|p| (p.id.clone(), p.workspace.clone(), p.agent_provider.clone()))
+        .collect();
     for p in &mut state.panes {
         p.exited = true;
         p.session_generation = None;
         p.status = "unknown".into();
         p.reports.clear();
+        p.progress.clear();
         p.agent_provider = None;
         p.agent_source = None;
         p.agent_resume = None;
@@ -2301,6 +2404,17 @@ pub fn serve() -> Result<()> {
     private_dir(&state_dir())?;
     let monitor_board = crate::coordination::Board::open()?;
     let mut agents = monitor_board.agents()?;
+    for (pane, workspace, provider) in reported_agents {
+        if !agents
+            .iter()
+            .any(|a| a["pane"] == pane && a["closed"] != true)
+        {
+            eprintln!(
+                "WARN restore unavailable pane={pane} workspace={workspace} provider={} reason=no_registered_conversation",
+                provider.as_deref().unwrap_or("unknown")
+            );
+        }
+    }
     for agent in &mut agents {
         let exited = agent["pane"]
             .as_str()
@@ -2537,6 +2651,24 @@ pub fn serve() -> Result<()> {
                         return Ok(());
                     }
                 }
+                if let Request::FilePreview { pane, path, read } = r {
+                    let handle = live_handle(&routes, &pane)?;
+                    let cwd = handle.info.lock().unwrap().cwd.clone();
+                    let file = crate::file_preview::read(std::path::Path::new(&cwd), &path, read)?;
+                    write_frame(&mut stream, &Message::FilePreview(file))?;
+                    return Ok(());
+                }
+                if let Request::EditPreviewFile { ref path, .. } = r {
+                    anyhow::ensure!(
+                        std::path::Path::new(path).is_absolute(),
+                        "Expected a resolved file path"
+                    );
+                    crate::file_preview::read(
+                        std::path::Path::new("/"),
+                        path,
+                        crate::file_preview::PreviewRead::Inspect,
+                    )?;
+                }
                 if matches!(r, Request::AcquireGui) {
                     write_frame(&mut stream, &Message::Ok)?;
                     return Ok(());
@@ -2625,6 +2757,29 @@ pub fn serve() -> Result<()> {
                 }
                 if let Request::Coordination(ref value) = r {
                     let reply = (|| -> Result<Message> {
+                        if value["action"] == "launch_permissions" {
+                            let pane = value["pane"].as_str().context("Missing launching pane")?;
+                            let live = server
+                                .lock()
+                                .unwrap()
+                                .panes
+                                .get(pane)
+                                .is_some_and(|h| !h.info.lock().unwrap().exited);
+                            if !live {
+                                return Ok(Message::Coordination(serde_json::Value::Null));
+                            }
+                            let query = value.clone();
+                            return database
+                                .run(move |board| {
+                                    let agent =
+                                        board.agent_for_pane(query["pane"].as_str().unwrap())?;
+                                    let mode = agent
+                                        .as_ref()
+                                        .and_then(|a| AgentPermissions::inherited(a, &query));
+                                    Ok(serde_json::to_value(mode)?)
+                                })
+                                .map(Message::Coordination);
+                        }
                         if value["action"] == "start" || value["action"] == "open" {
                             return request(&mut server.lock().unwrap(), r.clone());
                         }
@@ -2688,6 +2843,7 @@ pub fn serve() -> Result<()> {
                                         complex: false,
                                     },
                                     true,
+                                    None,
                                 )?;
                             }
                             if value["action"] == "recover" {
@@ -2710,7 +2866,6 @@ pub fn serve() -> Result<()> {
                             }
                             let result = board.action(value.clone())?;
                             if value["action"] == "register"
-                                && value["run_id"].is_null()
                                 && matches!(
                                     value["event"].as_str(),
                                     Some("SessionStart" | "UserPromptSubmit")
@@ -2722,7 +2877,8 @@ pub fn serve() -> Result<()> {
                                 )
                                 && let Some(handle) = server.lock().unwrap().panes.get(pane)
                             {
-                                let _ = handle.tx.try_send(Op::WatchShellAgent {
+                                let _ = handle.tx.try_send(Op::AgentSession {
+                                    watch_shell: value["run_id"].is_null(),
                                     agent: agent.into(),
                                     session: session.into(),
                                 });
@@ -2763,6 +2919,29 @@ pub fn serve() -> Result<()> {
                         Err(error) => Message::Error(error.to_string()),
                     };
                     write_frame(&mut stream, &reply)?;
+                    return Ok(());
+                }
+                let reset = match &r {
+                    Request::UsageResetCredits { profile, account } => Some(
+                        crate::usage::reset_credits(profile, account)
+                            .map(Message::UsageResetCredits),
+                    ),
+                    Request::RedeemUsageReset {
+                        profile,
+                        account,
+                        credit,
+                        attempt,
+                    } => Some(
+                        crate::usage::redeem_reset(profile, account, credit.as_deref(), attempt)
+                            .map(Message::UsageResetOutcome),
+                    ),
+                    _ => None,
+                };
+                if let Some(reply) = reset {
+                    write_frame(
+                        &mut stream,
+                        &reply.unwrap_or_else(|e| Message::Error(e.to_string())),
+                    )?;
                     return Ok(());
                 }
                 if matches!(r, Request::AgentUsage) {
@@ -3071,6 +3250,10 @@ pub fn serve() -> Result<()> {
                     if let Request::StopUpgrade { token } = &r {
                         claim_upgrade_stop(&mut s, token)?;
                     }
+                    // A standalone update uses this checkpoint to distinguish running
+                    // panes from previously exited ones, including dedicated coordinators.
+                    refresh_pane_metadata(&mut s);
+                    save(&s)?;
                     s.set_draining(true);
                     crate::recovery::stopping();
                     for (id, h) in s.panes.iter() {

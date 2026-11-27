@@ -116,6 +116,7 @@ struct AppSettingsView: View {
     ("General", Image(systemName: "slider.horizontal.3")),
     ("Agents", Image(systemName: "person.2")),
     ("Coordination", Image(nsImage: CoordinatorMark.image).renderingMode(.template)),
+    ("Integrations", Image(systemName: "puzzlepiece.extension")),
     ("Appearance", Image(systemName: "paintbrush")), ("Keyboard", Image(systemName: "keyboard")),
   ]
   init(store: Store, initialSection: String = "General", close: @escaping () -> Void) {
@@ -154,7 +155,7 @@ struct AppSettingsView: View {
         footer
       }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }.background(Color(nsColor: theme.background))
-      .tint(Color(nsColor: theme.accent))
+      .jamTheme(theme)
       .interactiveDismissDisabled(draft.saving)
       .preferredColorScheme(appearance == "dark" ? .dark : appearance == "light" ? .light : nil)
       .onAppear {
@@ -318,6 +319,8 @@ struct AppSettingsView: View {
         "Shared by a workspace and its worktree coordinators. Lowering the limit leaves existing workers running."
       )
       modelSettings
+    case "Integrations":
+      settingsGroup("File previews") { PreviewIntegrations(store: store) }
     case "Appearance":
       settingsGroup("Theme") {
         Picker("Theme", selection: $theme) {
@@ -347,7 +350,7 @@ struct AppSettingsView: View {
                   }
                 }
               )
-            ).textFieldStyle(.roundedBorder).font(.system(size: 12, design: .monospaced))
+            ).font(.system(size: 12, design: .monospaced))
               .accessibilityLabel(command.title)
             Button(recording == command.id ? "Press keys…" : "Record") { recording = command.id }
             Button("Reset") {
@@ -427,7 +430,7 @@ struct AppSettingsView: View {
           let resolved = choices.effective(field, fallback: catalogs[catalogKey]?.defaultModel)
           HStack(spacing: 12) {
             Text(label).frame(width: 105, alignment: .leading)
-            TextField("Jam default · \(resolved)", text: model).textFieldStyle(.roundedBorder)
+            TextField("Jam default · \(resolved)", text: model)
               .font(.system(size: 12, design: .monospaced)).accessibilityLabel("\(label) model")
             Menu {
               Button("Jam default") { model.wrappedValue = "" }

@@ -1,6 +1,8 @@
+import AVKit
 import AppKit
 import CJam
 import SwiftUI
+import WebKit
 
 // Off-screen CI windows cannot reliably become the active OS window. Control
 // that input here while exercising the real responder and daemon paths.
@@ -78,9 +80,12 @@ struct WorktreeListFixture: View {
       if title == "Tab 1" { assert(tab.bounds.width < 92, "Short tabs should remain compact") }
     }
     checkMiddleClick()
+    try checkFilePreviews()
+    try checkPreviewImages()
     try checkImageClipboard()
     try checkCoordinatorControls()
     checkActivityIndicators()
+    try checkPaneProgress()
     checkEmptyWorkspaceNames()
     checkCoordinatorStateMigration()
     checkContextRequestRouting()
@@ -91,7 +96,10 @@ struct WorktreeListFixture: View {
     defer { _ = rpc("Stop") }
     try checkTerminalMouseGestures()
     try checkOptimisticSplit()
+    try checkRapidClose()
+    try checkTabCloseSelection()
     try checkManagedResume()
+    try checkWorkspaceRemoval()
     let store = Store()
     try checkToastTimeouts()
     try checkUpgradeChip(store: store)
@@ -115,7 +123,15 @@ struct WorktreeListFixture: View {
     let window = FocusTestWindow(
       contentRect: NSRect(x: -3000, y: -3000, width: 1100, height: 700),
       styleMask: [.titled, .resizable], backing: .buffered, defer: false)
-    window.contentView = NSHostingView(rootView: ServerSheetFixture(store: store))
+    let hosting = NSHostingController(rootView: ServerSheetFixture(store: store))
+    window.titleVisibility = .hidden
+    window.styleMask.insert(.fullSizeContentView)
+    window.toolbarStyle = .unifiedCompact
+    hosting.sceneBridgingOptions = .toolbars
+    hosting.sizingOptions = []
+    window.contentViewController = hosting
+    window.setContentSize(NSSize(width: 1100, height: 700))
+    window.toolbar?.isVisible = true
     window.orderFront(nil)
     defer { window.orderOut(nil) }
 
@@ -156,6 +172,9 @@ struct WorktreeListFixture: View {
     try checkRapidFocus(store: store, window: window)
     try checkInlineRename(store: store, window: window)
     try checkAutomaticFocusAcknowledgement(store: store, window: window)
+    try checkPreviewDrawer(
+      store: store, window: window, from: destinations[0], other: destinations[1])
+    try checkRichPreviews(store: store, window: window, from: destinations[0])
     try checkServerRecovery(store: store, destinations: destinations, window: window)
     // A departing SwiftUI host may still receive layout. It must not steal the
     // pooled view back from its new destination or resize it to stale bounds.
@@ -177,7 +196,8 @@ struct WorktreeListFixture: View {
     )
     print(
       "Native terminal tests passed: first-frame geometry, cached renderer reuse, and reparenting.")
-    try checkUsagePanel(store: store)
+    try checkUsageResetCache()
+    try checkUsagePanel(store: Store())
     try checkReviewBadge(store: store, window: window)
     checkEmptyGroups(store: store, window: window)
     checkReconnectingMachine(store: store, window: window)
@@ -282,6 +302,13 @@ struct WorktreeListFixture: View {
       let context = try? JSONSerialization.jsonObject(with: bytes) as? [String: Any]
       return context?["url"] as? String == "https://example.org/review"
     }
+    view.mouseMoved(with: event(.mouseMoved, 4, 0, .control))
+    let highlights = {
+      view.layer?.sublayers?.compactMap { $0 as? CAShapeLayer }.filter { $0.zPosition == 100 } ?? []
+    }
+    assert(highlights().first?.path?.boundingBox.width == view.cellSize.width * CGFloat(link.count))
+    view.mouseMoved(with: event(.mouseMoved, 4))
+    assert(highlights().isEmpty)
     view.mouseDown(with: event(.leftMouseDown, 0))
     view.mouseDragged(with: event(.leftMouseDragged, link.count - 1))
     view.mouseUp(with: event(.leftMouseUp, link.count - 1))
@@ -296,15 +323,30 @@ struct WorktreeListFixture: View {
     view.rightMouseDown(with: event(.rightMouseDown, 1, 1, .control))
     view.rightMouseUp(with: event(.rightMouseUp, 1, 1, .control))
     assert(opened.map(\.absoluteString) == [link, "https://example.org/review"])
-    assert(TerminalNSView.webLink(["url": "file:///etc/hosts"]) == nil)
+    assert(TerminalTarget.web(URL(string: "file:///etc/hosts")) == nil)
+    var clicked: PreviewLocation?
+    view.previewLocation = { clicked = $0 }
+    send(#"printf '\033[2J\033[H/tmp/example.log:42:3\r\n'"#)
+    try wait("file gesture fixture rendered") {
+      view.hover.hit(
+        NSPoint(x: view.cellSize.width * 5, y: rect.height - view.cellSize.height / 2))?.destination
+        == .file(PreviewLocation(path: "/tmp/example.log", line: 42, column: 3))
+    }
+    view.mouseDown(with: event(.leftMouseDown, 5, 0, .control))
+    view.mouseUp(with: event(.leftMouseUp, 5, 0, .control))
+    assert(clicked == PreviewLocation(path: "/tmp/example.log", line: 42, column: 3))
     // A mouse-reporting app supplies different clipboard text on button release.
     send(
-      #"python3 -c 'import os,tty; tty.setraw(0); os.write(1,b"\x1b[2J\x1b[HDrag here\x1b[?1002h\x1b[?1006h"); exec("while os.read(0,1) != b\"m\": pass"); os.write(1,b"\x1b]52;c;ZnJvbSBhcHA=\x07\x1b[?1002l\x1b[?1006l")'; stty sane"#
+      #"python3 -c 'import os,tty; tty.setraw(0); os.write(1,b"\x1b[2J\x1b[HDrag here\r\n/tmp/example.log:5:2\x1b[?1002h\x1b[?1006h"); exec("while os.read(0,1) != b\"m\": pass"); os.write(1,b"\x1b]52;c;ZnJvbSBhcHA=\x07\x1b[?1002l\x1b[?1006l")'; stty sane"#
     )
     try wait("mouse reporting enabled") {
       view.render()
       return view.meta["mouse"] as? Bool == true
     }
+    clicked = nil
+    view.rightMouseDown(with: event(.rightMouseDown, 5, 1, .control))
+    view.rightMouseUp(with: event(.rightMouseUp, 5, 1, .control))
+    assert(clicked == PreviewLocation(path: "/tmp/example.log", line: 5, column: 2))
     view.mouseDown(with: event(.leftMouseDown, 0))
     view.mouseDragged(with: event(.leftMouseDragged, 3))
     view.mouseUp(with: event(.leftMouseUp, 3))
@@ -338,7 +380,15 @@ struct WorktreeListFixture: View {
     let window = FocusTestWindow(
       contentRect: NSRect(x: -3000, y: -3000, width: 1100, height: 700),
       styleMask: [.titled, .resizable], backing: .buffered, defer: false)
-    window.contentView = NSHostingView(rootView: ServerSheetFixture(store: store))
+    let hosting = NSHostingController(rootView: ServerSheetFixture(store: store))
+    window.titleVisibility = .hidden
+    window.styleMask.insert(.fullSizeContentView)
+    window.toolbarStyle = .unifiedCompact
+    hosting.sceneBridgingOptions = .toolbars
+    hosting.sizingOptions = []
+    window.contentViewController = hosting
+    window.setContentSize(NSSize(width: 1100, height: 700))
+    window.toolbar?.isVisible = true
     window.orderFront(nil)
     defer { window.orderOut(nil) }
     try wait("initial split terminal") {
@@ -395,6 +445,199 @@ struct WorktreeListFixture: View {
       store.pendingLayoutEdits.isEmpty && store.panes[bottom] == nil && store.focus == middle
     }
     print("Optimistic split passed with a delayed reply, confirmation, and rejection.")
+  }
+
+  static func checkRapidClose() throws {
+    let store = Store()
+    let path = ProcessInfo.processInfo.environment["JAM_STATE_DIR"]!
+    apply(rpc(["CreateWorkspace": ["path": path, "name": "Close fixture"]]), to: store)
+    let workspace = store.workspaces.last!
+    defer { _ = rpc(["WorkspaceClose": ["workspace": workspace.id, "group": false]]) }
+    let tab = workspace.tabs[0]
+    store.select(workspace.id, tab: tab.id)
+    for level in 0..<5 {
+      for id in store.visiblePaneIDs {
+        if store.visiblePaneIDs.count == 20 { break }
+        apply(rpc(["Split": ["pane": id, "vertical": level.isMultiple(of: 2)]]), to: store)
+      }
+    }
+    let original = store.visiblePaneIDs
+    assert(original.count == 20)
+    store.select(workspace.id, tab: tab.id, pane: original.last!)
+    let snapshot = rpc("State")
+    let gate = DispatchSemaphore(value: 0)
+    endpointQueue("").async { gate.wait() }
+    var released = false
+    defer { if !released { gate.signal() } }
+    for count in (2...20).reversed() {
+      store.execute("close_pane")
+      let visible = store.visiblePaneIDs
+      assert(visible.count == count - 1 && visible.contains(store.focus))
+    }
+    let survivor = store.focus
+    assert(store.pendingLayoutEdits.count == 19)
+    apply(snapshot, to: store)
+    assert(store.visiblePaneIDs == [survivor] && store.focus == survivor)
+    var visits = 0
+    let probe = LayoutEdit(
+      endpoint: "", request: [:],
+      preview: { _ in
+        visits += 1
+        return true
+      }, complete: { _ in })
+    store.pendingLayoutEdits.append(probe)
+    for _ in 0..<20 {
+      assert(store.visiblePaneIDs == [survivor])
+      _ = store.displayedWorkspaces
+    }
+    assert(visits == 1, "Reading the same layout must not replay every unconfirmed edit")
+    store.pendingLayoutEdits.removeLast()
+    gate.signal()
+    released = true
+    try wait("burst of closes reconciles with the daemon") {
+      store.pendingLayoutEdits.isEmpty && store.visiblePaneIDs == [survivor]
+        && store.focus == survivor && store.panes[original.last!] == nil
+    }
+    assert(store.error.isEmpty)
+  }
+
+  static func checkTabCloseSelection() throws {
+    let store = Store()
+    let path = ProcessInfo.processInfo.environment["JAM_STATE_DIR"]!
+    apply(rpc(["CreateWorkspace": ["path": path, "name": "Tab close fixture"]]), to: store)
+    let workspace = store.workspaces.last!.id
+    defer { _ = rpc(["WorkspaceClose": ["workspace": workspace, "group": false]]) }
+    for _ in 0..<3 { apply(rpc(["NewTab": ["workspace": workspace]]), to: store) }
+    let tabs = store.workspaces.last!.tabs
+    assert(tabs.count == 4)
+    store.select(workspace, tab: tabs[1].id)
+    let snapshot = rpc("State")
+    let gate = DispatchSemaphore(value: 0)
+    endpointQueue("").async { gate.wait() }
+    var released = false
+    defer { if !released { gate.signal() } }
+    store.execute("close_pane")
+    assert(store.tab == tabs[2].id && store.focus == tabs[2].root.ids.first)
+    apply(snapshot, to: store)
+    assert(store.tab == tabs[2].id)
+    store.closeTab(tabs[0])
+    assert(store.tab == tabs[2].id && store.focus == tabs[2].root.ids.first)
+    store.select(workspace, tab: tabs[3].id)
+    store.execute("close_pane")
+    assert(store.tab == tabs[2].id && store.focus == tabs[2].root.ids.first)
+    gate.signal()
+    released = true
+    try wait("tab selection after queued closes") { store.pendingLayoutEdits.isEmpty }
+    assert(store.current?.tabs.map(\.id) == [tabs[2].id] && store.tab == tabs[2].id)
+    assert(store.error.isEmpty)
+  }
+
+  static func checkWorkspaceRemoval() throws {
+    let store = Store()
+    let endpoint = "slow-test"
+    let root = endpoint + "|project"
+    let child = endpoint + "|checkout"
+    let pane = endpoint + "|pane"
+    store.remoteMessages[endpoint] = "Connected"
+    let parentRow: [String: Any] = ["id": root, "name": "Project", "tabs": []]
+    let childRow: [String: Any] = [
+      "id": child, "name": "Checkout", "parent": root,
+      "tabs": [["id": endpoint + "|tab", "root": ["Leaf": pane]]],
+    ]
+    func snapshot(_ revision: Int, exited: Bool = false) -> [String: Any] {
+      [
+        "revision": revision, "workspaces": [parentRow, childRow],
+        "panes": [["id": pane, "workspace": child, "exited": exited]],
+      ]
+    }
+    store.apply(snapshot(1), endpoint: endpoint)
+    store.select(child)
+    let workspace = store.current!
+    let window = NSWindow(
+      contentRect: NSRect(x: -3000, y: -3000, width: 280, height: 500),
+      styleMask: [.titled], backing: .buffered, defer: false)
+    window.contentView = NSHostingView(rootView: WorkspaceSidebar(store: store))
+    window.orderFront(nil)
+    defer { window.orderOut(nil) }
+    try wait("checkout row visible") { findSidebar(in: window)?.coordinator?.items[child] != nil }
+    let outline = sidebar(in: window)
+    func checkoutCell() -> WorkspaceCell {
+      let row = outline.row(forItem: outline.coordinator!.items[child]!)
+      return outline.view(atColumn: 0, row: row, makeIfNecessary: true) as! WorkspaceCell
+    }
+    func icon(_ cell: WorkspaceCell) -> NSImageView {
+      cell.subviews.compactMap { $0 as? NSImageView }.first!
+    }
+    let originalIcon = icon(checkoutCell()).frame
+    assert(!originalIcon.isEmpty && !icon(checkoutCell()).isHidden)
+    let gate = DispatchSemaphore(value: 0)
+    let final: [String: Any] = ["revision": 3, "workspaces": [parentRow], "panes": []]
+    store.beginWorkspaceRemoval(workspace, action: .delete(force: false)) { request, machine in
+      assert(machine == endpoint)
+      if (request as? [String: Any])?["WorktreeRemove"] != nil {
+        return ["Operation": ["id": "operation", "done": false]]
+      }
+      if (request as? [String: Any])?["Operation"] != nil {
+        precondition(gate.wait(timeout: .now() + 3) == .success)
+        return ["Operation": ["id": "operation", "done": true, "workspace": child]]
+      }
+      assert(request as? String == "State")
+      return ["State": final]
+    }
+    assert(store.currentRemoval?.showsSpinner == false && store.visiblePaneIDs.isEmpty)
+    store.beginWorkspaceRemoval(workspace, action: .delete(force: false)) { _, _ in
+      fatalError("Submitted the same removal twice")
+    }
+    store.apply(snapshot(2, exited: true), endpoint: endpoint)
+    assert(store.currentTab == nil && store.selected == child && store.focus == pane)
+    RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+    assert(store.currentRemoval?.showsSpinner == false)
+    assert(!icon(checkoutCell()).isHidden)
+    try wait("delete spinner replaces the checkout icon") {
+      let cell = checkoutCell()
+      cell.layoutSubtreeIfNeeded()
+      guard let spinner = cell.subviews.compactMap({ $0 as? NSProgressIndicator }).first else {
+        return false
+      }
+      return icon(cell).isHidden && !spinner.isHidden && spinner.frame == originalIcon
+        && spinner.accessibilityLabel() == "Deleting checkout"
+    }
+    let item = outline.coordinator!.items[child]!
+    let row =
+      outline.rowView(atRow: outline.row(forItem: item), makeIfNecessary: true) as! WorkspaceRow
+    assert(row.status == store.activityStatus(for: workspace).rawValue)
+    assert(store.displayedWorkspaces.contains { $0.id == child })
+    store.select("jam")
+    assert(store.currentRemoval == nil && !store.visiblePaneIDs.isEmpty)
+    gate.signal()
+    try wait("remote checkout removed") { store.workspaceRemovals.isEmpty }
+    assert(store.selected == "jam" && !store.displayedWorkspaces.contains { $0.id == child })
+    store.apply(snapshot(2), endpoint: endpoint)
+    assert(!store.workspaces.contains { $0.id == child })
+
+    store.apply(snapshot(4), endpoint: endpoint)
+    store.select(child)
+    let project = store.workspaces.first { $0.id == root }!
+    let rollback = snapshot(4)
+    store.beginWorkspaceRemoval(project, action: .close(group: true)) { request, machine in
+      assert(machine == endpoint)
+      if request as? String == "State" { return ["State": rollback] }
+      assert((request as? [String: [String: Any]])?["WorkspaceClose"]?["group"] as? Bool == true)
+      return ["error": "Fixture close failed"]
+    }
+    assert(store.currentRemoval != nil && store.visiblePaneIDs.isEmpty)
+    assert(store.workspaceRemovals.count == 2)
+    try wait("failed group close restored") { store.workspaceRemovals.isEmpty }
+    assert(store.selected == child && store.visiblePaneIDs == [pane] && store.focus == pane)
+    try wait("restored checkout icon") { !icon(checkoutCell()).isHidden }
+    assert(store.error == "Fixture close failed")
+
+    let message = WarningContent(
+      "Could not resume: Codex response is too large\n\u{1b}[31mwarning\u{1b}[0m")
+    assert(!message.summary.contains("another saved session"))
+    assert(message.details?.hasSuffix("\nwarning") == true)
+    print(
+      "Workspace removal passed delayed delete, duplicate click, navigation, and group rollback.")
   }
 
   static func checkManagedResume() throws {
@@ -604,10 +847,15 @@ struct WorktreeListFixture: View {
     print("Clipboard images passed: PNG, TIFF, text precedence, quoting, and size limit.")
   }
 
-  static func checkInlineRename(store: Store, window: NSWindow) throws {
-    func descendants<T: NSView>(_ root: NSView, of type: T.Type) -> [T] {
-      (root as? T).map { [$0] } ?? root.subviews.flatMap { descendants($0, of: type) }
+  static func toolbarTabs(_ window: NSWindow) -> [TabDragView] {
+    func tabs(in view: NSView) -> [TabDragView] {
+      if let tab = view as? TabDragView { return [tab] }
+      return view.subviews.flatMap(tabs)
     }
+    return window.toolbar?.visibleItems?.compactMap(\.view).flatMap(tabs) ?? []
+  }
+
+  static func checkInlineRename(store: Store, window: NSWindow) throws {
     func mouse(_ type: NSEvent.EventType, in view: NSView, point: NSPoint) -> NSEvent {
       NSEvent.mouseEvent(
         with: type, location: view.convert(point, to: nil), modifierFlags: [],
@@ -620,6 +868,9 @@ struct WorktreeListFixture: View {
       try wait("inline rename focus") { field()?.currentEditor() != nil }
       let editor = field()!
       let text = editor.currentEditor() as! NSTextView
+      assert(
+        text.selectedTextAttributes[.backgroundColor] as? NSColor == editor.theme.textHighlight)
+      assert(text.selectedTextAttributes[.foregroundColor] as? NSColor == .black)
       text.setSelectedRange(NSRange(location: 1, length: 0))
       // Additional activation must not end the session or replace its selection.
       activateInlineEditor(editor)
@@ -638,9 +889,35 @@ struct WorktreeListFixture: View {
         name, replacementRange: NSRange(location: 0, length: (text.string as NSString).length))
       text.doCommand(by: #selector(NSResponder.insertNewline(_:)))
     }
-    // SwiftUI can request auto-rename before the new tab has a window.
+    func openTabMenu(_ view: TabDragView, controlClick: Bool = false) throws -> NSMenu {
+      RunLoop.current.run(until: Date().addingTimeInterval(0.24))
+      let point = NSPoint(x: view.bounds.midX, y: view.bounds.midY)
+      let event = NSEvent.mouseEvent(
+        with: controlClick ? .leftMouseDown : .rightMouseDown,
+        location: view.convert(point, to: nil), modifierFlags: controlClick ? .control : [],
+        timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+        context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
+      var opened: NSMenu?
+      let observer = NotificationCenter.default.addObserver(
+        forName: NSMenu.didBeginTrackingNotification, object: nil, queue: nil
+      ) { note in
+        guard let menu = note.object as? NSMenu else { return }
+        opened = menu
+        RunLoop.main.perform(inModes: [.eventTracking, .default]) {
+          menu.cancelTrackingWithoutAnimation()
+        }
+      }
+      defer { NotificationCenter.default.removeObserver(observer) }
+      NSApp.sendEvent(event)
+      try wait("tab context menu tracking") { opened != nil }
+      let menu = opened!
+      assert(menu.item(withTitle: "Rename") != nil && menu.item(withTitle: "Close Tab") != nil)
+      return menu
+    }
+    // An inline editor should acquire focus when its view joins the window.
     let unattached = TabDragView(frame: NSRect(x: 0, y: 0, width: 120, height: 28))
     unattached.label.stringValue = "New tab"
+    unattached.theme = .warm
     var prematurelyFinished = false
     unattached.beginRename { _ in prematurelyFinished = true }
     assert(unattached.editor != nil && !prematurelyFinished)
@@ -652,48 +929,108 @@ struct WorktreeListFixture: View {
     let tab = store.workspaces[0].tabs[0].id
     store.select(workspace, tab: tab)
     try wait("tab for rename") {
-      descendants(window.contentView!, of: TabDragView.self).contains { $0.tabID == tab }
+      toolbarTabs(window).contains { $0.tabID == tab }
     }
-    // Both the plus action and configured shortcut select the new name field,
-    // then Enter transfers focus into that tab's terminal.
+    // Both entry points show a numbered tab while waiting for the daemon,
+    // then deliver typing directly to its terminal.
     var created: [String] = []
     for index in 0..<2 {
       let oldTabs = Set(store.current!.tabs.map(\.id))
+      let previousNames = Set(store.current!.tabs.map(\.name))
+      let replyGate = DispatchSemaphore(value: 0)
+      var released = false
+      defer { if !released { replyGate.signal() } }
+      endpointQueue("").async { replyGate.wait() }
       if index == 0 { store.newTab() } else { store.execute("new_tab") }
-      try wait("new tab rename") {
-        guard let editing = store.editingTab else { return false }
-        return !oldTabs.contains(editing)
+      let placeholder = store.tab
+      let initialTitle = store.currentTab!.name
+      let number = (1...).first { !previousNames.contains("Tab \($0)") }!
+      assert(initialTitle == "Tab \(number)" && store.editingTab == nil)
+      try wait("named tab visible before the daemon replies") {
+        toolbarTabs(window).contains {
+          $0.tabID == placeholder && $0.label.stringValue == initialTitle
+        }
       }
-      let newID = store.editingTab!
-      created.append(newID)
-      let (_, input) = try liveEditor {
-        descendants(window.contentView!, of: TabDragView.self).first { $0.tabID == newID }?.editor
+      let newView = toolbarTabs(window).first { $0.tabID == placeholder }!
+      assert(newView.editor == nil)
+      var ahead = store.workspaces
+      let owner = ahead.firstIndex { $0.id == workspace }!
+      ahead[owner].tabs.append(Tab(id: "poll-tab", name: initialTitle, root: .leaf("poll-pane")))
+      let preview = store.pendingLayoutEdits.last!
+      assert(preview.preview(&ahead))
+      assert(ahead[owner].tabs.count == oldTabs.count + 1)
+      assert(ahead[owner].tabs.last?.name == initialTitle)
+      replyGate.signal()
+      released = true
+      try wait("new tab owns keyboard focus") {
+        guard let newTab = store.currentTab, newTab.id != placeholder, !oldTabs.contains(newTab.id),
+          let terminal = window.firstResponder as? TerminalNSView
+        else { return false }
+        return newView.tabID == newTab.id && terminal.pane == newTab.root.ids.first
+          && terminal.pane == store.focus
       }
-      if index == 0 {
-        enter(input, name: "Fresh tab")
-      } else {
-        input.doCommand(by: #selector(NSResponder.insertNewline(_:)))
+      created.append(store.tab)
+      assert(newView.editor == nil && store.editingTab == nil && !TerminalInputGate.blocked)
+      assert(newView.label.stringValue == initialTitle && store.currentTab?.name == initialTitle)
+      let pane = store.focus
+      for (character, code) in [("j", UInt16(38)), ("a", 0), ("m", 46)] {
+        window.sendEvent(
+          NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+            windowNumber: window.windowNumber, context: nil, characters: character,
+            charactersIgnoringModifiers: character, isARepeat: false, keyCode: code)!)
       }
-      try wait("terminal focus after naming") {
-        store.editingTab == nil && (window.firstResponder as? TerminalNSView)?.pane == store.focus
-      }
-      if index == 0 {
-        try wait("new tab name saved") { store.currentTab?.name == "Fresh tab" }
-      } else {
-        assert(store.currentTab?.name.hasPrefix("Tab ") == true)
+      try wait("typing reaches the newly opened shell") {
+        (rpc(["Capture": ["pane": pane]])["Capture"] as? String)?.contains("jam-test> jam") == true
       }
     }
+    // Opening a tab also commits an explicit rename in the previous tab.
+    let previousView = toolbarTabs(window).first { $0.tabID == created.last }!
+    let previousMenu = try openTabMenu(previousView)
+    previousMenu.performActionForItem(at: previousMenu.indexOfItem(withTitle: "Rename"))
+    let (_, previousText) = try liveEditor { previousView.editor }
+    previousText.insertText(
+      "Manual name", replacementRange: NSRange(location: 0, length: previousText.string.utf16.count)
+    )
+    store.newTab()
+    try wait("new tab ready for manual rename") {
+      !Store.layoutPlaceholder(store.tab) && !created.contains(store.tab)
+        && toolbarTabs(window).contains { $0.tabID == store.tab }
+    }
+    let naming = store.tab
+    try wait("terminal focus after leaving an explicit rename") {
+      store.current?.tabs.first { $0.id == created.last }?.name == "Manual name"
+        && store.editingTab == nil
+        && (window.firstResponder as? TerminalNSView)?.pane == store.focus
+    }
+    // Closing a tab during an explicit rename must still target the field's tab.
+    let namingView = toolbarTabs(window).first { $0.tabID == naming }!
+    let renameMenu = try openTabMenu(namingView)
+    renameMenu.performActionForItem(at: renameMenu.indexOfItem(withTitle: "Rename"))
+    try wait("new tab editor is mounted") {
+      toolbarTabs(window).first { $0.tabID == naming }?.editor?.currentEditor() != nil
+    }
+    let namingMenu = try openTabMenu(namingView)
+    namingMenu.performActionForItem(at: namingMenu.indexOfItem(withTitle: "Close Tab"))
+    assert(store.current?.tabs.contains { $0.id == naming } == false && store.tab == created.last)
+    try wait("closing inline rename releases keyboard focus") {
+      store.editingTab == nil && store.pendingLayoutEdits.isEmpty
+    }
     for id in created {
-      if let t = store.current?.tabs.first(where: { $0.id == id }) { store.closeTab(t) }
+      let view = toolbarTabs(window).first { $0.tabID == id }!
+      let menu = try openTabMenu(view)
+      assert(store.tab == created.last, "A secondary click must preserve the active tab")
+      menu.performActionForItem(at: menu.indexOfItem(withTitle: "Close Tab"))
+      assert(store.current?.tabs.contains { $0.id == id } == false)
     }
     try wait("new tab cleanup") {
       !store.workspaces.flatMap(\.tabs).contains { created.contains($0.id) }
     }
     store.select(workspace, tab: tab)
     try wait("original tab restored") { store.currentTab?.id == tab }
-    let tabView = descendants(window.contentView!, of: TabDragView.self).first { $0.tabID == tab }!
-    // The context menu sets this same published action; its field must survive SwiftUI updates.
-    store.editingTab = tab
+    let tabView = toolbarTabs(window).first { $0.tabID == tab }!
+    let menu = try openTabMenu(tabView, controlClick: true)
+    menu.performActionForItem(at: menu.indexOfItem(withTitle: "Rename"))
     let (_, contextText) = try liveEditor { tabView.editor }
     contextText.doCommand(by: #selector(NSResponder.cancelOperation(_:)))
     try wait("tab rename cancellation") { tabView.editor == nil && store.editingTab == nil }
@@ -797,7 +1134,6 @@ struct WorktreeListFixture: View {
   }
 
   static func checkCoordinatorControls() throws {
-    func views(_ root: NSView) -> [NSView] { [root] + root.subviews.flatMap(views) }
     let store = Store()
     let regular = Tab(id: "regular", name: "Tab 1", root: .leaf("preview-a"))
     let other = Tab(id: "other", name: "Tab 2", root: .leaf("preview-b"))
@@ -826,11 +1162,19 @@ struct WorktreeListFixture: View {
     let window = NSWindow(
       contentRect: NSRect(x: -3000, y: -3000, width: 1100, height: 700),
       styleMask: [.titled, .resizable], backing: .buffered, defer: false)
-    window.contentView = NSHostingView(rootView: ContentView().environmentObject(store))
+    let hosting = NSHostingController(rootView: ContentView().environmentObject(store))
+    window.titleVisibility = .hidden
+    window.styleMask.insert(.fullSizeContentView)
+    window.toolbarStyle = .unifiedCompact
+    hosting.sceneBridgingOptions = .toolbars
+    hosting.sizingOptions = []
+    window.contentViewController = hosting
+    window.setContentSize(NSSize(width: 1100, height: 700))
+    window.toolbar?.isVisible = true
     window.orderFront(nil)
     defer { window.orderOut(nil) }
     try wait("coordinator sidebar children") {
-      views(window.contentView!).compactMap { $0 as? WorkspaceOutline }.first?.numberOfRows == 4
+      findSidebar(in: window)?.numberOfRows == 4
     }
     let outline = Self.sidebar(in: window)
     let sidebar = outline.coordinator!
@@ -854,6 +1198,15 @@ struct WorktreeListFixture: View {
     func coordinatorRow() -> WorkspaceRow {
       outline.rowView(atRow: outline.row(forItem: child), makeIfNecessary: true) as! WorkspaceRow
     }
+    let activityRow = coordinatorRow()
+    let rowIndex = outline.row(forItem: child)
+    let activityCell = outline.view(atColumn: 0, row: rowIndex, makeIfNecessary: true)!
+    for status in ["working", "done", "unknown", "blocked"] {
+      store.panes[coordinator.pane]?.status = status
+      sidebar.update(outline)
+      assert(coordinatorRow() === activityRow && activityRow.status == status)
+      assert(outline.view(atColumn: 0, row: rowIndex, makeIfNecessary: true) === activityCell)
+    }
     assert(
       coordinatorRow().tint == nil,
       "Untinted coordinator must not inherit the workspace's row highlight")
@@ -873,7 +1226,7 @@ struct WorktreeListFixture: View {
       IndexSet(integer: outline.row(forItem: child)), byExtendingSelection: false)
     try wait("dedicated coordinator surface") {
       store.surface == .coordinator && store.focus == coordinator.pane
-        && views(window.contentView!).allSatisfy { !($0 is TabDragView) }
+        && toolbarTabs(window).isEmpty
     }
     assert(store.currentTab == nil && store.visiblePaneIDs == [coordinator.pane])
     assert(store.tab == other.id && store.selections[workspace.id]?.0 == other.id)
@@ -893,7 +1246,7 @@ struct WorktreeListFixture: View {
     // Ordinary tabs and their selection are independent from the coordinator.
     store.select(workspace.id)
     try wait("normal tab strip returns") {
-      views(window.contentView!).contains { $0 is TabDragView }
+      toolbarTabs(window).contains { $0.tabID == other.id }
     }
     assert(store.currentTab?.id == other.id && store.focus == "preview-b")
     assert(store.beginTabDrag(regular.id))
@@ -1061,6 +1414,53 @@ struct WorktreeListFixture: View {
     try wait("settings sheet dismissal") { parent.attachedSheet == nil }
 
   }
+  static func checkUsageResetCache() throws {
+    let suite = "dev.saffronjam.reset-test." + UUID().uuidString
+    let defaults = UserDefaults(suiteName: suite)!
+    defer { defaults.removePersistentDomain(forName: suite) }
+    var done = false
+    Task { @MainActor in
+      let id = "codex:fixture"
+      var cache = UsageResetCache(defaults: defaults)
+      let now = Date()
+      var reads = 0
+      func read() -> ResetCredits {
+        reads += 1
+        return ResetCredits(available: 4, credits: nil)
+      }
+      await cache.refresh(id, now: now) { read() }
+      cache = UsageResetCache(defaults: defaults)
+      assert(cache.snapshot(for: id)?.credits.available == 4)
+      assert(cache.snapshot(for: "claude:fixture") == nil)
+      await cache.refresh(id, now: now.addingTimeInterval(100)) { read() }
+      assert(reads == 1, "Reopening a fresh cache contacted the provider")
+      let later = now.addingTimeInterval(UsageResetCache.refreshInterval + 1)
+      await cache.refresh(id, now: later) { throw URLError(.notConnectedToInternet) }
+      assert(cache.snapshot(for: id)?.credits.available == 4 && cache.errors[id] != nil)
+      await cache.refresh(id, now: later) { read() }
+      assert(reads == 1, "Reopening retried a failed refresh immediately")
+      var complete: CheckedContinuation<ResetCredits, Never>?
+      let pending = Task { @MainActor in
+        await cache.refresh(id, force: true) {
+          await withCheckedContinuation { complete = $0 }
+        }
+      }
+      while complete == nil { await Task.yield() }
+      await cache.refresh(id, force: true) { fatalError("Duplicate reset lookup") }
+      assert(cache.snapshot(for: id)?.credits.available == 4)
+      assert(cache.beginRedemption(id) && !cache.beginRedemption(id))
+      cache.finishRedemption(id, invalidate: true)
+      complete!.resume(returning: read())
+      await pending.value
+      assert(cache.snapshot(for: id) == nil, "A pre-redemption read restored spent resets")
+      await cache.refresh(id, force: true) { ResetCredits(available: 0, credits: []) }
+      cache = UsageResetCache(defaults: defaults)
+      assert(cache.snapshot(for: id)?.credits.available == 0, "Zero resets must also persist")
+      done = true
+    }
+    try wait("reset cache reuse, account isolation, and redemption invalidation") { done }
+  }
+
   static func checkUsagePanel(store: Store) throws {
     let oldUsage = store.agentUsage
     let oldConnected = store.connected
@@ -1069,13 +1469,14 @@ struct WorktreeListFixture: View {
       store.connected = oldConnected
     }
     store.connected = true
+    let nextRenewal = Int(Date().timeIntervalSince1970) + 7200
     let reports: [[String: Any]] = ["codex", "claude"].map { provider in
       [
         "provider": provider, "profile_key": provider, "account_key": provider + "-account",
         "account_label": "test@example.invalid", "active_sessions": 2, "checking": false,
         "last_success_at": Int(Date().timeIntervalSince1970),
         "windows": [
-          ["key": "five_hour", "label": "5h", "percent": 37],
+          ["key": "five_hour", "label": "5h", "percent": 37, "resets_at": nextRenewal],
           ["key": "weekly", "label": "7d", "percent": 68],
         ],
       ]
@@ -1088,7 +1489,7 @@ struct WorktreeListFixture: View {
     window.appearance = NSAppearance(named: .darkAqua)
     let host = NSHostingView(rootView: UsagePanel().environmentObject(store))
     window.contentView = host
-    window.orderFront(nil)
+    window.makeKeyAndOrderFront(nil)
     defer { window.orderOut(nil) }
     try wait("usage panel layout") { host.fittingSize.height > 80 }
     assert(host.fittingSize.height < 240, "Usage panel is not compact")
@@ -1096,6 +1497,55 @@ struct WorktreeListFixture: View {
       view is NSScrollView || view.subviews.contains(where: containsScrollView)
     }
     assert(!containsScrollView(host), "Usage should fit its content without a scroll view")
+    let bothProviders = store.agentUsage
+    let codex = bothProviders[""]!.first { $0.provider == "codex" }!
+    let originalCapabilities = store.capabilitiesByEndpoint
+    store.capabilitiesByEndpoint[""] = ["agent_usage", "usage_reset_credits"]
+    assert(store.usageResetSource(for: codex, preferred: "legacy-proxy")?.endpoint == "")
+    let claude = bothProviders[""]!.first { $0.provider == "claude" }!
+    assert(store.usageResetSource(for: claude, preferred: "legacy-proxy") == nil)
+    store.capabilitiesByEndpoint[""]?.insert("claude_usage_resets")
+    assert(store.usageResetSource(for: claude, preferred: "legacy-proxy")?.endpoint == "")
+    var otherLogin = reports[0]
+    otherLogin["account_key"] = "different-account-same-email"
+    let other = try JSONDecoder().decode(
+      AgentUsageReport.self, from: JSONSerialization.data(withJSONObject: otherLogin))
+    assert(store.usageResetSource(for: other, preferred: "legacy-proxy") == nil)
+    store.capabilitiesByEndpoint = originalCapabilities
+    for report in bothProviders[""]! {
+      store.agentUsage = ["": [report]]
+      try wait("single usage row layout") { host.fittingSize.height < 100 }
+      window.setContentSize(NSSize(width: 240, height: ceil(host.fittingSize.height)))
+      window.contentView?.layoutSubtreeIfNeeded()
+      RunLoop.current.run(until: Date().addingTimeInterval(0.3))
+      // The weekly percentage is the last line, just inside the panel's bottom padding.
+      let point = NSPoint(
+        x: window.contentLayoutRect.maxX - 25,
+        y: window.contentLayoutRect.midY - host.fittingSize.height / 2 + 15)
+      let existing = Set(NSApp.windows.filter(\.isVisible).map(ObjectIdentifier.init))
+      for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+        window.sendEvent(
+          NSEvent.mouseEvent(
+            with: type, location: point, modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+            context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!)
+      }
+      func popover() -> NSWindow? {
+        NSApp.windows.first { $0.isVisible && !existing.contains(ObjectIdentifier($0)) }
+      }
+      try wait("meter opens \(report.name) usage popover") { popover() != nil }
+      let selected = store.usageSelection!
+      assert(selected.report == report && selected.endpoint == "" && TerminalInputGate.blocked)
+      let expectedTime = Date(timeIntervalSince1970: Double(nextRenewal)).formatted(
+        date: .abbreviated, time: .shortened)
+      assert(selected.report.windows[0].renewalText == "Resets " + expectedTime)
+      assert(selected.report.windows[1].renewalText == "Reset time unavailable")
+      store.usageSelection = nil
+      try wait("usage popover dismissal") { popover() == nil }
+    }
+    store.agentUsage = bothProviders
+    window.setContentSize(NSSize(width: 240, height: 260))
+    try wait("usage panel restored") { host.fittingSize.height > 100 }
     if let path = ProcessInfo.processInfo.environment["JAM_UI_SCREENSHOT"],
       let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds)
     {
@@ -1699,12 +2149,14 @@ struct WorktreeListFixture: View {
     print("Native sidebar disclosure passed: empty, populated, and last workspace removed.")
   }
 
-  static func sidebar(in window: NSWindow) -> WorkspaceOutline {
+  static func sidebar(in window: NSWindow) -> WorkspaceOutline { findSidebar(in: window)! }
+
+  static func findSidebar(in window: NSWindow) -> WorkspaceOutline? {
     func find(in view: NSView) -> WorkspaceOutline? {
       if let outline = view as? WorkspaceOutline { return outline }
       return view.subviews.lazy.compactMap { find(in: $0) }.first
     }
-    return find(in: window.contentView!)!
+    return find(in: window.contentView!)
   }
 
   static func checkWorkspaceHandoff(store: Store, window: NSWindow) {
@@ -1788,6 +2240,66 @@ struct WorktreeListFixture: View {
     print("Workspace handoff, navigation, concurrent layout, and inline failure checks passed.")
   }
 
+  static func checkPaneProgress() throws {
+    let store = Store()
+    let id = "preview-progress"
+    func report(_ steps: [[String: Any]]) {
+      store.apply(
+        [
+          "workspaces": [],
+          "panes": [["id": id, "agent_provider": "codex", "status": "working", "progress": steps]],
+        ], endpoint: "")
+    }
+    let build: [String: Any] = ["label": "Build", "percent": 100]
+    let verify: [String: Any] = ["label": "Verify", "percent": 20]
+    report([build, verify])
+    let host = NSHostingView(rootView: PaneCard(id: id).environmentObject(store))
+    let window = NSWindow(
+      contentRect: NSRect(x: 0, y: 0, width: 580, height: 220),
+      styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+    window.contentView = host
+    window.makeKeyAndOrderFront(nil)
+    defer { window.orderOut(nil) }
+    func dragRect(_ view: NSView) -> NSRect? {
+      if let drag = view as? PaneHeaderDragView { return drag.convert(drag.bounds, to: nil) }
+      return view.subviews.lazy.compactMap(dragRect).first
+    }
+    func clickBar() {
+      let drag = dragRect(host)!
+      let point = NSPoint(x: drag.maxX + 40, y: drag.midY)
+      for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+        window.sendEvent(
+          NSEvent.mouseEvent(
+            with: type, location: point, modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+            context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!)
+      }
+    }
+    try wait("progress header layout") { (dragRect(host)?.width ?? 0) > 200 }
+    assert(PaneProgress(steps: store.panes[id]!.progress).average == 60)
+    let widthWithProgress = dragRect(host)!.width
+    let existing = Set(NSApp.windows.filter(\.isVisible).map(ObjectIdentifier.init))
+    func popoverOpen() -> Bool {
+      NSApp.windows.contains { $0.isVisible && !existing.contains(ObjectIdentifier($0)) }
+    }
+    clickBar()
+    try wait("clicking aggregate progress opens details") { popoverOpen() }
+    report([verify])
+    try wait("single progress step dismisses details") { !popoverOpen() }
+    assert(PaneProgress(steps: store.panes[id]!.progress).average == 20)
+    clickBar()
+    RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+    assert(!popoverOpen())
+    window.setContentSize(NSSize(width: PaneProgress.minimumPaneWidth - 1, height: 220))
+    try wait("narrow pane reclaims progress space") {
+      guard let drag = dragRect(host), host.bounds.width < PaneProgress.minimumPaneWidth else {
+        return false
+      }
+      return host.bounds.width - drag.width < 580 - widthWithProgress - 60
+    }
+    print("Pane progress passed: aggregate, clickable breakdown, single step and narrow pane.")
+  }
+
   static func checkActivityIndicators() {
     let store = Store()
     store.apply(
@@ -1804,6 +2316,29 @@ struct WorktreeListFixture: View {
     assert(store.panes["manual-codex"]?.isAIPane == true)
     assert(store.panes["manual-codex"]?.agentRole == nil)
     assert(store.panes["manual-codex"]?.activityStatus == .done)
+    let indicator = ActivityDotView(frame: NSRect(x: 0, y: 0, width: 10, height: 10))
+    let indicatorWindow = NSWindow(
+      contentRect: indicator.bounds, styleMask: [.borderless], backing: .buffered, defer: false)
+    indicatorWindow.contentView = indicator
+    indicator.status = .working
+    let glyph = indicator.layer!.sublayers!.compactMap { $0 as? CAShapeLayer }.first!
+    assert(glyph.strokeEnd < 1 && glyph.fillColor == nil)
+    if !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+      assert(indicator.isSpinning)
+      let replacement = WorkspaceRow(frame: NSRect(x: 0, y: 0, width: 150, height: 36))
+      replacement.status = "working"
+      indicatorWindow.contentView = replacement
+      let rowDot = replacement.subviews.compactMap { $0 as? ActivityDotView }.first!
+      assert(rowDot.isSpinning && !indicator.isSpinning)
+      indicatorWindow.contentView = indicator
+    }
+    indicator.status = .done
+    assert(!indicator.isSpinning && glyph.strokeEnd == 1)
+    indicator.status = .unknown
+    assert(glyph.fillColor == nil && !indicator.isSpinning)
+    if !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+      assert(indicator.layer?.animation(forKey: kCATransition)?.duration == 0.14)
+    }
     let shell = Pane(id: "shell", title: "Shell", cwd: "/tmp", status: "error", exited: false)
     var panes = (0..<11).map {
       Pane(
@@ -1830,7 +2365,7 @@ struct WorktreeListFixture: View {
       id: "mixed", name: "Mixed", root: .split(false, 0.5, .leaf("shell"), .leaf("ai-0")))
     assert(store.activityStatus(for: mixed) == .idle)
     assert(!ActivityStatus.unknown.filled && !ActivityStatus.stopped.filled)
-    for status in [ActivityStatus.done, .blocked, .error, .idle] {
+    for status in [ActivityStatus.done, .blocked, .working, .error, .idle] {
       let tab = TabDragView(
         frame: NSRect(
           x: 0, y: 0, width: TabDragView.preferredWidth(for: "Tab 1", showsStatus: true), height: 28
@@ -1858,6 +2393,7 @@ struct WorktreeListFixture: View {
     var actions: [(String, Bool)] = []
     var interrupted = true
     let expectedSessions = ["live-pane": "generation-before-confirmation"]
+    let refreshedSessions = ["live-pane": "generation-after-reopening"]
     var launchedSessions: [String: String]?
     let release = AppRelease(
       schema: 1, version: "0.0.3", protocol: "jam/test", minMacOS: "14.0", assets: [])
@@ -1870,6 +2406,7 @@ struct WorktreeListFixture: View {
       let action = request["action"] as? String ?? ""
       lock.lock()
       actions.append((action, request["confirmed"] as? Bool == true))
+      let reopening = actions.filter { $0.0 == "stage" }.count > 1
       let pending = interrupted
       if action == "recover" { interrupted = false }
       if action == "launch" {
@@ -1910,7 +2447,8 @@ struct WorktreeListFixture: View {
             "targets": [
               [
                 "endpoint": "", "name": "Local", "panes": ["live-pane"],
-                "sessions": expectedSessions, "incarnation": "fixture-incarnation",
+                "sessions": reopening ? refreshedSessions : expectedSessions,
+                "incarnation": "fixture-incarnation",
                 "build": "fixture-build", "version": "0.0.1",
               ]
             ],
@@ -1950,7 +2488,11 @@ struct WorktreeListFixture: View {
     controller.cancel()
     assert(recorded("launch").isEmpty, "Cancelling the staged upgrade must not launch the helper")
     controller.prepare()
-    try wait("second verified staging") { controller.phase == .ready }
+    assert(
+      controller.showSheet && controller.staged?.plan.targets.first?.sessions == expectedSessions)
+    assert(!controller.canLaunch, "Wait for fresh terminal counts before accepting consent")
+    try wait("refreshed interruption plan") { controller.phase == .ready }
+    assert(controller.staged?.plan.targets.first?.sessions == refreshedSessions)
     controller.launch()
     try wait("confirmed upgrade") {
       controller.phase == .idle && !controller.notice.isEmpty && recorded("launch").count == 1
@@ -1965,7 +2507,7 @@ struct WorktreeListFixture: View {
     let preservedSessions = launchedSessions
     lock.unlock()
     assert(
-      preservedSessions == expectedSessions,
+      preservedSessions == refreshedSessions,
       "Confirmed launch must preserve the staged live-session identities")
     controller.requireClientUpgrade(endpoint: "newer", minimum: "0.0.10", manual: true)
     try wait("unsatisfied newer remote") { controller.phase == .idle && !controller.error.isEmpty }
@@ -2211,5 +2753,350 @@ struct WorktreeListFixture: View {
       }
       RunLoop.current.run(until: Date().addingTimeInterval(0.002))
     }
+  }
+}
+
+extension TerminalSwitchTests {
+  static func checkFilePreviews() throws {
+    func hit(_ line: String, at offset: Int) -> TerminalTarget? {
+      TerminalTarget.hit([
+        "line": line, "offset": offset, "offsets": Array(0..<line.utf16.count), "start": 3,
+        "cols": 12,
+      ])
+    }
+    for (label, path) in [
+      (#""two words.json":12:7"#, "two words.json"), (#"two\ words.json:12:7"#, "two words.json"),
+      ("(./file:12:7)", "./file"),
+    ] {
+      let target = hit(label, at: 3)
+      assert(target?.destination == .file(PreviewLocation(path: path, line: 12, column: 7)))
+    }
+    let full = "one🌳\ntwo\n" + String(repeating: "abcd🌳\n", count: 16000)
+    let data = Data(full.utf8)
+    let file = PreviewInfo(path: "/remote/notes.log", size: data.count, version: "v")
+    let reader = PreviewReader(pane: "proxy|p") { req in
+      let body = req["FilePreview"] as! [String: Any]
+      assert(body["pane"] as? String == "proxy|p")
+      if body["read"] is String {
+        return ["path": file.path, "size": file.size, "version": file.version]
+      }
+      let operation = body["read"] as! [String: [String: Any]]
+      if let chunk = operation["Chunk"] {
+        let start = chunk["offset"] as! Int
+        let length = chunk["length"] as! Int
+        return ["data": data[start..<min(data.count, start + length)].base64EncodedString()]
+      }
+      assert(operation["Line"]?["number"] as? Int == 2)
+      return ["offset": "one🌳\n".utf8.count]
+    }
+    guard
+      case .text(let tail) = try reader.load(
+        PreviewLocation(path: "notes.log"), file: file, page: nil),
+      case .text(let line) = try reader.load(
+        PreviewLocation(path: "notes.log", line: 2, column: 2), file: file, page: nil)
+    else { fatalError("Expected text") }
+    assert(
+      tail.bytes.upperBound == data.count && tail.bytes.lowerBound > 0
+        && tail.anchor == tail.text.utf16.count)
+    assert(line.anchor == "one🌳\nt".utf16.count)
+    var pos = 0
+    var joined = ""
+    while pos < file.size {
+      guard
+        case .text(let page) = try reader.load(
+          PreviewLocation(path: file.path), file: file,
+          page: pos..<min(file.size, pos + PreviewReader.pageSize))
+      else { fatalError() }
+      assert(page.bytes.lowerBound == pos && page.bytes.upperBound > pos)
+      joined += page.text
+      pos = page.bytes.upperBound
+    }
+    assert(joined == full)
+    // A slow daemon read must yield immediately. Closing it must discard its eventual reply.
+    let slow = PreviewReader(pane: "proxy|p") { req in
+      if (req["FilePreview"] as? [String: Any])?["read"] is String {
+        Thread.sleep(forTimeInterval: 1)
+      }
+      return try reader.call(req)
+    }
+    let model = FilePreview(reader: slow, location: PreviewLocation(path: "notes.log"))
+    let start = Date()
+    model.load()
+    assert(model.busy && Date().timeIntervalSince(start) < 0.10)
+    model.cancel()
+    let live = FilePreview(reader: slow, location: PreviewLocation(path: "notes.log"))
+    live.load()
+    try wait("file preview completes asynchronously") { live.content != nil }
+    assert(model.content == nil)
+    print(
+      "File target detection, UTF-8 paging, line and log anchors, and delayed preview cancellation passed"
+    )
+  }
+}
+
+extension TerminalSwitchTests {
+  static func checkPreviewImages() throws {
+    let context = CGContext(
+      data: nil, width: 32, height: 24, bitsPerComponent: 8,
+      bytesPerRow: 128, space: CGColorSpaceCreateDeviceRGB(),
+      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+    context.setFillColor(NSColor.red.cgColor)
+    context.fill(CGRect(x: 0, y: 0, width: 32, height: 24))
+    let pixel = context.makeImage()!
+    let encoders = CGImageDestinationCopyTypeIdentifiers() as! [String]
+    var fixtures: [(String, Data)] = [
+      (
+        "webp",
+        Data(
+          base64Encoded:
+            "UklGRjwAAABXRUJQVlA4IDAAAADQAQCdASoQABAAAgA0JaACdLoB+AADsAD+8Oj3/yC5YXXI1/8gP+MqfGVP+PIAAAA="
+        )!
+      ),
+      (
+        "gif",
+        Data(
+          base64Encoded:
+            "R0lGODlhAQABAIABAP8AAAAAACH5BAAKAAAAIf8LTkVUU0NBUEUyLjADAQAAACwAAAAAAQABAAACAkQBACH5BAAKAAAALAAAAAABAAEAgAAAAP///wICRAEAOw=="
+        )!
+      ),
+    ]
+    for (ext, uti) in [
+      ("png", "public.png"), ("jpg", "public.jpeg"), ("tiff", "public.tiff"),
+      ("bmp", "com.microsoft.bmp"), ("heic", "public.heic"), ("avif", "public.avif"),
+    ] where encoders.contains(uti) {
+      let data = NSMutableData()
+      let encoder = CGImageDestinationCreateWithData(data, uti as CFString, 1, nil)!
+      CGImageDestinationAddImage(encoder, pixel, nil)
+      assert(CGImageDestinationFinalize(encoder), "Encoder failed for \(ext)")
+      fixtures.append((ext, data as Data))
+      if ext == "heic" { fixtures.append(("heif", data as Data)) }
+    }
+    for (ext, data) in fixtures {
+      let reader = PreviewReader(pane: "fixture") { _ in ["data": data.base64EncodedString()] }
+      let file = PreviewInfo(path: "/image." + ext, size: data.count, version: "v")
+      guard
+        case .image(let image) = try reader.load(
+          PreviewLocation(path: file.path), file: file, page: nil)
+      else { fatalError("Missing image for \(ext)") }
+      if ext == "gif" { assert(image.frames == 2) }
+      var rendered = false
+      Task { @MainActor in
+        let frame = await image.frame(image.frames - 1, size: 64)
+        assert(frame != nil, "Cannot draw \(ext)")
+        rendered = true
+      }
+      try wait("render \(ext)") { rendered }
+    }
+    print("Image previews decoded and drew " + fixtures.map(\.0).joined(separator: ", "))
+  }
+}
+
+extension TerminalSwitchTests {
+  static func checkPreviewDrawer(
+    store: Store, window: NSWindow, from: (String, String, [String]),
+    other: (String, String, [String])
+  ) throws {
+    let pane = from.2[0]
+    store.select(from.0, tab: from.1, pane: pane)
+    let file = URL(fileURLWithPath: ProcessInfo.processInfo.environment["JAM_STATE_DIR"]!)
+      .appendingPathComponent("drawer fixture.txt")
+    try "drawer body".write(to: file, atomically: true, encoding: .utf8)
+    defer { try? FileManager.default.removeItem(at: file) }
+    let cap = store.capabilitiesByEndpoint[""]
+    store.capabilitiesByEndpoint[""] = []
+    store.preview(PreviewLocation(path: file.path), from: pane)
+    assert(store.filePreviews[from.1]?.error?.contains("Update") == true)
+    store.closePreview()
+    store.capabilitiesByEndpoint[""] = cap
+    let normal = PreviewReader(pane: pane)
+    let lock = NSLock()
+    var count = 0
+    let reader = PreviewReader(pane: pane) { req in
+      lock.withLock { count += 1 }
+      if (req["FilePreview"] as? [String: Any])?["read"] is String {
+        Thread.sleep(forTimeInterval: 1)
+      }
+      return try normal.call(req)
+    }
+    let model = FilePreview(reader: reader, location: PreviewLocation(path: file.path))
+    store.filePreviews[from.1] = model
+    model.load()
+    let input = Array("printf 'preview_%s\\n' typing\r".utf8)
+    _ = rpc(["Send": ["pane": pane, "data": input]])
+    try wait("input reaches the terminal during preview read") {
+      (rpc(["Capture": ["pane": pane]])["Capture"] as? String)?.contains("preview_typing") == true
+    }
+    assert(model.busy)
+    store.select(other.0, tab: other.1)
+    assert(store.previewSurface == other.1 && store.filePreviews[other.1] == nil)
+    store.select(from.0, tab: from.1)
+    func visibleText(_ view: NSView?, _ text: String) -> Bool {
+      guard let view, !view.isHidden else { return false }
+      if let t = view as? NSTextView, t.string == text { return true }
+      return view.subviews.contains { visibleText($0, text) }
+    }
+    try wait("drawer displays selectable preview") {
+      visibleText(window.contentView, "drawer body")
+    }
+    let initialReads = lock.withLock { count }
+    store.expandedPreview = model
+    try wait("expanded sheet displays the same preview") {
+      visibleText(window.attachedSheet?.contentView, "drawer body")
+    }
+    assert(TerminalInputGate.blocked && lock.withLock { count } == initialReads)
+    store.expandedPreview = nil
+    try wait("expanded preview closes") { window.attachedSheet == nil }
+    assert(store.filePreviews[from.1] === model && lock.withLock { count } == initialReads)
+    model.needsRefresh = true
+    store.select(other.0, tab: other.1)
+    try wait("drawer left") { !visibleText(window.contentView, "drawer body") }
+    try "edited body".write(to: file, atomically: true, encoding: .utf8)
+    store.select(from.0, tab: from.1)
+    try wait("returning from an editor shows the saved file") {
+      visibleText(window.contentView, "edited body")
+    }
+    store.closePreview()
+    try wait("closing the drawer restores the terminal") {
+      store.filePreviews[from.1] == nil && !visibleText(window.contentView, "edited body")
+        && !TerminalInputGate.blocked
+    }
+    print(
+      "Real drawer and sheet passed: concurrent input, tab restoration, zero reads on expansion, edited file refresh, old-server hint."
+    )
+  }
+}
+
+extension TerminalSwitchTests {
+  static func checkRichPreviews(store: Store, window: NSWindow, from: (String, String, [String]))
+    throws
+  {
+    func child<T: NSView>(_ type: T.Type, in root: NSView?) -> T? {
+      guard let root, !root.isHidden else { return nil }
+      if let match = root as? T { return match }
+      for view in root.subviews { if let match = child(type, in: view) { return match } }
+      return nil
+    }
+    let pane = from.2[0]
+    store.select(from.0, tab: from.1, pane: pane)
+    let savedCapabilities = store.capabilitiesByEndpoint[""]
+    defer { store.capabilitiesByEndpoint[""] = savedCapabilities }
+    store.capabilitiesByEndpoint[""] = ["file_preview"]
+    let directory = URL(fileURLWithPath: ProcessInfo.processInfo.environment["JAM_STATE_DIR"]!)
+    let reader = PreviewReader(pane: pane)
+    let chunked = directory.appendingPathComponent("large.md")
+    let firstLine = String(repeating: "a", count: PreviewReader.chunkSize + 17)
+    let document = firstLine + "\n# Last heading"
+    try document.write(to: chunked, atomically: true, encoding: .utf8)
+    let location = PreviewLocation(path: chunked.path, line: 2)
+    let info = try reader.inspect(chunked.path)
+    guard case .text(let page) = try reader.load(location, file: info, page: nil) else {
+      fatalError("Missing Markdown source")
+    }
+    assert(page.text == document && page.anchor == firstLine.utf8.count + 1)
+    assert(FilePreview(reader: reader, location: location).markdownMode == .raw)
+    assert(
+      !PreviewInfo(path: "large.md", size: PreviewReader.markdownLimit + 1, version: "v")
+        .canFormatMarkdown)
+    let file = directory.appendingPathComponent("example.MD")
+    let image = Data(
+      base64Encoded:
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNYdeYdAASIAmUcjxktAAAAAElFTkSuQmCC"
+    )!
+    try image.write(to: directory.appendingPathComponent("pixel.png"))
+    let source = """
+      # Markdown fixture
+      ![Pixel](pixel.png)
+      [Movie](preview.mov)
+
+      | Left | Right |
+      | --- | --- |
+      | One | Two |
+
+      <script>window.untrustedDocumentRan = true</script>
+
+      ```mermaid
+      flowchart LR
+        A[Start] --> B[Finish]
+      ```
+      """
+    try source.write(to: file, atomically: true, encoding: .utf8)
+    store.preview(PreviewLocation(path: file.path), from: pane)
+    let model = store.filePreviews[from.1]!
+    try wait("Markdown WebKit drawer appears") {
+      child(WKWebView.self, in: window.contentView) != nil
+    }
+    let web = child(WKWebView.self, in: window.contentView)!
+    var pending = false
+    var rendered = false
+    try wait("Markdown heading, table and offline Mermaid SVG") {
+      if !pending && !rendered {
+        pending = true
+        web.evaluateJavaScript(
+          """
+          document.querySelector("main h1")?.textContent === "Markdown fixture" &&
+          document.querySelector("img")?.naturalWidth === 1 &&
+          document.querySelector("main a")?.href.startsWith("jam-file://preview/") &&
+          !!document.querySelector("table td") && !!document.querySelector("figure svg") &&
+          document.querySelector("figure svg").textContent.includes("Finish") && !window.untrustedDocumentRan
+          """
+        ) { result, _ in
+          rendered = result as? Bool == true
+          pending = false
+        }
+      }
+      return rendered
+    }
+    model.markdownMode = .raw
+    store.expandedPreview = model
+    try wait("expanded Markdown keeps the selected raw view") {
+      child(NSTextView.self, in: window.attachedSheet?.contentView)?.string == source
+    }
+    store.expandedPreview = nil
+    try wait("return to the raw Markdown drawer") {
+      window.attachedSheet == nil
+        && child(NSTextView.self, in: window.contentView)?.string == source
+    }
+    store.closePreview()
+
+    let fixtures = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+      .deletingLastPathComponent()
+      .appendingPathComponent("Fixtures")
+    for ext in ["mp4", "mov"] {
+      store.preview(
+        PreviewLocation(path: fixtures.appendingPathComponent("preview." + ext).path), from: pane)
+      let model = store.filePreviews[from.1]!
+      try wait("movie container opens") {
+        if case .movie = model.content { return true }
+        return false
+      }
+      guard case .movie(let movie) = model.content else { fatalError("Missing movie") }
+      let player = movie.player
+      try wait("AVFoundation loads " + ext) { player.currentItem?.status != .unknown }
+      assert(player.currentItem?.status == .readyToPlay, movie.error ?? "Movie is not ready")
+      var sought = false
+      player.seek(
+        to: CMTime(seconds: 0.8, preferredTimescale: 600), toleranceBefore: .zero,
+        toleranceAfter: .zero
+      ) {
+        succeeded in sought = succeeded
+      }
+      try wait("seeking succeeds") { sought && abs(player.currentTime().seconds - 0.8) < 0.1 }
+      store.expandedPreview = model
+      try wait("expanded player retains the same item and playback position") {
+        child(AVPlayerView.self, in: window.attachedSheet?.contentView)?.player === player
+      }
+      assert(abs(player.currentTime().seconds - 0.8) < 0.1)
+      player.play()
+      try wait("expanded movie plays past seek") { player.currentTime().seconds > 1.0 }
+      store.expandedPreview = nil
+      try wait("player returns to drawer") {
+        window.attachedSheet == nil
+          && child(AVPlayerView.self, in: window.contentView)?.player === player
+      }
+      store.closePreview()
+    }
+    print(
+      "Markdown rendered a heading, table and Mermaid diagram offline; raw mode survived expansion. MP4 and MOV played and sought over the file preview RPC."
+    )
   }
 }

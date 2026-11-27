@@ -10,6 +10,7 @@ struct LayoutEdit {
 
 extension Store {
   var projectedWorkspaces: [Workspace] {
+    if let cachedProjectedWorkspaces { return cachedProjectedWorkspaces }
     var layout = pendingLayoutEdits.reduce(workspaces) { layouts, edit in
       var preview = layouts
       return edit.preview(&preview) ? preview : layouts
@@ -19,6 +20,7 @@ extension Store {
     {
       _ = OptimisticLayout.moveTab(id, into: owner.id, at: index, in: &layout)
     }
+    cachedProjectedWorkspaces = layout
     return layout
   }
 
@@ -39,7 +41,11 @@ extension Store {
     let edit = LayoutEdit(
       endpoint: endpoint, request: request, preview: preview, complete: complete)
     InteractionTiming.event("Layout preview")
-    withAnimation(WorkspaceFinder.animation) { pendingLayoutEdits.append(edit) }
+    withAnimation(WorkspaceFinder.animation) {
+      pendingLayoutEdits.append(edit)
+      // A drag preview is applied after all queued edits when projecting the tree.
+      if draggingTab == nil { cachedProjectedWorkspaces = layout }
+    }
     DispatchQueue.main.async { [weak self] in self?.sendNextLayoutEdit(endpoint) }
     return true
   }
@@ -113,7 +119,7 @@ extension Store {
     if advance { sendNextLayoutEdit(edit.endpoint) }
   }
 
-  func submitNewTab(workspace: Workspace) {
+  func submitNewTab(workspace: Workspace, editor: [String: String]? = nil) {
     let endpoint = WorkspaceSelection.endpoint(of: workspace.id)
     let prefix = endpoint.isEmpty ? "" : endpoint + "|"
     let placeholder = prefix + "pending-tab-" + UUID().uuidString
@@ -121,32 +127,44 @@ extension Store {
     guard
       !pendingLayoutEdits.contains(where: {
         ($0.request["NewTab"] as? [String: String])?["workspace"] == workspace.id
+          || ($0.endpoint == endpoint && $0.request["EditPreviewFile"] != nil)
       })
     else { return }
     let original = Set(workspace.tabs.map(\.id))
+    let names = Set(workspace.tabs.map(\.name))
+    let number = (1...(names.count + 1)).first { !names.contains("Tab \($0)") }!
+    let pending = Tab(id: placeholder, name: "Tab \(number)", root: .leaf(leaf))
     let prior = tab
     let accepted = submitLayout(
-      ["NewTab": ["workspace": workspace.id]], endpoint: endpoint,
+      editor.map { ["EditPreviewFile": $0] } ?? ["NewTab": ["workspace": workspace.id]],
+      endpoint: endpoint,
       preview: { workspaces in
         guard let index = workspaces.firstIndex(where: { $0.id == workspace.id }) else {
           return false
         }
-        let names = Set(workspaces[index].tabs.map(\.name))
-        let number = (1...(names.count + 1)).first { !names.contains("Tab \($0)") }!
-        workspaces[index].tabs.append(
-          Tab(id: placeholder, name: "Tab \(number)", root: .leaf(leaf)))
+        // A poll may see the created tab before NewTab replies. Publish newly
+        // discovered siblings together once the reply identifies our own tab.
+        workspaces[index].tabs.removeAll { !original.contains($0.id) }
+        workspaces[index].tabs.append(pending)
         return true
       },
       complete: { [weak self] reply in
-        guard let self, self.selected == workspace.id, self.tab == placeholder else { return }
-        let candidates =
-          self.current?.tabs.filter { !original.contains($0.id) && !Self.layoutPlaceholder($0.id) }
-          ?? []
-        let created = reply["State"] != nil && candidates.count == 1 ? candidates.first : nil
+        guard let self else { return }
+        // NewTab appends its tab under the daemon's layout lock. Its own reply
+        // identifies it even when another client also opened a tab.
+        let snapshot = reply["State"] as? [String: Any]
+        let owner = (snapshot?["workspaces"] as? [[String: Any]])?.first {
+          $0["id"] as? String == workspace.id
+        }
+        let createdID = (owner?["tabs"] as? [[String: Any]])?.last?["id"] as? String
+        let created = self.workspaces.first { $0.id == workspace.id }?.tabs.first {
+          $0.id == createdID && !original.contains($0.id)
+        }
+        if let created { self.tabCreationOrigins[created.id] = placeholder }
+        guard self.selected == workspace.id, self.tab == placeholder else { return }
         self.select(workspace.id, tab: created?.id ?? prior)
         if let created {
           self.awaitingCreatedFrames.formUnion(created.root.ids)
-          self.editingTab = created.id
         }
       })
     if accepted { select(workspace.id, tab: placeholder) }

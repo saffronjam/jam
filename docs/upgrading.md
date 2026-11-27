@@ -35,6 +35,19 @@ Jam downloads and verifies the signed release and required artifacts before aski
 
 If sessions change after confirmation, Jam refuses stale approval. Installation failures retain diagnostics and restore the previous local installation when safe. Remote failures are tracked separately because several machines cannot be updated as one atomic transaction. Offline machines stay pending and require fresh confirmation when they return.
 
+## Diagnosing a stopped conversation
+
+The upgrade journal lists the pane IDs approved to restart. On macOS, look in
+`~/Library/Application Support/Jam/upgrades/apply-*/journal.json`. A Linux
+server keeps its pre-upgrade layout and coordination records in
+`~/.local/share/jam/servers/checkpoint-*/`. Match the pane ID across both.
+
+For restoration warnings, use `journalctl --user -u jamd.service` on a
+systemd machine or read `~/Library/Application Support/Jam/jamd.log` on macOS.
+A pane with `reason=no_registered_conversation` had reported an agent in the
+terminal, but Jam had no saved conversation to resume. Client connection
+warnings appear in Console under subsystem `dev.saffronjam.jam`, category `remote`.
+
 ## Client and server versions
 
 A client never installs its older bundled server over a newer remote. It must upgrade itself before connecting to that machine. If a suitable client release is unavailable, the remote remains unchanged. Protocol compatibility and source fingerprints do not determine version ordering.

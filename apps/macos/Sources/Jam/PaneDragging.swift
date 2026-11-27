@@ -241,7 +241,7 @@ final class PaneDragController {
     } else if let outline = hit as? WorkspaceOutline {
       let row = outline.row(at: outline.convert(point, from: nil))
       if row >= 0, let item = outline.item(atRow: row) as? WorkspaceSidebar.Item,
-        let w = item.workspace, !store.isCreatingWorkspace(w.id)
+        let w = item.workspace, !store.isWorkspacePending(w.id)
       {
         destination = ["Workspace": ["workspace": w.id]]
         hover = ("workspace-" + w.id, { store.select(w.id) })

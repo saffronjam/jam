@@ -48,6 +48,21 @@ class InstallTests(unittest.TestCase):
                 raise subprocess.CalledProcessError(1, args)
         with patch.dict(os.environ, {'HOME':str(self.root), 'XDG_DATA_HOME':str(self.root / 'data'), 'XDG_RUNTIME_DIR':str(self.root / 'runtime')}), patch('sys.argv', [str(INSTALLER), str(self.source), *options]), patch('platform.system', return_value='Linux'), patch('subprocess.run', side_effect=run), patch('subprocess.check_output', side_effect=lambda args, **kwargs: str(main_pid) if main_pid is not None and 'MainPID' in args else json.dumps(response) if response is not None else ('yes\n' if lingering else 'no\n')):
             runpy.run_path(str(INSTALLER), run_name='__main__')
+    def test_standalone_update_passes_live_panes_to_daemon_at_commit(self):
+        self.install()
+        self.build('b')
+        state = self.root / '.local/state/jam'
+        live, stopped = str(uuid.uuid4()), str(uuid.uuid4())
+        (state / 'layout.json').write_text(json.dumps({'panes': [
+            {'id': live, 'exited': False}, {'id': stopped, 'exited': True},
+        ]}))
+        committed = []
+        def inspect(args):
+            if 'commit-upgrade' in args:
+                committed.append(json.loads((state / '.upgrade-boot.json').read_text()))
+        self.install(options=['--restart-active'], on_run=inspect)
+        self.assertEqual([hold['resume_panes'] for hold in committed], [[live]])
+
     def test_stopped_server_upgrade_preserves_stopped_state(self):
         self.install()
         self.build('b')

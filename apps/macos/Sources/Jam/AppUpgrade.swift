@@ -48,6 +48,7 @@ final class AppUpgradeController: ObservableObject {
   private var automatic = true
   private var configured = false
   private var generation: UInt64 = 0
+  private var lastPrepared: AppUpgradeStage?
   private var polling = false
   private var timer: Timer?
   private var schedule: AppUpgradeSchedule = {
@@ -261,7 +262,7 @@ final class AppUpgradeController: ObservableObject {
     error = ""
     requirementError = false
     dismissNotice()
-    staged = nil
+    staged = lastPrepared?.staged.release == release ? lastPrepared : nil
     showSheet = true
     guard managed else {
       error = "Install the release Jam.app before upgrading. Development builds cannot be replaced."
@@ -282,9 +283,12 @@ final class AppUpgradeController: ObservableObject {
         guard self.generation == token else { return }
         switch reply {
         case .success(let value):
+          self.lastPrepared = value
           self.staged = value
           self.phase = .ready
         case .failure(let failure):
+          self.lastPrepared = nil
+          self.staged = nil
           self.phase = .idle
           if let required = failure as? ServerActionRequired {
             self.showSheet = false
@@ -516,7 +520,7 @@ struct UpgradeAvailableChip: View {
         Text("Upgrade available")
           .font(.caption.weight(.medium))
           .padding(.horizontal, 10).padding(.vertical, 4)
-          .background(Color.yellow.opacity(0.08), in: Capsule())
+          .foregroundStyle(.primary)
           .overlay(Capsule().strokeBorder(Color.yellow.opacity(0.8), lineWidth: 1))
           .contentShape(Capsule())
       }
@@ -580,8 +584,8 @@ struct AppUpgradeOverlay: View {
           dismiss: controller.dismissNotice)
       }
     }.frame(maxWidth: 360).padding(12)
-      .sheet(isPresented: $controller.showSheet) { AppUpgradeSheet(controller: controller) }
-      .sheet(item: $controller.recovery) { interrupted in
+      .jamSheet(isPresented: $controller.showSheet) { AppUpgradeSheet(controller: controller) }
+      .jamSheet(item: $controller.recovery) { interrupted in
         AppUpgradeRecoverySheet(controller: controller, interrupted: interrupted)
       }
   }
@@ -600,8 +604,7 @@ struct AppUpgradeSheet: View {
   @ObservedObject var controller: AppUpgradeController
   var body: some View {
     VStack(alignment: .leading, spacing: 16) {
-      Text("Upgrade Jam").font(.headline)
-      if controller.phase == .staging {
+      if controller.phase == .staging && controller.staged == nil {
         UpgradeProgress(message: "Downloading and verifying the update…")
       } else if controller.phase == .launching || controller.phase == .applying {
         UpgradeProgress(message: "Installing the update and restarting Jam…")
@@ -611,31 +614,30 @@ struct AppUpgradeSheet: View {
           "Jam and the following servers will restart. Running shell jobs may end. Workspace layouts and saved agent conversations are preserved."
         )
         .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-        ScrollView {
-          VStack(alignment: .leading, spacing: 10) {
-            HStack {
-              Text("Jam app instances")
-              Spacer()
-              Text("\(stage.plan.appPIDs.count)").foregroundStyle(.secondary)
-            }
-            ForEach(stage.plan.targets) { target in
-              HStack {
-                Text(target.name)
-                Spacer()
-                Text("\(target.panes.count) running terminal\(target.panes.count == 1 ? "" : "s")")
+        if !stage.plan.targets.isEmpty || !stage.plan.offline.isEmpty {
+          ScrollView {
+            VStack(alignment: .leading, spacing: 10) {
+              ForEach(stage.plan.targets) { target in
+                HStack {
+                  Text(target.name)
+                  Spacer()
+                  Text(
+                    "\(target.panes.count) running terminal\(target.panes.count == 1 ? "" : "s")"
+                  )
                   .foregroundStyle(.secondary)
+                }
+              }
+              if !stage.plan.offline.isEmpty {
+                Divider()
+                Text(
+                  "Offline machines will need confirmation when reachable: "
+                    + stage.plan.offline.joined(separator: ", ")
+                )
+                .font(.callout).foregroundStyle(.secondary)
               }
             }
-            if !stage.plan.offline.isEmpty {
-              Divider()
-              Text(
-                "Offline machines will need confirmation when reachable: "
-                  + stage.plan.offline.joined(separator: ", ")
-              )
-              .font(.callout).foregroundStyle(.secondary)
-            }
-          }
-        }.frame(maxHeight: 180)
+          }.frame(maxHeight: 180)
+        }
       }
       if !controller.error.isEmpty { ErrorNotice(message: controller.error) }
       Divider()
@@ -713,8 +715,8 @@ struct AppUpdateSettings: View {
       }
       if !controller.error.isEmpty { ErrorNotice(message: controller.error) }
     }
-    .sheet(isPresented: $controller.showSheet) { AppUpgradeSheet(controller: controller) }
-    .sheet(item: $controller.recovery) { interrupted in
+    .jamSheet(isPresented: $controller.showSheet) { AppUpgradeSheet(controller: controller) }
+    .jamSheet(item: $controller.recovery) { interrupted in
       AppUpgradeRecoverySheet(controller: controller, interrupted: interrupted)
     }
   }

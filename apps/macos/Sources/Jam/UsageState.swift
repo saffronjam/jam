@@ -6,6 +6,12 @@ struct AgentUsageWindow: Decodable, Equatable, Identifiable {
   let percent: Double?
   let resetsAt: Int64?
   var id: String { key }
+  var renewalText: String {
+    guard let resetsAt else { return "Reset time unavailable" }
+    let date = Date(timeIntervalSince1970: Double(resetsAt))
+    let time = date.formatted(date: .abbreviated, time: .shortened)
+    return date > .now ? "Resets " + time : "Last reported reset · " + time
+  }
   enum CodingKeys: String, CodingKey {
     case key, label, percent
     case resetsAt = "resets_at"

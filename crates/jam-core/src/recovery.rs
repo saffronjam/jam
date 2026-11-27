@@ -64,10 +64,42 @@ pub fn begin_launch(a: &mut Value) -> Result<String> {
         } else {
             a["recovery"] =
                 json!({"id":crate::id(),"state":"pending","attempted":true,"deadline":now()+60});
+            if a["provider"] == "claude" {
+                a["recovery"]["delivery"] = json!("launch");
+            }
         }
     }
     Board::open()?.put("agent", a)?;
     Ok(generation)
+}
+
+/// Called in the launcher's database transaction immediately before exec. A
+/// claimed prompt can only become running through the resumed session's hook.
+pub(crate) fn claude_launch_prompt(
+    a: &mut Value,
+    has_history: bool,
+) -> Result<Option<&'static str>> {
+    if a["recovery"]["state"] != "pending" {
+        return Ok(None);
+    }
+    if a["activity"] != "working"
+        || a["cancel_hold"] == true
+        || !eligible(a)
+        || (a["recovery"]["manual"] != true
+            && !crate::config::host_settings().resume_interrupted_work)
+    {
+        a["recovery"]["state"] = json!("suppressed");
+        return Ok(None);
+    }
+    if !has_history {
+        anyhow::bail!(
+            "Cannot continue interrupted work because the saved Claude conversation is missing"
+        );
+    }
+    a["recovery"]["state"] = json!("dispatching");
+    a["recovery"]["delivery"] = json!("launch");
+    a["recovery"]["deadline"] = json!(now() + 60);
+    Ok(Some(CONTINUE))
 }
 pub fn manual_action(a: &mut Value, resume: bool) {
     if resume && ["working", "cancelled", "failed"].contains(&a["activity"].as_str().unwrap_or(""))
@@ -112,11 +144,14 @@ fn apply_hook(a: &mut Value, input: &Value, run: &str) {
         }
         "UserPromptSubmit" => {
             a["cancel_hold"] = json!(false);
-            if input["prompt"]
-                .as_str()
-                .is_some_and(|p| p.contains(CONTINUE))
-                && ["dispatching", "accepted"]
-                    .contains(&a["recovery"]["state"].as_str().unwrap_or(""))
+            if input["prompt"].as_str().is_some_and(|p| {
+                if a["recovery"]["delivery"] == "launch" {
+                    p == CONTINUE
+                } else {
+                    p.contains(CONTINUE)
+                }
+            }) && ["dispatching", "accepted"]
+                .contains(&a["recovery"]["state"].as_str().unwrap_or(""))
             {
                 a["recovery"]["state"] = json!("running");
                 a["recovery"]["manual"] = json!(false);
@@ -147,7 +182,6 @@ fn apply_hook(a: &mut Value, input: &Value, run: &str) {
         }
         "Interrupt" => {
             a["cancel_hold"] = json!(true);
-            a["cancel_hold"] = json!(true);
             a["activity"] = json!("cancelled");
             a["recovery"] = json!({"state":"suppressed"});
         }
@@ -171,6 +205,13 @@ fn apply_hook(a: &mut Value, input: &Value, run: &str) {
             a["recovery"] = json!({"state":"suppressed"});
         }
         _ => {}
+    }
+    if event == "SessionEnd" {
+        let reason = input["reason"]
+            .as_str()
+            .filter(|reason| matches!(*reason, "prompt_input_exit" | "logout" | "clear" | "resume"))
+            .unwrap_or("other");
+        a["last_session_end"] = json!({"time":now(),"reason":reason});
     }
     a["activity_event"] = json!(event);
 }
@@ -209,6 +250,9 @@ pub fn deliver(board: &mut Board) -> Result<()> {
             && !crate::config::host_settings().resume_interrupted_work
         {
             board.update_agent(id, |a| {
+                if a["run_id"] != agent["run_id"] || a["recovery"] != agent["recovery"] {
+                    return;
+                }
                 a["activity"] = json!("cancelled");
                 a["recovery"]["state"] = json!("suppressed");
             })?;
@@ -222,6 +266,13 @@ pub fn deliver(board: &mut Board) -> Result<()> {
             && agent["recovery"]["deadline"].as_u64().unwrap_or(0) <= now()
         {
             board.update_agent(id, |a| {
+                if a["run_id"] != agent["run_id"] || a["recovery"] != agent["recovery"] {
+                    return;
+                }
+                eprintln!(
+                    "Jam could not confirm recovery for agent {id} (pane {}, last state {}).",
+                    a["pane"], a["recovery"]["state"]
+                );
                 a["recovery"]["state"] = json!("failed");
                 a["recovery"]["error"] =
                     json!("Could not confirm recovery. Resume explicitly to try again.");
@@ -229,7 +280,10 @@ pub fn deliver(board: &mut Board) -> Result<()> {
             })?;
             continue;
         }
-        if agent["recovery"]["state"] != "pending" || agent["ready"] != true {
+        if agent["recovery"]["state"] != "pending"
+            || agent["ready"] != true
+            || agent["recovery"]["delivery"] == "launch"
+        {
             continue;
         }
         let mut claimed = false;
@@ -260,6 +314,10 @@ pub fn deliver(board: &mut Board) -> Result<()> {
             match result {
                 Ok(()) => a["recovery"]["state"] = json!("accepted"),
                 Err(ref e) => {
+                    eprintln!(
+                        "WARN continuation failed agent={id} pane={} reason=delivery_failed",
+                        a["pane"]
+                    );
                     a["recovery"]["state"] = json!("failed");
                     a["recovery"]["error"] =
                         json!(format!("Could not resume interrupted work: {e:#}"));
@@ -335,6 +393,27 @@ fn reconcile(a: &mut Value) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn claude_only_continues_a_working_turn_in_its_saved_session() {
+        let pending = json!({
+            "provider":"claude","verified_launch":true,"activity":"working",
+            "recovery":{"state":"pending","manual":true}
+        });
+        let mut missing = pending.clone();
+        assert!(claude_launch_prompt(&mut missing, false).is_err());
+        let mut active = pending.clone();
+        assert_eq!(
+            claude_launch_prompt(&mut active, true).unwrap(),
+            Some(CONTINUE)
+        );
+        assert_eq!(claude_launch_prompt(&mut active, true).unwrap(), None);
+        for activity in ["idle", "cancelled", "waiting_for_input"] {
+            let mut inactive = pending.clone();
+            inactive["activity"] = json!(activity);
+            assert_eq!(claude_launch_prompt(&mut inactive, true).unwrap(), None);
+        }
+    }
+
     #[test]
     fn completed_transcript_cannot_release_explicit_exit() {
         let directory = tempfile::tempdir().unwrap();

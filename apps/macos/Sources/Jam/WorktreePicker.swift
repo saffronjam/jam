@@ -90,7 +90,7 @@ struct WorktreePicker: View {
         }
       }
       TextField("Filter by branch or path", text: $query)
-        .textFieldStyle(.roundedBorder).focused($searching).onSubmit(openSelected)
+        .focused($searching).onSubmit(openSelected)
       WorktreeList(
         checkouts: choices.filtered, opened: opened, selection: $selected,
         enabled: !loading, onOpen: openSelected

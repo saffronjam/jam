@@ -39,6 +39,7 @@ struct WorkspaceSidebar: NSViewRepresentable {
     context.coordinator.update(outline)
     if context.coordinator.lastTheme != store.theme {
       context.coordinator.lastTheme = store.theme
+      for case let editor as InlineNameEditor in outline.subviews { editor.theme = store.theme }
       outline.enumerateAvailableRowViews { row, _ in row.needsDisplay = true }
     }
   }
@@ -56,6 +57,11 @@ struct WorkspaceSidebar: NSViewRepresentable {
     var path: String
     var children: [Item] = []
     var tintID: String? { isCoordinator ? workspace?.coordinator?.id : workspace?.id }
+    var displayName: String {
+      if isCoordinator { return "Coordinator" }
+      if machine != nil { return path }
+      return workspace?.name ?? (path as NSString).lastPathComponent
+    }
     init(key: String, workspace: Workspace?, path: String) {
       self.key = key
       self.workspace = workspace
@@ -104,6 +110,7 @@ struct WorkspaceSidebar: NSViewRepresentable {
       let fields: [String] = [
         workspace.id, store.workspaceCreations[workspace.id]?.failure ?? "", workspace.parent ?? "",
         workspace.repository ?? "", workspace.name,
+        store.workspaceRemovals[workspace.id].map { "\($0.action.label) \($0.showsSpinner)" } ?? "",
         coordinator?.id ?? "", coordinator?.pane ?? "", workspace.sidebarBranch ?? "",
         context?.path ?? "", context?.repository ?? "", String(context?.ready ?? false),
         context?.createDisabledReason ?? "", store.workspaceTints[workspace.id] ?? "",
@@ -120,18 +127,28 @@ struct WorkspaceSidebar: NSViewRepresentable {
       let endpoint: String =
         workspace.map { WorkspaceSelection.endpoint(of: $0.id) } ?? item.machine ?? ""
       let branch: String = item.isCoordinator ? "" : (workspace?.sidebarBranch ?? "")
-      let creating: Bool = workspace.map { store.isCreatingWorkspace($0.id) } ?? false
       let fields: [String] = [
         item.path, item.machineLabel ?? "", String(item.loading), String(item.connectionAttempt),
         String(item.offline),
         "\(item.topInset)", workspace?.name ?? "", branch, String(!item.children.isEmpty),
         String(summary?.added ?? 0), String(summary?.removed ?? 0),
-        summary?.review?.displaySignature ?? "", status(for: item),
+        summary?.review?.displaySignature ?? "",
         store.workspaceTints[item.tintID ?? ""] ?? "", parentItem?.key ?? "",
-        store.workspaceTints[parentItem?.workspace?.id ?? ""] ?? "", String(creating),
+        store.workspaceTints[parentItem?.workspace?.id ?? ""] ?? "",
+        iconLoadingLabel(for: item) ?? "",
         store.remoteMessages[endpoint] ?? "",
       ]
       return (item.key, fields)
+    }
+    private func iconLoadingLabel(for item: Item) -> String? {
+      guard !item.isCoordinator, let id = item.workspace?.id else { return nil }
+      if let removal = store.workspaceRemovals[id], removal.showsSpinner {
+        return removal.action.label
+      }
+      if let creation = store.workspaceCreations[id], creation.failure == nil {
+        return creation.action.opensExisting ? "Opening workspace" : "Creating workspace"
+      }
+      return nil
     }
     func update(_ outline: NSOutlineView) {
       guard editing == nil, !store.reorderingWorkspaces else { return }
@@ -419,7 +436,13 @@ struct WorkspaceSidebar: NSViewRepresentable {
       row.treeParent = parent?.machine == nil ? parent : nil
       row.item = item
       row.loading = item.connectionAttempt
-      row.status = item.workspace != nil ? status(for: item) : ""
+      let activity = status(for: item)
+      let removal = item.workspace.flatMap { store.workspaceRemovals[$0.id] }
+      row.status = item.workspace != nil ? activity : ""
+      let tip =
+        item.machine == nil
+        ? "\(item.displayName) — \(activity == "unknown" ? "No reported activity" : activity)" : nil
+      row.toolTip = removal?.action.label ?? tip
       row.groupTint = store.tint(for: row.group?.workspace?.id)
       row.tint = parent == nil || parent?.machine != nil ? nil : store.tint(for: item.tintID)
     }
@@ -428,14 +451,9 @@ struct WorkspaceSidebar: NSViewRepresentable {
     {
       let item = item as! Item
       let w = item.workspace
-      let name =
-        item.isCoordinator
-        ? "Coordinator"
-        : item.machine != nil
-          ? item.path : w?.name ?? URL(fileURLWithPath: item.path).lastPathComponent
       let parent = parent(of: item)
       let cell = WorkspaceCell(
-        name: name, branch: item.isCoordinator ? nil : w?.sidebarBranch,
+        name: item.displayName, branch: item.isCoordinator ? nil : w?.sidebarBranch,
         tint: store.tint(for: item.tintID) ?? store.tint(for: rowOwner(of: item)?.workspace?.id),
         symbol: item.isCoordinator
           ? "person.2"
@@ -444,15 +462,12 @@ struct WorkspaceSidebar: NSViewRepresentable {
             : (item.repositoryGroup || parent == nil || parent?.machine != nil
               ? "folder" : "arrow.triangle.branch"),
         diff: item.isCoordinator ? nil : w.flatMap { store.gitSummaries[$0.id] },
-        loading: w.flatMap { store.workspaceCreations[$0.id] }.map { $0.failure == nil } ?? false,
+        loadingLabel: iconLoadingLabel(for: item),
         leadingInset: parent != nil && parent?.machine == nil
           ? SidebarGeometry.worktreeIconInset : 0,
         detail: item.machineLabel,
         image: item.isCoordinator ? CoordinatorMark.image : nil)
-      cell.toolTip =
-        "\(name) — \(status(for: item) == "unknown" ? "No reported activity" : status(for: item))"
       if item.workspace == nil { cell.nameField.textColor = .secondaryLabelColor }
-      if item.machine != nil { cell.toolTip = nil }
       let endpoint = w?.id.split(separator: "|").first.map(String.init) ?? ""
       if w?.id.contains("|") == true && store.remoteMessages[endpoint] != "Connected" {
         cell.alphaValue = 0.5
@@ -482,7 +497,9 @@ struct WorkspaceSidebar: NSViewRepresentable {
       }
     }
     func dragSession(_ source: Item, grabY: CGFloat, outline: NSOutlineView) -> ReorderSession? {
-      guard source.workspace != nil, !source.isCoordinator, store.workspaceCreations.isEmpty else {
+      guard source.workspace != nil, !source.isCoordinator, store.workspaceCreations.isEmpty,
+        store.workspaceRemovals.isEmpty
+      else {
         return nil
       }
       let parent = parent(of: source)
@@ -561,7 +578,7 @@ struct WorkspaceSidebar: NSViewRepresentable {
     }
     func beginRename(_ item: Item, outline: NSOutlineView) {
       guard editing == nil, !item.isCoordinator, let workspace = item.workspace,
-        !store.isCreatingWorkspace(workspace.id)
+        !store.isWorkspacePending(workspace.id)
       else { return }
       let row = outline.row(forItem: item)
       guard row >= 0,
@@ -577,6 +594,7 @@ struct WorkspaceSidebar: NSViewRepresentable {
             40, outline.visibleRect.maxX - nameRect.minX - (outline.isExpandable(item) ? 32 : 6)),
           height: 22))
       editor.autoresizingMask = [.width]
+      editor.theme = store.theme
       editor.setAccessibilityLabel("Workspace name")
       editor.stringValue = workspace.name
       // Preserve the stack's layout and branch label while hiding the old name.
@@ -611,7 +629,7 @@ struct WorkspaceSidebar: NSViewRepresentable {
       }
       if item.workspace == nil { return menu }
       guard let w = item.workspace else { return menu }
-      guard !store.isCreatingWorkspace(w.id) else { return menu }
+      guard !store.isWorkspacePending(w.id) else { return menu }
       func tintEntry(_ id: String) -> NSMenuItem {
         let entry = NSMenuItem(title: "Tint", action: nil, keyEquivalent: "")
         entry.submenu = store.tintMenu(for: id)
@@ -863,7 +881,13 @@ final class WorkspaceRow: NSTableRowView {
   weak var group: WorkspaceSidebar.Item?
   weak var treeParent: WorkspaceSidebar.Item?
   weak var item: WorkspaceSidebar.Item?
-  var status = "unknown"
+  private let activityIndicator = ActivityDotView()
+  var status = "" {
+    didSet {
+      activityIndicator.isHidden = status.isEmpty
+      activityIndicator.status = ActivityStatus(status)
+    }
+  }
   private let loadingSpinner = NSProgressIndicator()
   var loading = false {
     didSet {
@@ -881,12 +905,17 @@ final class WorkspaceRow: NSTableRowView {
     loadingSpinner.isHidden = true
     loadingSpinner.setAccessibilityLabel("Loading remote workspaces")
     addSubview(loadingSpinner)
+    activityIndicator.isHidden = true
+    addSubview(activityIndicator)
   }
   required init?(coder: NSCoder) { fatalError("unsupported") }
   override func layout() {
     super.layout()
     let viewport = enclosingScrollView?.contentView
     let visible = viewport.map { convert($0.bounds, from: $0) } ?? bounds
+    activityIndicator.frame = NSRect(
+      x: visible.minX + SidebarGeometry.statusLeading + SidebarGeometry.statusSize / 2 - 5,
+      y: bounds.midY - 5, width: 10, height: 10)
     loadingSpinner.frame = NSRect(
       x: visible.maxX - 24, y: bounds.midY + (item?.topInset ?? 0) / 2 - 7,
       width: 14, height: 14)
@@ -937,9 +966,9 @@ final class WorkspaceRow: NSTableRowView {
       }
     }
     if !isSelected, let tint { fill(tint, opacity: 0.035) }
-    if !isSelected { drawTreeAndStatus() }
+    if !isSelected { drawTree() }
   }
-  private func drawTreeAndStatus() {
+  private func drawTree() {
     if let outline = enclosingScrollView?.documentView as? WorkspaceOutline, let item {
       let tree = NSBezierPath()
       let myRow = outline.row(forItem: item)
@@ -973,31 +1002,13 @@ final class WorkspaceRow: NSTableRowView {
       tree.lineWidth = 1
       tree.stroke()
     }
-    guard !status.isEmpty else { return }
-    let activity = ActivityStatus(status)
-    let color = activity.color
-    let viewport = enclosingScrollView?.contentView
-    let visible = viewport.map { convert($0.bounds, from: $0) } ?? bounds
-    let dot = NSBezierPath(
-      ovalIn: NSRect(
-        x: visible.minX + SidebarGeometry.statusLeading,
-        y: bounds.midY - SidebarGeometry.statusSize / 2,
-        width: SidebarGeometry.statusSize, height: SidebarGeometry.statusSize))
-    color.setStroke()
-    color.setFill()
-    dot.lineWidth = 1
-    if activity.filled {
-      dot.fill()
-    } else {
-      dot.stroke()
-    }
   }
   override func drawSelection(in dirtyRect: NSRect) {
     let outline = enclosingScrollView?.documentView as? WorkspaceOutline
     fill(
       tint ?? groupTint ?? outline?.coordinator?.store.theme.accent ?? .controlAccentColor,
       opacity: 0.10)
-    drawTreeAndStatus()
+    drawTree()
   }
 }
 final class SidebarMenuItem: NSMenuItem {

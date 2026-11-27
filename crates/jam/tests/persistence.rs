@@ -549,6 +549,85 @@ fn worktree_membership_survives_directory_changes_and_is_container_scoped() {
     assert!(paths.iter().all(|p| p.exists()));
 }
 #[test]
+fn pane_progress_is_atomic_revisable_and_ends_with_its_agent() {
+    let d = Daemon::start();
+    let pane = d.create().panes[0].id.clone();
+    d.send(
+        &pane,
+        "/bin/sh -c 'printf \"\\033]7501;state=working:app=codex\\007\"; read done'\r",
+    );
+    d.until(|| d.state().panes[0].agent_provider.as_deref() == Some("codex"));
+    let report = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_jam"))
+            .env("JAM_SOCKET", &d.socket)
+            .env("JAM_PANE_ID", &pane)
+            .args(["status", "progress"])
+            .args(args)
+            .output()
+            .unwrap()
+    };
+    let steps = || d.state().panes.remove(0).progress;
+    assert!(report(&["--step", "Build=90"]).status.success());
+    assert_eq!(steps()[0].percent, 90);
+    assert!(
+        report(&["--step", "Build=60", "--step", "Review=0"])
+            .status
+            .success()
+    );
+    let revised = steps();
+    assert_eq!(
+        revised
+            .iter()
+            .map(|s| (s.label.as_str(), s.percent))
+            .collect::<Vec<_>>(),
+        [("Build", 60), ("Review", 0)]
+    );
+    assert!(!report(&["--step", "Build=101"]).status.success());
+    let duplicate = Request::TaskProgress {
+        pane: pane.clone(),
+        steps: vec![revised[0].clone(); 2],
+    };
+    assert!(matches!(d.request(duplicate), Message::Error(_)));
+    let many = (1..=11)
+        .map(|n| ProgressStep {
+            label: format!("Step {n}"),
+            percent: 0,
+        })
+        .collect::<Vec<_>>();
+    assert!(matches!(
+        d.request(Request::TaskProgress {
+            pane: pane.clone(),
+            steps: many.clone()
+        }),
+        Message::Error(_)
+    ));
+    assert_eq!(steps(), revised);
+    assert!(matches!(
+        d.request(Request::TaskProgress {
+            pane: pane.clone(),
+            steps: many[..10].to_vec()
+        }),
+        Message::Ok
+    ));
+    assert_eq!(steps().len(), 10);
+    assert!(!report(&[]).status.success());
+    assert!(report(&["--clear"]).status.success());
+    assert!(steps().is_empty());
+    assert!(report(&["--step", "Test=80"]).status.success());
+    assert!(matches!(
+        d.request(Request::Status {
+            pane: pane.clone(),
+            state: "done".into()
+        }),
+        Message::Ok
+    ));
+    assert!(steps().is_empty());
+    assert!(report(&["--step", "Inspect=10"]).status.success());
+    d.send(&pane, "done\r");
+    d.until(|| steps().is_empty());
+}
+
+#[test]
 fn persistence_layout_and_multiple_gui_clients() {
     let mut d = Daemon::start();
     let state = d.create();
@@ -2162,4 +2241,66 @@ fn reported_agent_identity_is_not_restored_into_a_new_shell() {
     assert!(restored.panes[0].agent_source.is_none());
     assert!(restored.panes[0].agent_role.is_none());
     assert!(restored.panes[0].reports.is_empty());
+}
+
+#[test]
+fn file_preview_reads_the_panes_current_directory_and_rejects_stale_chunks() {
+    use jam_core::file_preview::PreviewRead;
+    let d = Daemon::start();
+    let pane = d.create().panes[0].id.clone();
+    let cwd = d.dir.path().join("after-cd");
+    std::fs::create_dir(&cwd).unwrap();
+    std::fs::write(cwd.join("notes"), "first\nsecond\n").unwrap();
+    std::os::unix::fs::symlink("notes", cwd.join("link")).unwrap();
+    d.send(
+        &pane,
+        &format!(
+            "cd '{}' && printf '\\033]7;file://localhost%s\\033\\\\' \"$PWD\"\r",
+            cwd.display()
+        ),
+    );
+    let preview = |path: &str, read| {
+        d.request(Request::FilePreview {
+            pane: pane.clone(),
+            path: path.into(),
+            read,
+        })
+    };
+    d.until(|| {
+        matches!(
+            preview("link", PreviewRead::Inspect),
+            Message::FilePreview(_)
+        )
+    });
+    let Message::FilePreview(info) = preview("link", PreviewRead::Inspect) else {
+        unreachable!()
+    };
+    assert_eq!(info.path, cwd.join("notes").canonicalize().unwrap());
+    let Message::FilePreview(line) = preview(
+        "link",
+        PreviewRead::Line {
+            version: info.version.clone(),
+            number: 2,
+        },
+    ) else {
+        panic!("missing line")
+    };
+    assert_eq!(line.offset, Some(6));
+    let chunk = PreviewRead::Chunk {
+        version: info.version,
+        offset: 6,
+        length: 3,
+    };
+    let Message::FilePreview(bytes) = preview("link", chunk.clone()) else {
+        panic!("missing bytes")
+    };
+    assert_eq!(bytes.data.as_deref(), Some("c2Vj"));
+    std::fs::write(cwd.join("notes"), "updated").unwrap();
+    assert!(matches!(preview("link", chunk), Message::Error(e) if e.contains("changed")));
+    for path in [".", "missing", "/dev/null"] {
+        assert!(matches!(
+            preview(path, PreviewRead::Inspect),
+            Message::Error(_)
+        ));
+    }
 }

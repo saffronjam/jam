@@ -263,57 +263,8 @@ fn processes() -> std::io::Result<Vec<Process>> {
 
 #[cfg(target_os = "macos")]
 fn environment(pid: u32) -> std::io::Result<HashMap<String, String>> {
-    let mut mib = [libc::CTL_KERN, libc::KERN_PROCARGS2, pid as i32];
-    let mut size: usize = 0;
-    unsafe {
-        if libc::sysctl(
-            mib.as_mut_ptr(),
-            3,
-            std::ptr::null_mut(),
-            &mut size,
-            std::ptr::null_mut(),
-            0,
-        ) != 0
-        {
-            return Err(std::io::Error::last_os_error());
-        }
-    }
-    if !(4..=2 * 1024 * 1024).contains(&size) {
-        return Err(std::io::ErrorKind::InvalidData.into());
-    }
-    let mut bytes = vec![0u8; size];
-    unsafe {
-        if libc::sysctl(
-            mib.as_mut_ptr(),
-            3,
-            bytes.as_mut_ptr().cast(),
-            &mut size,
-            std::ptr::null_mut(),
-            0,
-        ) != 0
-        {
-            return Err(std::io::Error::last_os_error());
-        }
-    }
-    bytes.truncate(size);
-    let argc = i32::from_ne_bytes(bytes[..4].try_into().unwrap());
-    if !(0..=65536).contains(&argc) {
-        return Err(std::io::ErrorKind::InvalidData.into());
-    }
-    let mut cursor = 4;
-    while cursor < bytes.len() && bytes[cursor] != 0 {
-        cursor += 1;
-    }
-    while cursor < bytes.len() && bytes[cursor] == 0 {
-        cursor += 1;
-    }
-    for _ in 0..argc {
-        while cursor < bytes.len() && bytes[cursor] != 0 {
-            cursor += 1;
-        }
-        cursor += 1;
-    }
-    Ok(keep_environment(bytes.get(cursor..).unwrap_or_default()))
+    let (bytes, arguments) = crate::process_args::arguments_and_environment(pid)?;
+    Ok(keep_environment(&bytes[arguments.end..]))
 }
 
 #[cfg(test)]

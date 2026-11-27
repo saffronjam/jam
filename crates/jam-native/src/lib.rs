@@ -84,6 +84,22 @@ pub unsafe extern "C" fn jam_free(p: *mut c_char) {
     }
 }
 /// # Safety
+/// Both arguments must be NUL-terminated UTF-8 strings for the duration of this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn jam_configured_usage_reset(
+    provider: *const c_char,
+    request: *const c_char,
+) -> *mut c_char {
+    json_result(|| {
+        let provider =
+            serde_json::from_value(serde_json::Value::String(unsafe { string(provider) }))?;
+        let request = serde_json::from_str(&unsafe { string(request) })?;
+        Ok(serde_json::to_value(usage::configured_reset(
+            provider, request,
+        )?)?)
+    })
+}
+/// # Safety
 /// p must be null or point to a NUL-terminated UTF-8 request for this call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn jam_request(p: *const c_char) -> *mut c_char {
@@ -649,7 +665,7 @@ pub unsafe extern "C" fn jam_upgrade(request: *const c_char) -> *mut c_char {
             }
             "stage" => {
                 let release = serde_json::from_value(value["release"].clone())?;
-                let staged = jam_core::upgrade::stage(&release)?;
+                let staged = jam_core::upgrade::stage_for_app(&release)?;
                 let plan = jam_core::upgrade::plan(&staged)?;
                 Ok(serde_json::json!({"staged": staged, "plan": plan}))
             }

@@ -328,6 +328,10 @@ struct ServerActionSheet: View {
       }
       Divider()
       HStack {
+        if action.kind == .update, status?.compatible == true, (status?.terminals ?? 0) > 0 {
+          Button("Update When Sessions End") { store.scheduleServerUpdate(action.endpoint) }
+            .disabled(checking || status?.updateAvailable != true)
+        }
         Spacer()
         Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
         if action.kind == .inspect {
@@ -351,10 +355,6 @@ struct ServerActionSheet: View {
               && store.serverActionErrors[action.endpoint] == nil)
               || store.serverBusy.contains(action.endpoint))
         } else if action.kind == .update {
-          if status?.compatible == true && (status?.terminals ?? 0) > 0 {
-            Button("Update When Sessions End") { store.scheduleServerUpdate(action.endpoint) }
-              .disabled(checking || status?.updateAvailable != true)
-          }
           Button(
             (status?.terminals ?? 1) > 0 || status?.compatible != true
               ? "Update and Restart" : "Update"

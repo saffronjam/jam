@@ -467,7 +467,9 @@ with (base / '.install.lock').open('w') as lock:
         if (old is None or upgrading) and not stopped_mode:
             private_directory(state)
             boot_hold = {'token': transaction_id}
-            if takeover is not None:
+            # The desktop updater restores its explicitly approved panes itself.
+            # A standalone machine update has no client-side replay after commit.
+            if takeover is not None or (upgrading and force and approval is None):
                 layout = state / 'layout.json'
                 if layout.is_file():
                     boot_hold['resume_panes'] = [

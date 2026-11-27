@@ -22,6 +22,132 @@ pub struct AgentSpec<'a> {
     pub parent: Option<&'a str>,
     pub complex: bool,
 }
+impl AgentPermissions {
+    pub(crate) fn inherited(a: &Value, caller: &Value) -> Option<Self> {
+        if a["paused"] == true || a["closed"] == true {
+            return None;
+        }
+        // A manually launched provider inherits JAM_PANE_ID from its shell.
+        // A managed provider also has an agent ID and a per-launch generation.
+        if caller["caller"].is_null() && caller["run_id"].is_null() {
+            if !shell_launched(a) {
+                return None;
+            }
+        } else if caller["caller"] != a["id"]
+            || !caller["run_id"].is_string()
+            || caller["run_id"] != a["run_id"]
+        {
+            return None;
+        }
+        if a["bypass"] == true {
+            return (a["verified_launch"] == true).then_some(Self::FullAccess);
+        }
+        match a["provider"].as_str()? {
+            "claude" if a["verified_launch"] == true => Some(Self::Claude {
+                mode: a["permission_mode"].as_str().unwrap_or("default").into(),
+            }),
+            "codex" => {
+                let mut sandbox = None;
+                let mut approval = None;
+                for pair in a["launch_flags"]
+                    .as_array()
+                    .map(Vec::as_slice)
+                    .unwrap_or_default()
+                    .windows(2)
+                {
+                    match pair[0].as_str()? {
+                        "--sandbox" | "-s" => sandbox = pair[1].as_str().map(str::to_owned),
+                        "--ask-for-approval" | "-a" => {
+                            approval = pair[1].as_str().map(str::to_owned)
+                        }
+                        _ => {}
+                    }
+                }
+                if a["verified_launch"] != true
+                    && !matches!(sandbox.as_deref(), Some("read-only" | "workspace-write"))
+                {
+                    return None;
+                }
+                Some(Self::Codex { sandbox, approval })
+            }
+            _ => None,
+        }
+    }
+
+    pub(crate) fn for_provider(self, provider: &str) -> Result<Self> {
+        match self {
+            Self::FullAccess => Ok(Self::FullAccess),
+            Self::Claude { ref mode } => {
+                anyhow::ensure!(
+                    matches!(
+                        mode.as_str(),
+                        "default" | "acceptEdits" | "plan" | "dontAsk" | "auto"
+                    ),
+                    "Unknown Claude permission mode"
+                );
+                if provider == "claude" {
+                    return Ok(self);
+                }
+                let sandbox = match mode.as_str() {
+                    "plan" => "read-only",
+                    "default" | "acceptEdits" => "workspace-write",
+                    _ => bail!("Claude permission mode {mode} has no Codex equivalent"),
+                };
+                Ok(Self::Codex {
+                    sandbox: Some(sandbox.into()),
+                    approval: Some("on-request".into()),
+                })
+            }
+            Self::Codex {
+                ref sandbox,
+                ref approval,
+            } => {
+                anyhow::ensure!(
+                    matches!(
+                        sandbox.as_deref(),
+                        None | Some("read-only" | "workspace-write" | "danger-full-access")
+                    ),
+                    "Unknown Codex sandbox mode"
+                );
+                anyhow::ensure!(
+                    matches!(
+                        approval.as_deref(),
+                        None | Some("untrusted" | "on-request" | "on-failure" | "never")
+                    ),
+                    "Unknown Codex approval policy"
+                );
+                if provider == "codex" {
+                    return Ok(self);
+                }
+                let mode = match (sandbox.as_deref(), approval.as_deref()) {
+                    (Some("read-only"), _) => "plan",
+                    (None | Some("workspace-write"), None | Some("on-request")) => "default",
+                    (Some("danger-full-access"), Some("never")) => return Ok(Self::FullAccess),
+                    _ => bail!("These Codex permissions have no Claude equivalent"),
+                };
+                Ok(Self::Claude { mode: mode.into() })
+            }
+        }
+    }
+
+    fn apply(&self, agent: &mut Value) {
+        match self {
+            Self::FullAccess => agent["bypass"] = json!(true),
+            Self::Claude { mode } => agent["permission_mode"] = json!(mode),
+            Self::Codex { sandbox, approval } => {
+                let mut flags = vec![];
+                if let Some(sandbox) = sandbox {
+                    flags.extend(["--sandbox", sandbox]);
+                }
+                if let Some(approval) = approval {
+                    flags.extend(["--ask-for-approval", approval]);
+                }
+                agent["launch_flags"] = json!(flags);
+            }
+        }
+    }
+}
+
 pub fn is_worker_role(role: &str) -> bool {
     ["worker", "reviewer"].contains(&role)
 }
@@ -307,20 +433,26 @@ impl Board {
         Ok(self.all("agent")?.into_iter().find(|a| a["pane"] == pane))
     }
     pub fn add(&mut self, spec: AgentSpec<'_>) -> Result<Value> {
-        self.add_with_origin(spec, false)
+        self.add_with_origin(spec, false, None)
     }
     pub(crate) fn add_with_origin(
         &mut self,
         spec: AgentSpec<'_>,
         shell_launched: bool,
+        permissions: Option<&AgentPermissions>,
     ) -> Result<Value> {
         self.db.execute_batch("BEGIN IMMEDIATE")?;
-        let result = self.add_inner(spec, shell_launched);
+        let result = self.add_inner(spec, shell_launched, permissions);
         self.db
             .execute_batch(if result.is_ok() { "COMMIT" } else { "ROLLBACK" })?;
         result
     }
-    fn add_inner(&mut self, spec: AgentSpec<'_>, shell_launched: bool) -> Result<Value> {
+    fn add_inner(
+        &mut self,
+        spec: AgentSpec<'_>,
+        shell_launched: bool,
+        permissions: Option<&AgentPermissions>,
+    ) -> Result<Value> {
         let AgentSpec {
             workspace,
             root,
@@ -390,6 +522,8 @@ impl Board {
         }
         if role == "coordinator" || parent.is_some() {
             agent["bypass"] = json!(true);
+        } else if let Some(permissions) = permissions {
+            permissions.apply(&mut agent);
         }
         agent["complex"] = json!(complex);
         agent["model"] = crate::config::host_settings()
@@ -1333,25 +1467,6 @@ fn run_inner(agent: &str) -> Result<()> {
     if a["recovery"]["state"] == "pending" {
         a["ready"] = json!(false);
     }
-    let mut started = a.clone();
-    started["started"] = json!(true);
-    started["launch_error"] = Value::Null;
-    Board::open()?.update_agent(agent, |current| {
-        // Startup may overlap an explicit Resume. Do not overwrite its durable
-        // recovery request with the copy read before provider initialization.
-        for key in [
-            "session",
-            "started",
-            "launch_error",
-            "model",
-            "config_directory",
-        ] {
-            current[key] = started[key].clone();
-        }
-        if current["recovery"]["state"] != "pending" {
-            current["ready"] = started["ready"].clone();
-        }
-    })?;
     let mut cmd = std::process::Command::new(executable);
     if provider == "codex" {
         cmd.arg("--no-daemon").env_remove("CODEX_THREAD_ID");
@@ -1411,7 +1526,7 @@ fn run_inner(agent: &str) -> Result<()> {
     }
     cmd.current_dir(field(&a, "path")?)
         .env("JAM_AGENT_ID", agent)
-        .env("JAM_AGENT_RUN_ID", generation);
+        .env("JAM_AGENT_RUN_ID", &generation);
     if a["bypass"] == true {
         cmd.arg(if provider == "claude" {
             "--dangerously-skip-permissions"
@@ -1431,13 +1546,44 @@ fn run_inner(agent: &str) -> Result<()> {
         })
         .arg(session);
     }
-    // SessionStart/UserPromptSubmit hooks supply role instructions as context.
-    // Neither a new conversation nor a resume should submit an artificial user turn.
+    let mut prompt = Ok(None);
+    let mut board = Board::open()?;
+    board.update_agent(agent, |current| {
+        if current["run_id"] != generation || current["paused"] == true || current["closed"] == true
+        {
+            prompt = Err(anyhow::anyhow!("Agent launch was cancelled"));
+            return;
+        }
+        // Read the latest intent in the same transaction as the claim. A
+        // cancellation or manual Resume can arrive during provider setup.
+        if provider == "claude" {
+            prompt = crate::recovery::claude_launch_prompt(current, claude_resume);
+            if let Err(error) = &prompt {
+                current["recovery"]["state"] = json!("failed");
+                current["recovery"]["error"] = json!(error.to_string());
+                current["activity"] = json!("failed");
+                return;
+            }
+        }
+        for key in ["session", "model", "config_directory"] {
+            current[key] = a[key].clone();
+        }
+        current["started"] = json!(true);
+        current["launch_error"] = Value::Null;
+        if current["recovery"]["state"] != "pending" {
+            current["ready"] = a["ready"].clone();
+        }
+    })?;
+    if let Some(prompt) = prompt? {
+        cmd.arg(prompt);
+    }
     use std::os::unix::process::CommandExt;
     let error = cmd.exec();
-    // exec failed before the provider ran: retrying cannot replay an agent action.
-    started["started"] = a["started"].clone();
-    Board::open()?.put("agent", &started)?;
+    board.update_agent(agent, |current| {
+        if current["run_id"] == generation {
+            current["started"] = a["started"].clone();
+        }
+    })?;
     Err(error).context("Could not start agent. Install and authenticate the selected provider")
 }
 
@@ -1492,10 +1638,24 @@ pub fn start_delivery() -> Result<()> {
     let mut board = Board::open()?;
     board.requeue_interrupted_deliveries()?;
     std::thread::spawn(move || {
+        let mut failing = [false; 2];
         loop {
             std::thread::sleep(Duration::from_secs(2));
-            let _ = crate::recovery::deliver(&mut board);
-            let _ = deliver(&mut board);
+            for ((stage, outcome), previously_failed) in [
+                (
+                    "conversation_recovery",
+                    crate::recovery::deliver(&mut board),
+                ),
+                ("message_delivery", deliver(&mut board)),
+            ]
+            .into_iter()
+            .zip(&mut failing)
+            {
+                if outcome.is_err() && !*previously_failed {
+                    eprintln!("WARN coordination stage={stage} reason=board_operation_failed");
+                }
+                *previously_failed = outcome.is_err();
+            }
         }
     });
     Ok(())
@@ -1785,55 +1945,70 @@ fn observed_flags(provider: &str) -> Option<Vec<String>> {
     let mut pid = unsafe { libc::getppid() };
     for _ in 0..8 {
         let output = std::process::Command::new("ps")
-            .args(["-ww", "-o", "ppid=", "-o", "args=", "-p", &pid.to_string()])
+            .args(["-o", "ppid=", "-o", "comm=", "-p", &pid.to_string()])
             .output()
             .ok()?;
-        let text = String::from_utf8(output.stdout).ok()?;
-        let words: Vec<_> = text.split_whitespace().collect();
-        pid = words.first()?.parse().ok()?;
-        let executable = *words.get(1)?;
-        let matches = std::path::Path::new(executable)
-            .file_name()
-            .and_then(|n| n.to_str())
-            == Some(provider)
-            || (provider == "claude" && executable.contains("/claude/versions/"));
-        if matches {
-            let mut flags = vec![];
-            let mut iter = words[2..].iter();
-            while let Some(flag) = iter.next() {
-                if [
-                    "--yolo",
-                    "--dangerously-bypass-approvals-and-sandbox",
-                    "--dangerously-skip-permissions",
-                    "--allow-dangerously-skip-permissions",
-                ]
-                .contains(flag)
-                {
-                    flags.push((*flag).to_owned());
-                } else if [
-                    "--sandbox",
-                    "-s",
-                    "--ask-for-approval",
-                    "-a",
-                    "--permission-mode",
-                    "--model",
-                    "-m",
-                    "--effort",
-                ]
-                .contains(flag)
-                    && let Some(value) = iter.next()
-                {
-                    flags.push((*flag).to_owned());
-                    flags.push((*value).to_owned());
-                }
-            }
-            return Some(flags);
+        let line = std::str::from_utf8(&output.stdout).ok()?.trim();
+        let (parent, executable) = line.split_once(char::is_whitespace)?;
+        let args = crate::process_args::arguments(pid as u32).ok();
+        let is_provider = |path: &str| {
+            std::path::Path::new(path)
+                .file_name()
+                .and_then(|n| n.to_str())
+                == Some(provider)
+                || (provider == "claude" && path.contains("/claude/versions/"))
+        };
+        if let Some(args) = args
+            && (is_provider(executable.trim_start())
+                || args.first().is_some_and(|name| is_provider(name)))
+        {
+            return Some(permission_and_model_flags(&args));
         }
+        pid = parent.parse().ok()?;
         if pid <= 1 {
             break;
         }
     }
     None
+}
+
+fn permission_and_model_flags(args: &[String]) -> Vec<String> {
+    let mut flags = Vec::new();
+    let mut args = args.iter().skip(1);
+    while let Some(arg) = args.next() {
+        if arg == "--" {
+            break;
+        }
+        if matches!(
+            arg.as_str(),
+            "--yolo"
+                | "--dangerously-bypass-approvals-and-sandbox"
+                | "--dangerously-skip-permissions"
+                | "--allow-dangerously-skip-permissions"
+        ) {
+            flags.push(arg.clone());
+            continue;
+        }
+        let (name, inline) = arg
+            .split_once('=')
+            .map_or((arg.as_str(), None), |(k, v)| (k, Some(v)));
+        if matches!(
+            name,
+            "--sandbox"
+                | "-s"
+                | "--ask-for-approval"
+                | "-a"
+                | "--permission-mode"
+                | "--model"
+                | "-m"
+                | "--effort"
+        ) && let Some(value) = inline.or_else(|| args.next().map(String::as_str))
+        {
+            flags.push(name.to_owned());
+            flags.push(value.to_owned());
+        }
+    }
+    flags
 }
 
 #[cfg(test)]
@@ -1852,6 +2027,70 @@ mod boundary_tests {
         })
         .unwrap()
     }
+    #[test]
+    fn launch_flags_respect_argument_boundaries() {
+        let args = [
+            "codex",
+            "--sandbox=read-only",
+            "-a",
+            "on-request",
+            "explain --yolo now",
+            "--",
+            "--yolo",
+        ]
+        .map(str::to_owned);
+        assert_eq!(
+            permission_and_model_flags(&args),
+            ["--sandbox", "read-only", "-a", "on-request"]
+        );
+    }
+    #[test]
+    fn permission_inheritance_requires_the_active_agent_and_run() {
+        let mut agent = json!({"id":"caller","run_id":"current","verified_launch":true,"shell_launched":false,"provider":"codex","bypass":true});
+        let query = json!({"caller":"caller","run_id":"current"});
+        assert_eq!(
+            AgentPermissions::inherited(&agent, &query),
+            Some(AgentPermissions::FullAccess)
+        );
+        for query in [
+            json!({}),
+            json!({"caller":"other","run_id":"current"}),
+            json!({"caller":"caller","run_id":"old"}),
+        ] {
+            assert!(AgentPermissions::inherited(&agent, &query).is_none());
+        }
+        for (key, value) in [
+            ("closed", true),
+            ("paused", true),
+            ("verified_launch", false),
+        ] {
+            let mut invalid = agent.clone();
+            invalid[key] = json!(value);
+            assert!(AgentPermissions::inherited(&invalid, &query).is_none());
+        }
+        agent["bypass"] = json!(false);
+        agent["launch_flags"] = json!([
+            "--model",
+            "custom",
+            "-s",
+            "read-only",
+            "--ask-for-approval",
+            "never"
+        ]);
+        assert_eq!(
+            AgentPermissions::inherited(&agent, &query),
+            Some(AgentPermissions::Codex {
+                sandbox: Some("read-only".into()),
+                approval: Some("never".into())
+            })
+        );
+        agent["shell_launched"] = json!(true);
+        agent["verified_launch"] = json!(false);
+        assert!(
+            matches!(AgentPermissions::inherited(&agent, &json!({})), Some(AgentPermissions::Codex { sandbox: Some(s), .. }) if s == "read-only")
+        );
+    }
+
     #[test]
     fn workers_are_bounded_and_reviews_are_independent() {
         let d = tempfile::tempdir().unwrap();

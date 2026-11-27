@@ -5,7 +5,7 @@ use std::sync::Mutex;
 fn percent(value: &Value) -> Option<f64> {
     value.as_f64().filter(|n| n.is_finite() && *n >= 0.0)
 }
-fn reset(value: &Value) -> Option<i64> {
+pub(super) fn reset(value: &Value) -> Option<i64> {
     let n = value
         .as_i64()
         .or_else(|| value.as_str().and_then(|s| s.parse().ok()));
@@ -150,7 +150,7 @@ pub(super) fn parse(provider: Provider, value: &Value) -> (Vec<Window>, Option<E
 }
 
 #[derive(Debug)]
-enum RequestError {
+pub(super) enum RequestError {
     RateLimited(Option<i64>),
     Other(&'static str),
 }
@@ -168,30 +168,66 @@ fn retry_at(value: &str, now: i64) -> Option<i64> {
         .map(|date| date.assume_utc().unix_timestamp())
 }
 
-fn get(
+impl std::fmt::Display for RequestError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::RateLimited(_) => f.write_str("Usage service rate limited. Try again later."),
+            Self::Other(message) => f.write_str(message),
+        }
+    }
+}
+impl std::error::Error for RequestError {}
+
+pub(super) fn claude_request<B>(
+    request: ureq::RequestBuilder<B>,
+    token: &str,
+) -> ureq::RequestBuilder<B> {
+    request
+        .header("Authorization", &format!("Bearer {token}"))
+        .header("Accept", "application/json")
+        .header("Content-Type", "application/json")
+        .header("anthropic-beta", "oauth-2025-04-20")
+        .header("User-Agent", "claude-cli/2.1.296 (external, cli)")
+}
+
+pub(super) fn http_client() -> ureq::Agent {
+    ureq::Agent::config_builder()
+        .https_only(true)
+        .max_redirects(0)
+        .http_status_as_error(false)
+        .timeout_global(Some(std::time::Duration::from_secs(10)))
+        .build()
+        .into()
+}
+
+pub(super) fn get(
     agent: &ureq::Agent,
     url: &str,
     auth: &credentials::Credentials,
     provider: Provider,
 ) -> Result<Value, RequestError> {
-    let mut request = agent
-        .get(url)
-        .header("Authorization", &format!("Bearer {}", auth.token))
-        .header("Accept", "application/json");
-    match provider {
-        Provider::Claude => {
-            request = request.header("anthropic-beta", "oauth-2025-04-20");
-        }
+    let request = match provider {
+        Provider::Claude => claude_request(agent.get(url), &auth.token),
         Provider::Codex => {
-            request = request.header("User-Agent", "codex-cli/0.130.0");
+            let mut request = agent
+                .get(url)
+                .header("Authorization", &format!("Bearer {}", auth.token))
+                .header("Accept", "application/json")
+                .header("User-Agent", "codex-cli/0.130.0");
             if let Some(id) = &auth.account_header {
                 request = request.header("chatgpt-account-id", id);
             }
+            request
         }
-    }
-    let mut response = request
-        .call()
-        .map_err(|_| RequestError::Other("Usage service is temporarily unavailable"))?;
+    };
+    response_json(request.call())
+}
+
+pub(super) fn response_json(
+    result: Result<ureq::http::Response<ureq::Body>, ureq::Error>,
+) -> Result<Value, RequestError> {
+    let mut response =
+        result.map_err(|_| RequestError::Other("Usage service is temporarily unavailable"))?;
     match response.status().as_u16() {
         200 => (),
         401 | 403 => return Err(RequestError::Other("Sign in again to read usage")),
@@ -218,7 +254,18 @@ fn get(
     serde_json::from_slice(&bytes).map_err(|_| RequestError::Other("Could not read usage response"))
 }
 
-pub(super) fn fetch(profile: &Profile, allow_prompt: bool, cache: &Mutex<cache::Cache>) -> Report {
+pub(super) fn claude_account_key(identity: &Value) -> Option<String> {
+    let account = identity["account"]["uuid"].as_str()?;
+    let org = identity["organization"]["uuid"].as_str()?;
+    Some(digest(&format!("claude:{account}:{org}")))
+}
+
+pub(super) fn fetch(
+    profile: &Profile,
+    allow_prompt: bool,
+    refresh_after_reset: bool,
+    cache: &Mutex<cache::Cache>,
+) -> Report {
     let mut report = Report::new(profile, 0);
     let auth = match credentials::load(profile, allow_prompt) {
         Ok(auth) => auth,
@@ -238,6 +285,7 @@ pub(super) fn fetch(profile: &Profile, allow_prompt: bool, cache: &Mutex<cache::
     let previous = cache.lock().unwrap().get(&profile.key, &credential, now);
     if let Some(entry) = &previous
         && entry.retry_at > now
+        && !refresh_after_reset
     {
         let mut report = entry.report.clone();
         entry.expire_success(&mut report, now);
@@ -251,13 +299,7 @@ pub(super) fn fetch(profile: &Profile, allow_prompt: bool, cache: &Mutex<cache::
         .label
         .clone()
         .or_else(|| previous.as_ref()?.report.account_label.clone());
-    let agent: ureq::Agent = ureq::Agent::config_builder()
-        .https_only(true)
-        .max_redirects(0)
-        .http_status_as_error(false)
-        .timeout_global(Some(std::time::Duration::from_secs(10)))
-        .build()
-        .into();
+    let agent = http_client();
     let url = match profile.provider {
         Provider::Codex => "https://chatgpt.com/backend-api/codex/usage",
         Provider::Claude => "https://api.anthropic.com/api/oauth/usage",
@@ -278,11 +320,7 @@ pub(super) fn fetch(profile: &Profile, allow_prompt: bool, cache: &Mutex<cache::
                 profile.provider,
             )
         {
-            let account = identity["account"]["uuid"].as_str();
-            let org = identity["organization"]["uuid"].as_str();
-            report.account_key = account
-                .zip(org)
-                .map(|(a, o)| digest(&format!("claude:{a}:{o}")));
+            report.account_key = claude_account_key(&identity);
             report.account_label = identity["account"]["email"]
                 .as_str()
                 .or_else(|| identity["account"]["email_address"].as_str())
@@ -435,7 +473,7 @@ mod tests {
         );
         let restarted = Mutex::new(cache::Cache::open(path));
         // No network request should occur while the persisted cooldown is active.
-        let displayed = fetch(&profile, false, &restarted);
+        let displayed = fetch(&profile, false, false, &restarted);
         assert_eq!(
             displayed.error.as_deref(),
             Some("Usage service rate limited. Retrying later")

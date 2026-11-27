@@ -75,7 +75,9 @@ impl TerminalFrame {
             .iter()
             .find(|l| (l.start..l.end).contains(&index))
         {
-            return Some(serde_json::json!({"url":link.uri}));
+            return Some(
+                serde_json::json!({"url":link.uri,"start":link.start,"end":link.end,"cols":cols}),
+            );
         }
         let mut first = y;
         while first > 0 && self.wrapped_rows.get(first - 1) == Some(&true) {
@@ -86,9 +88,15 @@ impl TerminalFrame {
             last += 1;
         }
         let mut line = String::new();
-        let mut offset = 0;
+        let mut offsets = Vec::with_capacity((last + 1 - first) * cols);
+        let mut units = 0;
         for i in first * cols..(last + 1) * cols {
             let cell = self.cells.get(i)?;
+            offsets.push(if cell.wide == 2 {
+                offsets.last().copied().unwrap_or(units)
+            } else {
+                units
+            });
             if cell.wide >= 2 {
                 continue;
             }
@@ -97,12 +105,12 @@ impl TerminalFrame {
             } else {
                 &cell.text
             };
-            if i < index {
-                offset += text.encode_utf16().count();
-            }
+            units += text.encode_utf16().count();
             line.push_str(text);
         }
-        Some(serde_json::json!({"line":line,"offset":offset}))
+        Some(
+            serde_json::json!({"line":line,"offset":offsets[index-first*cols],"offsets":offsets,"start":first*cols,"cols":cols}),
+        )
     }
 }
 pub fn terminal(cols: u16, rows: u16) -> Result<Terminal<'static, 'static>> {

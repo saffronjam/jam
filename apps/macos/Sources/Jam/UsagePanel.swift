@@ -22,6 +22,25 @@ extension Store {
     (endpoint.isEmpty ? !connected : remoteMessages[endpoint] != "Connected")
       || usageErrors[endpoint] != nil
   }
+  func usageResetSource(for report: AgentUsageReport, preferred: String) -> UsageResetSource? {
+    guard let account = report.accountKey else { return nil }
+    let capability = report.provider == "claude" ? "claude_usage_resets" : "usage_reset_credits"
+    let machines = [("", "Local")] + remotes.map { ($0.id, $0.name) }
+    // A legacy machine can supply the freshest reading. Another logged-in
+    // machine can redeem only when the provider's scoped account key matches.
+    for (endpoint, name) in machines.filter({ $0.0 == preferred })
+      + machines.filter({ $0.0 != preferred })
+    {
+      guard !usageUnavailable(endpoint),
+        capabilitiesByEndpoint[endpoint]?.contains(capability) == true,
+        let profile = agentUsage[endpoint]?.first(where: {
+          $0.provider == report.provider && $0.accountKey == account
+        })
+      else { continue }
+      return UsageResetSource(endpoint: endpoint, profile: profile.profileKey, machine: name)
+    }
+    return nil
+  }
   func refreshAgentUsage() {
     for endpoint in [""] + remotes.map(\.id) {
       let available = endpoint.isEmpty ? connected : remoteMessages[endpoint] == "Connected"
@@ -81,6 +100,13 @@ struct UsagePanel: View {
     } ?? pages.first
   }
 
+  private func open(_ report: AgentUsageReport, on page: AgentUsagePage) {
+    guard let endpoint = page.sources[report.id] else { return }
+    store.usageSelection = UsageSelection(
+      report: report, endpoint: endpoint,
+      machine: store.remotes.first { $0.id == endpoint }?.name ?? "Local")
+  }
+
   private func move(_ direction: Int) {
     guard !pages.isEmpty else { return }
     let index = page.flatMap { current in pages.firstIndex { $0.id == current.id } } ?? 0
@@ -91,11 +117,15 @@ struct UsagePanel: View {
       if let page {
         VStack(alignment: .leading, spacing: 9) {
           HStack(spacing: 4) {
-            Text("USAGE").font(.caption).foregroundStyle(.secondary)
-            if pages.count > 1 {
-              Text("(\(page.label))").font(.caption).foregroundStyle(.secondary).lineLimit(1)
-            }
-            Spacer(minLength: 0)
+            Button {
+              if let report = page.reports.first { open(report, on: page) }
+            } label: {
+              HStack(spacing: 4) {
+                Text("USAGE")
+                if pages.count > 1 { Text("(\(page.label))").lineLimit(1) }
+                Spacer(minLength: 0)
+              }.font(.caption).foregroundStyle(.secondary).contentShape(Rectangle())
+            }.accessibilityLabel("Show usage details")
             if pages.count > 1 {
               Button {
                 move(-1)
@@ -114,11 +144,8 @@ struct UsagePanel: View {
           VStack(alignment: .leading, spacing: 10) {
             ForEach(page.reports) { report in
               UsageCard(
-                report: report,
-                authorize: page.sources[report.id] == ""
-                  ? { completion in
-                    store.authorizeUsage(profile: report.profileKey, completion: completion)
-                  } : nil,
+                report: report, showDetails: { open(report, on: page) },
+                local: page.sources[report.id] == "",
                 stale: page.sources[report.id].map(store.usageUnavailable) ?? true
               ).transition(.opacity)
             }
@@ -128,99 +155,65 @@ struct UsagePanel: View {
       }
     }.fixedSize(horizontal: false, vertical: true)
       .animation(motion, value: page)
+      .popover(item: $store.usageSelection, arrowEdge: .trailing) { selection in
+        UsageDetails(selection: selection, cache: store.usageResetCache).environmentObject(store)
+      }
   }
 }
 
 private struct UsageCard: View {
   let report: AgentUsageReport
-  let authorize: ((@escaping (String?) -> Void) -> Void)?
+  let showDetails: () -> Void
+  let local: Bool
   let stale: Bool
-  @State private var details = false
-  @State private var authorizing = false
-  @State private var authorizationError: String?
-  private func requestAuthorization() {
-    guard let authorize else { return }
-    authorizing = true
-    authorizationError = nil
-    authorize { error in
-      authorizing = false
-      authorizationError = error
-    }
-  }
   var body: some View {
     VStack(alignment: .leading, spacing: 5) {
-      Button {
-        details.toggle()
-      } label: {
-        HStack(spacing: 5) {
-          Text(report.name).font(.caption.weight(.medium))
-          if let account = report.accountLabel {
-            Text(account).font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(1)
-          }
-          Spacer(minLength: 0)
-          if report.checking {
-            ProgressView().controlSize(.mini)
-          } else if stale || report.error != nil {
-            Image(systemName: "clock").font(.system(size: 9)).foregroundStyle(.secondary)
-          }
-        }.contentShape(Rectangle())
-      }.buttonStyle(.plain).help("Usage details")
-        .popover(isPresented: $details) {
-          VStack(alignment: .leading, spacing: 10) {
-            Text("\(report.name) usage").font(.headline)
+      Button(action: showDetails) {
+        VStack(alignment: .leading, spacing: 5) {
+          HStack(spacing: 5) {
+            Text(report.name).font(.caption.weight(.medium))
             if let account = report.accountLabel {
-              Text(account).font(.caption).textSelection(.enabled)
+              Text(account).font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(1)
             }
-            if report.accountKey == nil && report.normalizedEmail == nil {
-              Text("Account identity unavailable. Shown separately for this machine.").font(
-                .caption
-              ).foregroundStyle(.secondary)
+            Spacer(minLength: 0)
+            if report.checking {
+              ProgressView().controlSize(.mini)
+            } else if stale || report.error != nil {
+              Image(systemName: "clock").font(.system(size: 9)).foregroundStyle(.secondary)
             }
-            ForEach(report.windows) { window in UsageBar(window: window) }
-            if let extra = report.extra {
-              if let balance = extra.balance {
-                Text("\(extra.label): \(balance.formatted()) \(extra.unit)")
-              }
-              if let used = extra.used {
-                Text(
-                  "\(extra.label): \(used.formatted())\(extra.limit.map { " / " + $0.formatted() } ?? "") \(extra.unit)"
-                )
-              }
-            }
-            if let error = report.error {
-              ErrorNotice(message: error)
-              if report.needsKeychainAccess, authorize != nil {
-                Button("Allow Keychain Access", action: requestAuthorization)
-                  .disabled(authorizing || report.checking)
-                if let authorizationError { ErrorNotice(message: authorizationError) }
-              }
-            } else if stale {
-              Text("Machine unavailable. Showing last known usage.").font(.caption).foregroundStyle(
-                .secondary)
-            }
-            if let success = report.lastSuccessAt {
-              Text(
-                "Updated \(Date(timeIntervalSince1970: Double(success)).formatted(date: .abbreviated, time: .shortened)) · \(report.activeSessions) active sessions"
-              )
-              .font(.caption).foregroundStyle(.secondary)
-            }
-          }.padding(16).frame(width: 310)
+          }
+          if report.primaryWindows.isEmpty {
+            Text(report.availabilityText)
+              .font(.system(size: 10)).foregroundStyle(.secondary)
+              .fixedSize(horizontal: false, vertical: true)
+          } else {
+            UsageBars(windows: report.primaryWindows)
+              .opacity(stale || report.error != nil ? 0.5 : 1)
+          }
+        }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+      }.buttonStyle(.plain).help("Usage details").accessibilityLabel(
+        "Show \(report.name) usage details")
+      if report.needsKeychainAccess, local { UsageKeychainAccess(report: report) }
+    }
+  }
+}
+
+struct UsageKeychainAccess: View {
+  @EnvironmentObject private var store: Store
+  let report: AgentUsageReport
+  @State private var authorizing = false
+  @State private var authorizationError: String?
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 5) {
+      Button(authorizing ? "Requesting access…" : "Allow Keychain Access") {
+        authorizing = true
+        authorizationError = nil
+        store.authorizeUsage(profile: report.profileKey) { error in
+          authorizing = false
+          authorizationError = error
         }
-      if report.primaryWindows.isEmpty {
-        Text(report.availabilityText)
-          .font(.system(size: 10)).foregroundStyle(.secondary)
-          .fixedSize(horizontal: false, vertical: true)
-      } else {
-        ForEach(report.primaryWindows) { window in UsageBar(window: window) }
-          .opacity(stale || report.error != nil ? 0.5 : 1)
-      }
-      if report.needsKeychainAccess, authorize != nil {
-        Button(
-          authorizing ? "Requesting access…" : "Allow Keychain Access", action: requestAuthorization
-        )
-        .buttonStyle(.bordered).controlSize(.small)
-        .disabled(authorizing || report.checking)
-      }
+      }.buttonStyle(.bordered).controlSize(.small).disabled(authorizing || report.checking)
       if let authorizationError {
         Text(WarningContent(authorizationError).summary).font(.system(size: 10))
           .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -229,31 +222,52 @@ private struct UsageCard: View {
   }
 }
 
-private struct UsageBar: View {
-  @Environment(\.colorScheme) private var colorScheme
-  let window: AgentUsageWindow
+struct UsageBars: View {
+  let windows: [AgentUsageWindow]
+  var detailed = false
   var body: some View {
-    HStack(spacing: 6) {
-      Text(window.label).font(.system(size: 9, design: .monospaced)).foregroundStyle(.secondary)
-        .lineLimit(1).frame(minWidth: 20, alignment: .leading)
-      GeometryReader { geometry in
-        ZStack(alignment: .leading) {
-          Capsule().fill(Color.primary.opacity(0.08))
-          if let percent = window.percent {
-            Capsule().fill(colorScheme == .dark ? Color.white : Color.primary)
-              .frame(width: geometry.size.width * min(1, max(0, percent / 100)))
-          }
+    let labelFont = NSFont.monospacedSystemFont(ofSize: detailed ? 11 : 9, weight: .regular)
+    let labelWidth = min(
+      detailed ? 100 : 64,
+      windows.reduce(CGFloat(20)) { width, window in
+        max(width, ceil((window.label as NSString).size(withAttributes: [.font: labelFont]).width))
+      })
+    let gap: CGFloat = detailed ? 10 : 6
+    return VStack(alignment: .leading, spacing: detailed ? 10 : 5) {
+      ForEach(windows) { window in
+        HStack(alignment: .top, spacing: gap) {
+          Text(window.label).font(Font(labelFont)).foregroundStyle(.secondary).lineLimit(1)
+            .frame(width: labelWidth, height: detailed ? 17 : 14, alignment: .leading).help(
+              window.label)
+          VStack(alignment: .leading, spacing: 2) {
+            UsageMeter(percent: window.percent).frame(height: detailed ? 8 : 4)
+            if detailed {
+              Text(window.renewalText).font(.caption).foregroundStyle(.secondary)
+            }
+          }.frame(maxWidth: .infinity, alignment: .leading).padding(.top, detailed ? 4.5 : 5)
+          Text(window.percent.map { String(format: "%.0f%%", $0) } ?? "—")
+            .font(.system(size: detailed ? 13 : 9, weight: detailed ? .semibold : .regular))
+            .monospacedDigit().foregroundStyle(detailed ? .primary : .secondary)
+            .lineLimit(1).fixedSize()
+            .frame(width: detailed ? 42 : 28, height: detailed ? 17 : 14, alignment: .trailing)
+        }.help(window.renewalText)
+      }
+    }.frame(maxWidth: .infinity, alignment: .leading)
+  }
+}
+
+private struct UsageMeter: View {
+  @Environment(\.jamTheme) private var theme
+  let percent: Double?
+  var body: some View {
+    GeometryReader { geometry in
+      ZStack(alignment: .leading) {
+        Capsule().fill(Color.primary.opacity(0.09))
+        if let percent {
+          Capsule().fill(Color(nsColor: theme.usageFill(percent: percent)))
+            .frame(width: geometry.size.width * min(1, max(0, percent / 100)))
         }
-      }.frame(height: 4)
-      Text(window.percent.map { String(format: "%.0f%%", $0) } ?? "—")
-        .font(.system(size: 9, design: .monospaced)).foregroundStyle(.secondary)
-        .frame(minWidth: 28, alignment: .trailing)
-    }.frame(height: 14)
-      .help(
-        window.resetsAt.map {
-          "Resets "
-            + Date(timeIntervalSince1970: Double($0)).formatted(
-              date: .abbreviated, time: .shortened)
-        } ?? "Reset time unavailable")
+      }
+    }
   }
 }

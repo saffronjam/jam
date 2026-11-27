@@ -74,6 +74,7 @@ extension Store {
 }
 
 struct DraggableTab: NSViewRepresentable {
+  @Environment(\.jamTheme) private var theme
   let id: String
   let title: String
   let selected: Bool
@@ -90,9 +91,15 @@ struct DraggableTab: NSViewRepresentable {
   let drop: () -> Bool
   func makeNSView(context: Context) -> TabDragView { TabDragView() }
   func updateNSView(_ view: TabDragView, context: Context) {
+    view.theme = theme
+    view.selected = selected
+    view.editor?.theme = theme
     view.activityStatus = activityStatus
     view.tabID = id
     view.label.stringValue = title
+    view.label.textColor = selected ? .white : .labelColor
+    view.editor?.textColor = view.label.textColor
+    view.icon.contentTintColor = selected ? .white : .secondaryLabelColor
     view.setAccessibilityLabel(title)
     view.setAccessibilityValue(selected ? "Selected" : "")
     view.click = click
@@ -120,10 +127,12 @@ final class TabDragView: NSView {
     return min(260, max(80 + extra, ceil(field.intrinsicContentSize.width) + 40 + extra))
   }
   var tabID = ""
+  var theme = JamTheme.midnight
+  var selected = false
   let statusIndicator = ActivityDotView()
   var activityStatus: ActivityStatus? {
     didSet {
-      statusIndicator.isHidden = activityStatus == nil
+      statusIndicator.isHidden = activityStatus == nil || editor != nil
       statusIndicator.status = activityStatus ?? .unknown
       needsLayout = true
     }
@@ -152,8 +161,10 @@ final class TabDragView: NSView {
   var grabOffset = NSPoint.zero
   weak var previousResponder: NSResponder?
   override var acceptsFirstResponder: Bool { true }
+  override var mouseDownCanMoveWindow: Bool { false }
   override init(frame frameRect: NSRect) {
     super.init(frame: frameRect)
+    _ = Self.toolbarMenuMonitor
     label.font = .systemFont(ofSize: 12)
     label.lineBreakMode = .byTruncatingTail
     label.isEditable = false
@@ -169,21 +180,74 @@ final class TabDragView: NSView {
   override func layout() {
     super.layout()
     let extra: CGFloat = activityStatus == nil ? 0 : 14
-    statusIndicator.frame = NSRect(x: 10, y: 11, width: 6, height: 6)
+    statusIndicator.frame = NSRect(x: 8, y: 9, width: 10, height: 10)
     icon.frame = NSRect(x: 10 + extra, y: 8, width: 12, height: 12)
     label.frame = NSRect(x: 28 + extra, y: 6, width: max(0, bounds.width - 36 - extra), height: 16)
+    editor?.frame = editorFrame
+  }
+  private var editorFrame: NSRect {
+    NSRect(x: 10, y: bounds.midY - 8, width: max(0, bounds.width - 20), height: 16)
   }
   override func hitTest(_ point: NSPoint) -> NSView? {
+    guard bounds.contains(convert(point, from: superview)) else { return nil }
     if editor != nil { return super.hitTest(point) }
     return super.hitTest(point) == nil ? nil : self
   }
+  override func menu(for event: NSEvent) -> NSMenu? {
+    let menu = NSMenu()
+    menu.allowsContextMenuPlugIns = false
+    menu.autoenablesItems = false
+    if let edit, let close {
+      menu.addItem(SidebarMenuItem(title: "Rename", action: edit))
+      menu.addItem(.separator())
+      menu.addItem(SidebarMenuItem(title: "Close Tab", action: close))
+      for item in menu.items where item.action != nil {
+        item.isEnabled = !Store.layoutPlaceholder(tabID)
+      }
+    }
+    return menu
+  }
+
+  // The macOS title bar intercepts secondary clicks before the tab or its name field receives them.
+  private static let toolbarMenuMonitor = NSEvent.addLocalMonitorForEvents(
+    matching: [.rightMouseDown, .leftMouseDown]
+  ) { event in
+    guard event.type == .rightMouseDown || event.modifierFlags.contains(.control),
+      let window = event.window, window.attachedSheet == nil
+    else { return event }
+    func tab(at view: NSView) -> TabDragView? {
+      guard !view.isHidden,
+        view.bounds.intersection(view.visibleRect).contains(
+          view.convert(event.locationInWindow, from: nil))
+      else { return nil }
+      if let tab = view as? TabDragView { return tab }
+      for child in view.subviews.reversed() {
+        if let target = tab(at: child) { return target }
+      }
+      return nil
+    }
+    for item in window.toolbar?.visibleItems ?? [] {
+      if let view = item.view, let target = tab(at: view), let menu = target.menu(for: event) {
+        NSMenu.popUpContextMenu(menu, with: event, for: target)
+        return nil
+      }
+    }
+    return event
+  }
   func beginRename(_ completion: @escaping (String?) -> Void) {
     guard editor == nil else { return }
-    let field = InlineNameEditor(frame: bounds.insetBy(dx: 4, dy: 3))
+    let field = InlineNameEditor(frame: editorFrame)
+    field.theme = theme
+    field.isBezeled = false
+    field.drawsBackground = false
+    field.focusRingType = .none
+    field.textColor = label.textColor
     field.stringValue = label.stringValue
     field.setAccessibilityLabel("Tab name")
     editor = field
     label.isHidden = true
+    statusIndicator.isHidden = true
+    icon.isHidden = true
     field.completion = { [weak self, weak field] value in
       completion(value)
       if let name = value?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
@@ -192,6 +256,8 @@ final class TabDragView: NSView {
       field?.removeFromSuperview()
       self?.editor = nil
       self?.label.isHidden = false
+      self?.statusIndicator.isHidden = self?.activityStatus == nil
+      self?.icon.isHidden = false
     }
     // InlineNameEditor activates itself once it joins the window.
     addSubview(field)
@@ -258,19 +324,25 @@ final class TabDragView: NSView {
       window.makeFirstResponder(self)
       let image = NSImage(size: bounds.size)
       image.lockFocus()
-      NSColor.controlBackgroundColor.withAlphaComponent(0.9).setFill()
-      NSBezierPath(roundedRect: bounds, xRadius: 5, yRadius: 5).fill()
-      if let status = activityStatus {
-        let dot = NSBezierPath(ovalIn: statusIndicator.frame.insetBy(dx: 0.5, dy: 0.5))
-        status.color.setFill()
-        status.color.setStroke()
-        if status.filled { dot.fill() } else { dot.stroke() }
+      let capsule = NSBezierPath(
+        roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: bounds.midY, yRadius: bounds.midY)
+      (selected ? theme.selectionFill : theme.background).setFill()
+      capsule.fill()
+      if !selected {
+        theme.paneBorder(focused: false).setStroke()
+        capsule.stroke()
+      }
+      if activityStatus != nil,
+        let bitmap = statusIndicator.bitmapImageRepForCachingDisplay(in: statusIndicator.bounds)
+      {
+        statusIndicator.cacheDisplay(in: statusIndicator.bounds, to: bitmap)
+        bitmap.draw(in: statusIndicator.frame)
       }
       icon.image?.draw(in: icon.frame)
       label.stringValue.draw(
         in: label.frame,
         withAttributes: [
-          .font: NSFont.systemFont(ofSize: 12), .foregroundColor: NSColor.labelColor,
+          .font: NSFont.systemFont(ofSize: 12), .foregroundColor: label.textColor ?? .labelColor,
         ])
       image.unlockFocus()
       let ghost = DragGhost(frame: bounds)
@@ -353,11 +425,11 @@ final class TabDragView: NSView {
       let row = outline.row(at: outline.convert(event.locationInWindow, from: nil))
       if row >= 0, let item = outline.item(atRow: row) as? WorkspaceSidebar.Item,
         let workspace = item.workspace, let store = outline.coordinator?.store,
-        !store.isCreatingWorkspace(workspace.id)
+        !store.isWorkspacePending(workspace.id)
       {
         let rowView = outline.rowView(atRow: row, makeIfNecessary: false)
         rowView?.wantsLayer = true
-        rowView?.layer?.borderColor = NSColor.controlAccentColor.cgColor
+        rowView?.layer?.borderColor = theme.accent.cgColor
         rowView?.layer?.borderWidth = 1
         highlightedRow = rowView
         destination = { store.finishTabDrag(workspace: workspace.id) }

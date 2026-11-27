@@ -31,6 +31,7 @@ struct Pane: Identifiable {
   var status: String
   var exited: Bool
   var reports: [[String: Any]] = []
+  var progress: [PaneProgressStep] = []
   var launchError: String? = nil
   var agentProvider: String? = nil
   var agentRole: String? = nil
@@ -111,7 +112,11 @@ enum TerminalInputGate { static var blocked = false }
 }
 final class Store: ObservableObject {
   let appUpgrade = AppUpgradeController()
-  @Published var remotes: [RemoteMachine] = []
+  @Published var filePreviews: [String: FilePreview] = [:]
+  @Published var expandedPreview: FilePreview? { didSet { updateInputGate() } }
+  @Published var remotes: [RemoteMachine] = [] {
+    didSet { cachedDisplayedWorkspaces = nil }
+  }
   @Published var editingRemote: RemoteMachine?
   var pendingRenames: [String: PendingRename] = [:]
   var pausedRemotes = Set<String>()
@@ -135,8 +140,10 @@ final class Store: ObservableObject {
     didSet { clearUnavailableRestoredWorkspace() }
   }
   @Published var agentUsage: [String: [AgentUsageReport]] = [:]
+  @Published var usageSelection: UsageSelection? { didSet { updateInputGate() } }
   @Published var usageErrors: [String: String] = [:]
   @Published var quickToast: QuickToastMessage?
+  let usageResetCache = UsageResetCache()
   var usageLoading = Set<String>()
   var usagePolled: [String: Date] = [:]
   @Published var serverBusy = Set<String>() { didSet { updateInputGate() } }
@@ -158,13 +165,14 @@ final class Store: ObservableObject {
   @Published var loadedRemotes = Set<String>()
   func remoteSidebarState(_ id: String) -> RemoteSidebarState {
     RemoteSidebarState.resolve(
-      loaded: loadedRemotes.contains(id), loading: remoteLoading.contains(id),
+      loaded: loadedRemotes.contains(id), loading: remoteConnecting.contains(id),
       paused: pausedRemotes.contains(id), hasResult: remoteMessages[id] != nil)
   }
   @Published var remoteMessages: [String: String] = [:] { didSet { updateInputGate() } }
   var stateRevisions: [String: UInt64] = [:]
   var remoteHomes: [String: String] = [:]
-  @Published var remoteLoading = Set<String>()
+  var remoteLoading = Set<String>()
+  var loggedRemoteFailures = Set<String>()
   @Published var remoteConnecting = Set<String>()
   var remoteConnectionGenerations: [String: UInt64] = [:]
   func remoteConnectionState(_ id: String) -> RemoteConnectionState {
@@ -210,15 +218,51 @@ final class Store: ObservableObject {
         || serverStatuses[endpoint]?.state == "inspection_failed"
         || serverActionErrors[endpoint] != nil)
   }
-  @Published var workspaces: [Workspace] = []
-  @Published var pendingLayoutEdits: [LayoutEdit] = []
+  @Published var workspaces: [Workspace] = [] {
+    didSet {
+      invalidateLayoutProjection()
+      guard !filePreviews.isEmpty else { return }
+      let live = Set(
+        workspaces.flatMap { $0.tabs.map(\.id) + [$0.coordinator?.pane].compactMap { $0 } })
+      for key in Array(filePreviews.keys) where !live.contains(key) {
+        let removed = filePreviews.removeValue(forKey: key)
+        removed?.cancel()
+        if let removed, expandedPreview === removed { expandedPreview = nil }
+      }
+    }
+  }
+  @Published var pendingLayoutEdits: [LayoutEdit] = [] {
+    didSet { invalidateLayoutProjection() }
+  }
   var sendingLayoutEdits = Set<String>()
-  @Published var workspaceCreations: [String: WorkspaceCreation] = [:]
+  // Remember the native tab that was inserted optimistically when its server ID arrives.
+  var tabCreationOrigins: [String: String] = [:]
+  @Published var workspaceCreations: [String: WorkspaceCreation] = [:] {
+    didSet { cachedDisplayedWorkspaces = nil }
+  }
+  @Published var workspaceRemovals: [String: WorkspaceRemoval] = [:] {
+    didSet { updateInputGate() }
+  }
   @Published var awaitingCreatedFrames = Set<String>()
   @Published var pendingPaneSplits: [String: PendingPaneSplit] = [:]
   var workspaceCreationOrigins: [String: String] = [:]
   var workspaceCreationEpochs: [String: UInt64] = [:]
+  var cachedProjectedWorkspaces: [Workspace]?
+  private var cachedDisplayedWorkspaces: [Workspace]?
+
+  private func invalidateLayoutProjection() {
+    cachedProjectedWorkspaces = nil
+    cachedDisplayedWorkspaces = nil
+  }
+
   var displayedWorkspaces: [Workspace] {
+    if let cachedDisplayedWorkspaces { return cachedDisplayedWorkspaces }
+    let result = orderedDisplayWorkspaces()
+    cachedDisplayedWorkspaces = result
+    return result
+  }
+
+  private func orderedDisplayWorkspaces() -> [Workspace] {
     let workspaces = projectedWorkspaces
     if workspaceCreations.isEmpty {
       return WorkspaceSelection.ordered(
@@ -335,7 +379,6 @@ final class Store: ObservableObject {
   var serverIncarnations: [String: String] = [:]
   var pendingServerRecovery = Set<String>()
   @Published var enablingPersistence = Set<String>()
-  @Published var closingTabs = Set<String>()
   @Published var canMoveTabs = false
   @Published var canMovePanes = false
   lazy var paneDragController = PaneDragController(store: self)
@@ -361,18 +404,23 @@ final class Store: ObservableObject {
   @Published var editingTab: String? { didSet { updateInputGate() } }
   func updateInputGate() {
     TerminalInputGate.blocked =
-      coordinatorRecovery != nil || showFind || showPalette || showSettings || showAgentIntegrations
-      || showWorktree || showRemote
+      expandedPreview != nil || coordinatorRecovery != nil || showFind || showPalette
+      || showSettings || showAgentIntegrations
+      || showWorktree || showRemote || usageSelection != nil
       || showRemoteDirectory || worktreePicker != nil
       || editingWorkspace != nil
       || editingTab != nil
       || draggingPane != nil
-      || isCreatingWorkspace(selected)
+      || isWorkspacePending(selected)
       || serverAction != nil || serverBusy.contains(currentEndpoint)
       || (!currentEndpoint.isEmpty && remoteMessages[currentEndpoint] != "Connected")
   }
-  @Published var draggingTab: String?
-  @Published var tabDragIndex: Int?
+  @Published var draggingTab: String? {
+    didSet { invalidateLayoutProjection() }
+  }
+  @Published var tabDragIndex: Int? {
+    didSet { invalidateLayoutProjection() }
+  }
   @Published var paneErrors: [String: String] = [:]
   @Published var error = ""
   private var dismissedConnectionWarning: String?
@@ -402,10 +450,11 @@ final class Store: ObservableObject {
       }
   }
   var currentTab: Tab? {
-    guard surface == .terminals else { return nil }
+    guard surface == .terminals, currentRemoval == nil else { return nil }
     return current?.tabs.first { $0.id == tab } ?? current?.tabs.first
   }
   var visiblePaneIDs: [String] {
+    guard currentRemoval == nil else { return [] }
     if surface == .coordinator { return current?.coordinator.map { [$0.pane] } ?? [] }
     return currentTab?.root.ids ?? []
   }
@@ -547,7 +596,7 @@ final class Store: ObservableObject {
     }
     return RequestRouting.endpoint(value, fallback: currentEndpoint, localIDs: localIDs)
   }
-  func request(_ value: Any, renameNewTab: Bool = false) {
+  func request(_ value: Any) {
     let endpoint = requestEndpoint(value)
     guard !serverBusy.contains(endpoint) else { return }
     if !endpoint.isEmpty && remoteMessages[endpoint] != "Connected" {
@@ -555,11 +604,6 @@ final class Store: ObservableObject {
       return
     }
     let revision = stateRevisions[endpoint]
-    // A state poll can learn about the new tab before this request completes.
-    // Keep the baseline from the action, so auto-rename cannot be skipped.
-    let tabsBeforeRequest = Set(workspaces.flatMap { $0.tabs.map(\.id) })
-    let requestedWorkspace = ((value as? [String: Any])?["NewTab"] as? [String: String])?[
-      "workspace"]
     endpointQueue(endpoint).async {
       let r = rpc(value, endpoint: endpoint, revision: revision)
       DispatchQueue.main.async {
@@ -572,8 +616,7 @@ final class Store: ObservableObject {
         }
         if let state = r["State"] as? [String: Any] {
           let oldWorkspaces = Set(self.workspaces.map(\.id))
-          let oldTabs =
-            renameNewTab ? tabsBeforeRequest : Set(self.workspaces.flatMap { $0.tabs.map(\.id) })
+          let oldTabs = Set(self.workspaces.flatMap { $0.tabs.map(\.id) })
           let oldPanes = Set(self.panes.keys)
           let oldCount = oldPanes.lazy.filter { WorkspaceSelection.endpoint(of: $0) == endpoint }
             .count
@@ -593,13 +636,11 @@ final class Store: ObservableObject {
             self.select(w.id)
           }
           if let w = self.workspaces.first(where: {
-            (!renameNewTab || requestedWorkspace == nil || $0.id == requestedWorkspace)
-              && $0.tabs.contains { !oldTabs.contains($0.id) }
+            $0.tabs.contains { !oldTabs.contains($0.id) }
           }),
             let t = w.tabs.first(where: { !oldTabs.contains($0.id) })
           {
             self.select(w.id, tab: t.id)
-            if renameNewTab { self.editingTab = t.id }
           }
           if let pane = self.currentTab?.root.ids.first(where: { !oldPanes.contains($0) }) {
             self.focus = pane
@@ -679,6 +720,7 @@ final class Store: ObservableObject {
     func belongs(_ id: String) -> Bool {
       endpoint.isEmpty ? !id.contains("|") : id.hasPrefix(endpoint + "|")
     }
+    let previousWorkspace = belongs(selected) ? workspaces.first { $0.id == selected } : nil
     let keptPanes = panes.filter { !belongs($0.key) }
     let keptWorkspaces = workspaces.filter { !belongs($0.id) }
 
@@ -693,6 +735,8 @@ final class Store: ObservableObject {
             id: id, title: p["title"] as? String ?? "Terminal", cwd: p["cwd"] as? String ?? "",
             status: p["status"] as? String ?? "unknown", exited: p["exited"] as? Bool ?? false,
             reports: p["reports"] as? [[String: Any]] ?? [],
+            progress: (p["progress"] as? [[String: Any]] ?? []).compactMap(
+              PaneProgressStep.init(record:)),
             launchError: p["launch_error"] as? String,
             agentProvider: p["agent_provider"] as? String, agentRole: p["agent_role"] as? String,
             agentResume: StoppedAgentResume(
@@ -764,6 +808,17 @@ final class Store: ObservableObject {
     }
     workspaces = WorkspaceSelection.ordered(
       workspaces, machines: [""] + remotes.map(\.id), id: { $0.id })
+    if !workspaceRemovals.isEmpty {
+      let live = Set(workspaces.map(\.id))
+      let gone = workspaceRemovals.keys.filter { belongs($0) && !live.contains($0) }
+      if !gone.isEmpty {
+        for id in gone { workspaceRemovals.removeValue(forKey: id) }
+      }
+    }
+    if !tabCreationOrigins.isEmpty {
+      let liveTabs = Set(workspaces.flatMap { $0.tabs.map(\.id) })
+      tabCreationOrigins = tabCreationOrigins.filter { liveTabs.contains($0.key) }
+    }
     workspaceCreationOrigins = workspaceCreationOrigins.filter { origin in
       workspaces.contains { $0.id == origin.key }
     }
@@ -785,10 +840,13 @@ final class Store: ObservableObject {
         focus = saved.1
       }
     }
+    if let previousWorkspace, surface == .terminals, currentRemoval == nil {
+      selectNeighborIfTabRemoved(tab, from: previousWorkspace)
+    }
     if current == nil {
       if !tab.isEmpty { tab = "" }
       if !focus.isEmpty { focus = "" }
-    } else if !visiblePaneIDs.contains(focus) {
+    } else if currentRemoval == nil && !visiblePaneIDs.contains(focus) {
       focus = visiblePaneIDs.first ?? ""
     }
     if !awaitingCreatedFrames.isEmpty { awaitingCreatedFrames.formIntersection(panes.keys) }
@@ -908,7 +966,11 @@ final class Store: ObservableObject {
     }
   }
   func newTab() {
-    guard let w = current, !isCreatingWorkspace(w.id) else { return }
+    if editingTab != nil {
+      let window = terminalViews.existing(focus)?.window ?? NSApp.keyWindow
+      window?.makeFirstResponder(nil)
+    }
+    guard let w = current, !isWorkspacePending(w.id) else { return }
     submitNewTab(workspace: w)
   }
   func canSplit(_ vertical: Bool, pane: String? = nil) -> Bool {
@@ -944,51 +1006,71 @@ final class Store: ObservableObject {
     if accepted { pendingPaneSplits[tab.id] = pending }
   }
   func close(_ pane: String) {
-    guard !Self.layoutPlaceholder(pane) else { return }
+    guard currentRemoval == nil, !Self.layoutPlaceholder(pane) else { return }
     if panes[pane]?.agentRole == "coordinator" {
       request(["Close": ["pane": pane]])
       return
     }
-    let removeEmptyTab = config?.closeEmptyTabs ?? true
-    let owner = selected
-    let tab = currentTab
-    let wasFocused = focus == pane
-    var previewFocus: String?
-    let next = tab.flatMap { tab in
-      let size =
-        paneCanvas.flatMap { $0.tab == tab.id ? $0.size : nil }
-        ?? tab.root.minimumSize
-      return PaneLayout(node: tab.root, size: size).neighbor(of: pane)
-    }
-    let accepted = submitLayout(
-      ["Close": ["pane": pane]], endpoint: WorkspaceSelection.endpoint(of: pane),
-      preview: { layout in
-        OptimisticLayout.removePane(pane, from: &layout, removeEmptyTab: removeEmptyTab)
-      },
-      complete: { [weak self] reply in
-        guard let self, wasFocused, reply["error"] != nil,
-          self.selected == owner, self.currentTab?.id == tab?.id,
-          self.focus == previewFocus, self.visiblePaneIDs.contains(pane)
-        else { return }
-        self.focus = pane
-        self.focusTerminal()
-      })
-    if accepted && wasFocused {
-      focus = next ?? visiblePaneIDs.first ?? ""
-      previewFocus = focus
-      focusTerminal()
-    }
+    guard let target = currentTab, target.root.ids.contains(pane) else { return }
+    submitClose(target, pane: pane)
   }
+
   func closeTab(_ target: Tab) {
     guard !Self.layoutPlaceholder(target.id) else { return }
-    submitLayout(
-      ["CloseTab": ["tab": target.id]], endpoint: WorkspaceSelection.endpoint(of: target.id)
-    ) { layout in
-      guard let index = layout.firstIndex(where: { $0.tabs.contains { $0.id == target.id } })
-      else { return false }
-      layout[index].tabs.removeAll { $0.id == target.id }
-      return true
+    submitClose(target, pane: nil)
+  }
+
+  @discardableResult
+  private func selectNeighborIfTabRemoved(_ id: String, from previous: Workspace) -> Bool {
+    guard let workspace = current, selected == previous.id, workspace.id == previous.id,
+      !workspace.tabs.contains(where: { $0.id == id }),
+      let index = previous.tabs.firstIndex(where: { $0.id == id })
+    else { return false }
+    let next = workspace.tabs.dropFirst(index).first ?? workspace.tabs.last
+    select(workspace.id, tab: next?.id ?? "")
+    return true
+  }
+
+  private func submitClose(_ target: Tab, pane: String?) {
+    let previous = currentTab?.id == target.id ? current : nil
+    let originalFocus = focus
+    let removeEmptyTab = config?.closeEmptyTabs ?? true
+    var previewSelection: (tab: String, pane: String)?
+    let request = pane.map { ["Close": ["pane": $0]] } ?? ["CloseTab": ["tab": target.id]]
+    let accepted = submitLayout(
+      request, endpoint: WorkspaceSelection.endpoint(of: target.id),
+      preview: { layout in
+        if let pane {
+          return OptimisticLayout.removePane(pane, from: &layout, removeEmptyTab: removeEmptyTab)
+        }
+        guard let owner = layout.firstIndex(where: { $0.tabs.contains { $0.id == target.id } })
+        else { return false }
+        layout[owner].tabs.removeAll { $0.id == target.id }
+        return true
+      },
+      complete: { [weak self] reply in
+        guard let self, reply["error"] != nil, let previous, let previewSelection,
+          self.selected == previous.id, self.surface == .terminals,
+          self.tab == previewSelection.tab,
+          previewSelection.pane.isEmpty || self.focus == previewSelection.pane,
+          self.current?.tabs.contains(where: { $0.id == target.id }) == true
+        else { return }
+        self.select(previous.id, tab: target.id, pane: originalFocus)
+      })
+    guard accepted else { return }
+    if editingTab == target.id && current?.tabs.contains(where: { $0.id == target.id }) != true {
+      editingTab = nil
     }
+    guard let previous else { return }
+    if !selectNeighborIfTabRemoved(target.id, from: previous) {
+      guard let pane, originalFocus == pane else { return }
+      let size =
+        paneCanvas.flatMap { $0.tab == target.id ? $0.size : nil } ?? target.root.minimumSize
+      focus =
+        PaneLayout(node: target.root, size: size).neighbor(of: pane) ?? visiblePaneIDs.first ?? ""
+      focusTerminal()
+    }
+    previewSelection = (tab, focus)
   }
   func preview() {
     if PreviewCapture.loadStateIfRequested(into: self) { return }
@@ -1069,33 +1151,35 @@ final class Store: ObservableObject {
           InteractionTiming.event("Window became key")
           store.focusTerminal()
         }
-        .preferredColorScheme(
-          store.config?.appearance == "dark"
-            ? .dark : store.config?.appearance == "light" ? .light : nil
-        ).frame(minWidth: 800, minHeight: 520)
-        .sheet(isPresented: $store.showSettings) {
+        .frame(minWidth: 800, minHeight: 520)
+        .jamSheet(isPresented: $store.showSettings) {
           AppSettingsView(store: store, close: { store.showSettings = false })
             .frame(width: 860, height: 600)
         }
-        .sheet(isPresented: $store.showPalette) { CommandPalette().environmentObject(store) }
-        .sheet(isPresented: $store.showRemote) {
+        .jamSheet(isPresented: $store.showPalette) { CommandPalette().environmentObject(store) }
+        .jamSheet(isPresented: $store.showRemote) {
           RemoteForm(remote: store.editingRemote).environmentObject(store)
         }
-        .sheet(isPresented: $store.showRemoteDirectory) {
+        .jamSheet(isPresented: $store.showRemoteDirectory) {
           RemoteDirectoryPicker(endpoint: store.currentEndpoint).environmentObject(store)
         }
 
-        .sheet(item: $store.coordinatorRecovery) { recovery in
+        .jamSheet(item: $store.coordinatorRecovery) { recovery in
           CoordinatorRecoveryView(recovery: recovery).environmentObject(store)
         }
-        .sheet(isPresented: $store.showAgentIntegrations) { AgentIntegrations() }
-        .sheet(isPresented: $store.showWorktree) { WorktreeForm().environmentObject(store) }
-        .sheet(item: $store.worktreePicker) { context in
+        .jamSheet(isPresented: $store.showAgentIntegrations) { AgentIntegrations() }
+        .jamSheet(isPresented: $store.showWorktree) { WorktreeForm().environmentObject(store) }
+        .jamSheet(item: $store.worktreePicker) { context in
           WorktreePicker(context: context).environmentObject(store)
         }
-        .sheet(item: $store.serverAction) { action in
+        .jamSheet(item: $store.serverAction) { action in
           ServerActionSheet(action: action).environmentObject(store)
         }
+        .jamTheme(store.theme)
+        .preferredColorScheme(
+          store.config?.appearance == "dark"
+            ? .dark : store.config?.appearance == "light" ? .light : nil
+        )
     }.defaultSize(width: 1100, height: 760).windowStyle(.hiddenTitleBar).windowToolbarStyle(
       .unifiedCompact
     ).commands {
@@ -1136,8 +1220,16 @@ final class Store: ObservableObject {
 struct ContentView: View {
   @EnvironmentObject var store: Store
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @State private var columns = NavigationSplitViewVisibility.automatic
+  @State private var detailWidth: CGFloat = 540
+  @State private var detailHeight: CGFloat = 600
+  @State private var previewWidth: CGFloat?
+  @State private var dragStartWidth: CGFloat?
+  private var drawerWidth: CGFloat {
+    min(max(150, detailWidth - 150), max(150, previewWidth ?? min(560, detailWidth * 0.36)))
+  }
   var body: some View {
-    NavigationSplitView {
+    NavigationSplitView(columnVisibility: $columns) {
       VStack(spacing: 4) {
         HStack {
           Text("WORKSPACES").font(.caption).foregroundStyle(.secondary)
@@ -1158,219 +1250,281 @@ struct ContentView: View {
       .background(Color(nsColor: store.theme.background))
       .navigationSplitViewColumnWidth(min: 196, ideal: 236, max: 336)
     } detail: {
-      ZStack {
-        if store.isLoadingSelectedRemote {
-          ProgressView()
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .accessibilityLabel("Loading workspace")
-            .transition(.opacity)
+      HStack(spacing: 0) {
+        workspaceContent
+        if store.currentRemoval == nil, let key = store.previewSurface,
+          let model = store.filePreviews[key]
+        {
+          Divider().overlay {
+            Color.clear.frame(width: 7).contentShape(Rectangle())
+              .gesture(
+                DragGesture(minimumDistance: 1, coordinateSpace: .global).onChanged { event in
+                  if dragStartWidth == nil { dragStartWidth = drawerWidth }
+                  previewWidth = min(
+                    max(150, detailWidth - 150),
+                    max(150, (dragStartWidth ?? drawerWidth) - event.translation.width))
+                }.onEnded { _ in dragStartWidth = nil }
+              )
+              .onHover { inside in
+                if inside { NSCursor.resizeLeftRight.set() } else { NSCursor.arrow.set() }
+              }
+          }.zIndex(1)
+          FilePreviewView(model: model, store: store)
+            .frame(width: drawerWidth).id(model.id)
+        }
+      }
+      .jamSheet(item: $store.expandedPreview) { model in
+        FilePreviewView(model: model, store: store, expanded: true)
+          .frame(
+            width: max(300, detailWidth * 0.9),
+            height: max(220, detailHeight * 0.9)
+          )
+          .onExitCommand { store.expandedPreview = nil }
+      }
+      .onGeometryChange(for: CGSize.self) {
+        $0.size
+      } action: {
+        detailWidth = $0.width
+        detailHeight = $0.height
+      }
+      .toolbar {
+        let workspaceToolbar = ToolbarItem(placement: .primaryAction) {
+          let width = max(80, detailWidth - (columns == .detailOnly ? 138 : 8))
+          WorkspaceTitleBar(store: store)
+            .frame(minWidth: 80, idealWidth: width, maxWidth: width)
+        }
+        if #available(macOS 26, *) {
+          workspaceToolbar.sharedBackgroundVisibility(.hidden)
         } else {
-          VStack(spacing: 0) {
-            if store.displayedWorkspaces.isEmpty && store.currentEndpoint.isEmpty {
-              HStack {
-                Spacer()
-                Button(action: store.openSettings) {
-                  Image(systemName: "gearshape").frame(width: 28, height: 28).contentShape(
-                    Rectangle())
-                }.buttonStyle(.plain).help("Settings")
-              }.frame(height: 34).padding(.trailing, 6)
+          workspaceToolbar
+        }
+      }
+    }
+    .toolbarBackground(.hidden, for: .windowToolbar)
+  }
+
+  private var workspaceContent: some View {
+    ZStack {
+      if let removal = store.currentRemoval {
+        ZStack {
+          if removal.showsSpinner {
+            ProgressView().accessibilityLabel(removal.action.label)
+          }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+      } else if store.isLoadingSelectedRemote {
+        ProgressView()
+          .frame(maxWidth: .infinity, maxHeight: .infinity)
+          .accessibilityLabel("Loading workspace")
+          .transition(.opacity)
+      } else {
+        VStack(spacing: 0) {
+          if store.displayedWorkspaces.isEmpty && store.currentEndpoint.isEmpty {
+            VStack(spacing: 12) {
+              if store.starting {
+                ProgressView("Opening terminal…")
+              } else if store.error.isEmpty {
+                Button("Open Terminal") { store.openInitialWorkspace() }
+              } else {
+                Text("Unable to open terminal").foregroundStyle(.secondary)
+              }
+            }.frame(maxWidth: .infinity, maxHeight: .infinity)
+          } else {
+            if store.surface == .coordinator, let coordinator = store.current?.coordinator {
+              PaneCard(id: coordinator.pane).padding(5)
+            } else if let creation = store.workspaceCreations[store.selected] {
+              WorkspaceCreationView(creation: creation).environmentObject(store)
+                .frame(maxWidth: .infinity, maxHeight: .infinity).transition(.opacity)
+            } else if let t = store.currentTab {
+              GeometryReader { geometry in
+                let viewport = CGSize(
+                  width: max(0, geometry.size.width - 10),
+                  height: max(0, geometry.size.height - 10))
+                let canvas = SplitLayout.canvas(viewport: viewport)
+                Group {
+                  if t.root.ids.isEmpty {
+                    VStack(spacing: 12) {
+                      Text("No terminals").foregroundStyle(.secondary)
+                      Button("New Terminal") { store.request(["NewPane": ["tab": t.id]]) }
+                    }.frame(maxWidth: .infinity, maxHeight: .infinity)
+                      .background(EmptyPaneDropSurface(tab: t.id))
+                  } else if let root = t.root.removing(store.liftedPane) {
+                    // Structural animations belong to edits within a tab, never navigation.
+                    PaneTree(node: root, tab: t.id).id(t.id)
+                  } else {
+                    RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(0.025))
+                      .overlay(Text("Drop pane here").foregroundStyle(.secondary))
+                      .background(EmptyPaneDropSurface(tab: t.id))
+                  }
+                }.frame(width: canvas.width, height: canvas.height).padding(5).clipped()
+              }
+            } else {
               VStack(spacing: 12) {
-                if store.starting {
-                  ProgressView("Opening terminal…")
-                } else if store.error.isEmpty {
-                  Button("Open Terminal") { store.openInitialWorkspace() }
-                } else {
-                  Text("Unable to open terminal").foregroundStyle(.secondary)
+                Text(
+                  store.unavailableRestoredRemote
+                    ? "No workspace selected"
+                    : store.current == nil ? "No workspaces" : "No terminals"
+                )
+                .font(.title2).fontWeight(.semibold)
+                if store.current == nil && !store.currentEndpoint.isEmpty
+                  && !store.unavailableRestoredRemote
+                {
+                  Text(store.remoteMessages[store.currentEndpoint] ?? "Connecting…")
+                    .foregroundStyle(.secondary).multilineTextAlignment(.center)
+                }
+                if store.current == nil && !store.unavailableRestoredRemote {
+                  Button("New Workspace") { store.newWorkspace() }
+                    .disabled(
+                      !store.currentEndpoint.isEmpty
+                        && store.remoteMessages[store.currentEndpoint] != "Connected")
+                } else if store.current != nil {
+                  Button("New Tab") { store.execute("new_tab") }
                 }
               }.frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-              if store.surface == .terminals {
-                HStack(spacing: 2) {
-                  if let current = store.current {
-                    ScrollViewReader { proxy in
-                      ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 3) {
-                          ForEach(store.current?.tabs ?? []) { t in
-                            let selected = store.currentTab?.id == t.id
-                            DraggableTab(
-                              id: t.id, title: t.name,
-                              selected: selected,
-                              activityStatus: store.activityStatus(for: t),
-                              editing: store.editingTab == t.id,
-                              edit: { store.editingTab = t.id },
-                              rename: { value in
-                                store.editingTab = nil
-                                if let name = value?.trimmingCharacters(
-                                  in: .whitespacesAndNewlines),
-                                  !name.isEmpty
-                                {
-                                  store.rename(t.id, to: name)
-                                }
-                                store.focusTerminal()
-                              },
-                              click: { if let w = store.current { store.select(w.id, tab: t.id) } },
-                              close: { store.closeTab(t) },
-                              begin: { store.beginTabDrag(t.id) }, end: { store.cancelTabDrag() },
-                              siblings: store.current?.tabs.map(\.id) ?? [],
-                              reorder: { store.previewTabMove(to: $0) },
-                              drop: {
-                                guard let id = store.draggingTab,
-                                  let w = store.workspaces.first(where: {
-                                    $0.tabs.contains { $0.id == id }
-                                  }
-                                  )
-                                else { return false }
-                                return store.finishTabDrag(workspace: w.id)
-                              }
-                            )
-                            .frame(
-                              width: TabDragView.preferredWidth(
-                                for: t.name, showsStatus: store.activityStatus(for: t) != nil),
-                              height: 28
-                            )
-                            .background {
-                              let shape = RoundedRectangle(cornerRadius: 5)
-                              if selected {
-                                shape.fill(Color.primary.opacity(0.07))
-                              } else {
-                                shape.strokeBorder(
-                                  Color(nsColor: store.theme.paneBorder(focused: false)),
-                                  lineWidth: 1)
-                              }
-                            }
-                            .opacity(store.draggingTab == t.id ? 0 : 1)
-                            .transition(.opacity.combined(with: .scale(scale: 0.96)))
-                            .id(t.id).accessibilityLabel(t.name).accessibilityValue(
-                              selected ? "Selected" : ""
-                            )
-                            .buttonStyle(.plain).contextMenu {
-                              Button("Rename") { store.editingTab = t.id }
-                              Divider()
-                              Button("Close Tab") { store.closeTab(t) }
-                                .disabled(store.closingTabs.contains(t.id))
-                            }
-                          }
-                          Spacer()
-                          if current.tabs.contains(where: { !$0.root.ids.isEmpty }) {
-                            Button(action: store.newTab) {
-                              Image(systemName: "plus").frame(width: 28, height: 28).contentShape(
-                                Rectangle())
-                            }.buttonStyle(.plain).help("New Tab")
-                              .disabled(store.isCreatingWorkspace(current.id))
-                              .transition(.opacity)
-                          }
-                        }
-                        .animation(
-                          reduceMotion ? nil : .timingCurve(0.22, 1, 0.36, 1, duration: 0.22),
-                          value: current.tabs.map(\.id)
-                        )
-                        .id(current.id)
-                      }.scrollIndicators(.never).frame(height: 34).padding(.horizontal, 6)
-                        .onChange(of: store.tab) { _, value in
-                          withAnimation(
-                            reduceMotion ? nil : .timingCurve(0.22, 1, 0.36, 1, duration: 0.22)
-                          ) {
-                            proxy.scrollTo(value, anchor: .trailing)
-                          }
-                        }
-                    }
-                  }
-                  if store.current == nil { Spacer() }
-                  Button {
-                    store.openSettings()
-                  } label: {
-                    Image(systemName: "gearshape").frame(width: 28, height: 28).contentShape(
-                      Rectangle())
-                  }.buttonStyle(.plain).help("Settings").padding(.trailing, 6)
-                }
-              }
-              if store.surface == .coordinator, let coordinator = store.current?.coordinator {
-                PaneCard(id: coordinator.pane).padding(5)
-              } else if let creation = store.workspaceCreations[store.selected] {
-                WorkspaceCreationView(creation: creation).environmentObject(store)
-                  .frame(maxWidth: .infinity, maxHeight: .infinity).transition(.opacity)
-              } else if let t = store.currentTab {
-                GeometryReader { geometry in
-                  let viewport = CGSize(
-                    width: max(0, geometry.size.width - 10),
-                    height: max(0, geometry.size.height - 10))
-                  let canvas = SplitLayout.canvas(viewport: viewport)
-                  Group {
-                    if t.root.ids.isEmpty {
-                      VStack(spacing: 12) {
-                        Text("No terminals").foregroundStyle(.secondary)
-                        Button("New Terminal") { store.request(["NewPane": ["tab": t.id]]) }
-                      }.frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(EmptyPaneDropSurface(tab: t.id))
-                    } else if let root = t.root.removing(store.liftedPane) {
-                      // Structural animations belong to edits within a tab, never navigation.
-                      PaneTree(node: root, tab: t.id).id(t.id)
-                    } else {
-                      RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(0.025))
-                        .overlay(Text("Drop pane here").foregroundStyle(.secondary))
-                        .background(EmptyPaneDropSurface(tab: t.id))
-                    }
-                  }.frame(width: canvas.width, height: canvas.height).padding(5).clipped()
-                }
-              } else {
-                VStack(spacing: 12) {
-                  Text(
-                    store.unavailableRestoredRemote
-                      ? "No workspace selected"
-                      : store.current == nil ? "No workspaces" : "No terminals"
-                  )
-                  .font(.title2).fontWeight(.semibold)
-                  if store.current == nil && !store.currentEndpoint.isEmpty
-                    && !store.unavailableRestoredRemote
-                  {
-                    Text(store.remoteMessages[store.currentEndpoint] ?? "Connecting…")
-                      .foregroundStyle(.secondary).multilineTextAlignment(.center)
-                  }
-                  if store.current == nil && !store.unavailableRestoredRemote {
-                    Button("New Workspace") { store.newWorkspace() }
-                      .disabled(
-                        !store.currentEndpoint.isEmpty
-                          && store.remoteMessages[store.currentEndpoint] != "Connected")
-                  } else if store.current != nil {
-                    Button("New Tab") { store.execute("new_tab") }
-                  }
-                }.frame(maxWidth: .infinity, maxHeight: .infinity)
-              }
             }
-            if store.busy && !store.movingLayout {
-              ProgressView("Working…").controlSize(.small).padding(6)
-            }
-          }.transition(.opacity)
-        }
+          }
+          if store.busy && !store.movingLayout {
+            ProgressView("Working…").controlSize(.small).padding(6)
+          }
+        }.transition(.opacity)
       }
-      .animation(
-        reduceMotion ? nil : .easeInOut(duration: 0.2), value: store.isLoadingSelectedRemote
-      )
-      .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-      .background(Color(nsColor: store.theme.background))
-      .overlay(alignment: .bottom) {
-        QuickToast(message: $store.quickToast)
-          .padding(.bottom, 14)
-          .allowsHitTesting(false)
+    }
+    .animation(
+      reduceMotion ? nil : .easeInOut(duration: 0.2), value: store.isLoadingSelectedRemote
+    )
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    .background(Color(nsColor: store.theme.background))
+    .overlay(alignment: .bottom) {
+      QuickToast(message: $store.quickToast)
+        .padding(.bottom, 14)
+        .allowsHitTesting(false)
+    }
+    .overlay(alignment: .bottomTrailing) {
+      AppStatusOverlay(store: store, controller: store.appUpgrade)
+    }
+    .overlay(alignment: .topTrailing) {
+      if store.showFind {
+        WorkspaceFindBar(finder: store.finder).padding(.top, 4).padding(.trailing, 12)
+          .transition(.move(edge: .top).combined(with: .opacity))
       }
-      .overlay(alignment: .bottomTrailing) {
-        AppStatusOverlay(store: store, controller: store.appUpgrade)
-      }
-      .overlay(alignment: .topTrailing) {
-        if store.showFind {
-          WorkspaceFindBar(finder: store.finder).padding(.top, 38).padding(.trailing, 12)
-            .transition(.move(edge: .top).combined(with: .opacity))
-        }
-      }
-    }.tint(Color(nsColor: store.theme.accent))
-      .accentColor(Color(nsColor: store.theme.accent))
-      .toolbar {
-        ToolbarItem(placement: .primaryAction) {
-          UpgradeAvailableChip(controller: store.appUpgrade)
-        }
-      }
+    }
   }
 }
+private struct WorkspaceTitleBar: View {
+  @ObservedObject var store: Store
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  var body: some View {
+    HStack(spacing: 6) {
+      if store.surface == .terminals, store.currentRemoval == nil, !store.isLoadingSelectedRemote,
+        let current = store.current
+      {
+        tabStrip(current)
+      } else {
+        Spacer(minLength: 0)
+      }
+      UpgradeAvailableChip(controller: store.appUpgrade)
+      Button(action: store.openSettings) {
+        Image(systemName: "gearshape").frame(width: 28, height: 28).contentShape(Rectangle())
+      }.buttonStyle(.plain).accessibilityLabel("Settings").help("Settings")
+    }
+    .frame(height: 32)
+  }
+
+  private func tabStrip(_ current: Workspace) -> some View {
+    let tabs = current.tabs.map { (identity: store.tabCreationOrigins[$0.id] ?? $0.id, tab: $0) }
+    return ScrollViewReader { proxy in
+      ScrollView(.horizontal, showsIndicators: false) {
+        HStack(spacing: 3) {
+          ForEach(tabs, id: \.identity) { entry in
+            let t = entry.tab
+            let selected = store.currentTab?.id == t.id
+            DraggableTab(
+              id: t.id, title: t.name,
+              selected: selected,
+              activityStatus: store.activityStatus(for: t),
+              editing: store.editingTab == t.id,
+              edit: { if !Store.layoutPlaceholder(t.id) { store.editingTab = t.id } },
+              rename: { value in
+                guard store.editingTab == t.id else { return }
+                store.editingTab = nil
+                if let name = value?.trimmingCharacters(
+                  in: .whitespacesAndNewlines),
+                  !name.isEmpty
+                {
+                  store.rename(t.id, to: name)
+                }
+                store.focusTerminal()
+              },
+              click: { if let w = store.current { store.select(w.id, tab: t.id) } },
+              close: { store.closeTab(t) },
+              begin: { store.beginTabDrag(t.id) }, end: { store.cancelTabDrag() },
+              siblings: current.tabs.map(\.id),
+              reorder: { store.previewTabMove(to: $0) },
+              drop: {
+                guard let id = store.draggingTab,
+                  let w = store.workspaces.first(where: {
+                    $0.tabs.contains { $0.id == id }
+                  }
+                  )
+                else { return false }
+                return store.finishTabDrag(workspace: w.id)
+              }
+            )
+            .frame(
+              width: TabDragView.preferredWidth(
+                for: t.name, showsStatus: store.activityStatus(for: t) != nil),
+              height: 28
+            )
+            .background {
+              let shape = Capsule()
+              if selected {
+                shape.fill(Color(nsColor: store.theme.selectionFill))
+              } else {
+                shape.strokeBorder(
+                  Color(nsColor: store.theme.paneBorder(focused: false)),
+                  lineWidth: 1)
+              }
+            }
+            .overlay {
+              if store.editingTab == t.id {
+                Capsule().strokeBorder(Color(nsColor: store.theme.accent), lineWidth: 1.5)
+                  .allowsHitTesting(false)
+              }
+            }
+            .opacity(store.draggingTab == t.id ? 0 : 1)
+            .transition(.opacity.combined(with: .scale(scale: 0.96)))
+            .id(entry.identity).accessibilityLabel(t.name).accessibilityValue(
+              selected ? "Selected" : ""
+            )
+          }
+          Spacer()
+          if current.tabs.contains(where: { !$0.root.ids.isEmpty }) {
+            Button(action: store.newTab) {
+              Image(systemName: "plus").frame(width: 28, height: 28).contentShape(
+                Rectangle())
+            }.buttonStyle(.plain).help("New Tab")
+              .disabled(store.isCreatingWorkspace(current.id))
+              .transition(.opacity)
+          }
+        }
+        .animation(
+          reduceMotion ? nil : .timingCurve(0.22, 1, 0.36, 1, duration: 0.22),
+          value: tabs.map(\.identity)
+        )
+        .id(current.id)
+      }.scrollIndicators(.never).frame(height: 34)
+        .onChange(of: store.tabCreationOrigins[store.tab] ?? store.tab) { _, value in
+          withAnimation(
+            reduceMotion ? nil : .timingCurve(0.22, 1, 0.36, 1, duration: 0.22)
+          ) {
+            proxy.scrollTo(value, anchor: .trailing)
+          }
+        }
+    }
+  }
+
+}
+
 struct PaneTree: View {
   @EnvironmentObject var store: Store
   let node: Node
@@ -1467,11 +1621,11 @@ struct PaneCard: View {
     }
   }
   var pane: Pane? { store.panes[id] }
-  var body: some View {
-    VStack(spacing: 0) {
+  private func header(width: CGFloat) -> some View {
+    HStack(spacing: 8) {
       HStack(spacing: 8) {
         if let pane, pane.isAIPane {
-          ActivityIndicator(status: pane.activityStatus).frame(width: 6, height: 6)
+          ActivityIndicator(status: pane.activityStatus).frame(width: 10, height: 10)
         }
         AgentBrandIcon(provider: pane?.agentProvider)
         Text(
@@ -1485,55 +1639,66 @@ struct PaneCard: View {
         .lineLimit(1)
         .truncationMode(.middle)
         if let pane {
-          Text(URL(fileURLWithPath: pane.cwd).lastPathComponent)
-            .font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary)
+          // Remote directories are display strings. File URL inference probes the Mac filesystem.
+          Text((pane.cwd as NSString).lastPathComponent)
+            .font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary).lineLimit(1)
         }
         Spacer()
-        if let pane,
-          pane.status == "recovery_failed" && !pane.exited
-            && (pane.agentRole == nil || store.resumeState(for: pane)?.canResume == true)
-        {
-          Button("Resume") { store.restartPane(id) }
-        }
-        if pane?.status == "recovery_failed" {
-          Text("Recovery paused").foregroundStyle(.secondary)
-        }
+      }
+      .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+      .overlay {
         if !starting && pane?.agentRole != "coordinator" {
-          Button {
-            store.focus = id
-            store.split(false)
-          } label: {
-            Image(systemName: "rectangle.split.2x1")
-          }.help(
-            store.canSplit(false, pane: id) ? "Split right" : "Not enough space to split right"
-          )
-          .disabled(!store.canSplit(false, pane: id))
-          Button {
-            store.focus = id
-            store.split(true)
-          } label: {
-            Image(systemName: "rectangle.split.1x2")
-          }.help(store.canSplit(true, pane: id) ? "Split down" : "Not enough space to split down")
-            .disabled(!store.canSplit(true, pane: id))
+          PaneDragHandle(pane: id, store: store)
         }
-        if !starting {
-          Button {
-            store.close(id)
-          } label: {
-            Image(systemName: "xmark")
-          }.help(pane?.agentRole == "coordinator" ? "Close Coordinator" : "Close terminal")
-        }
-      }.buttonStyle(.plain).font(.system(size: 10)).padding(.horizontal, 12)
+      }
+      if let pane, !starting, !pane.needsResume, !pane.progress.isEmpty,
+        width >= PaneProgress.minimumPaneWidth
+      {
+        PaneProgress(steps: pane.progress)
+      }
+      if let pane,
+        pane.status == "recovery_failed" && !pane.exited
+          && (pane.agentRole == nil || store.resumeState(for: pane)?.canResume == true)
+      {
+        Button("Resume") { store.restartPane(id) }
+      }
+      if pane?.status == "recovery_failed" {
+        Text("Recovery paused").foregroundStyle(.secondary)
+      }
+      if !starting && pane?.agentRole != "coordinator" {
+        Button {
+          store.focus = id
+          store.split(false)
+        } label: {
+          Image(systemName: "rectangle.split.2x1")
+        }.help(
+          store.canSplit(false, pane: id) ? "Split right" : "Not enough space to split right"
+        )
+        .disabled(!store.canSplit(false, pane: id))
+        Button {
+          store.focus = id
+          store.split(true)
+        } label: {
+          Image(systemName: "rectangle.split.1x2")
+        }.help(store.canSplit(true, pane: id) ? "Split down" : "Not enough space to split down")
+          .disabled(!store.canSplit(true, pane: id))
+      }
+      if !starting {
+        Button {
+          store.close(id)
+        } label: {
+          Image(systemName: "xmark")
+        }.help(pane?.agentRole == "coordinator" ? "Close Coordinator" : "Close terminal")
+      }
+    }.buttonStyle(.plain).font(.system(size: 10)).padding(.horizontal, 12)
+      .frame(height: headerHeight)
+      .background(Color.primary.opacity(0.025))
+  }
+
+  var body: some View {
+    VStack(spacing: 0) {
+      GeometryReader { geometry in header(width: geometry.size.width) }
         .frame(height: headerHeight)
-        .background(Color.primary.opacity(0.025))
-        .overlay(alignment: .leading) {
-          if !starting && pane?.agentRole != "coordinator" {
-            GeometryReader { geometry in
-              PaneDragHandle(pane: id, store: store).frame(
-                width: max(0, geometry.size.width - 100), height: headerHeight)
-            }
-          }
-        }
       Divider().frame(height: dividerHeight)
       if starting {
         ProgressView().accessibilityLabel("Starting terminal")
@@ -1589,6 +1754,10 @@ struct PaneCard: View {
           onSelectionCopy: {
             store.quickToast = QuickToastMessage(text: "Copied to clipboard")
           },
+          previewLocation: { store.preview($0, from: id) },
+          previewCwd: pane?.cwd ?? "",
+          previewSupported: store.capabilitiesByEndpoint[WorkspaceSelection.endpoint(of: id)]?
+            .contains("file_preview"),
           onReady: store.awaitingCreatedFrames.contains(id)
             ? { store.awaitingCreatedFrames.remove(id) } : nil
         ).id(
@@ -1670,6 +1839,9 @@ struct TerminalSurface: NSViewRepresentable {
   let onFocus: () -> Void
   let onError: (String?) -> Void
   let onSelectionCopy: () -> Void
+  var previewLocation: ((PreviewLocation) -> Void)? = nil
+  var previewCwd = ""
+  var previewSupported: Bool? = nil
   var onReady: (() -> Void)? = nil
   func makeNSView(context: Context) -> TerminalSurfaceHost {
     TerminalSurfaceHost(terminal: pool.view(for: pane))
@@ -1677,6 +1849,9 @@ struct TerminalSurface: NSViewRepresentable {
   func updateNSView(_ host: TerminalSurfaceHost, context: Context) {
     let v = host.terminal
     guard v.layoutHost === host else { return }
+    v.previewLocation = previewLocation
+    v.hover.cwd = previewCwd
+    v.hover.supported = previewSupported
     v.copyOnSelect = copyOnSelect
     v.isAIPane = isAIPane
     v.fontScale = fontScale
@@ -1738,11 +1913,12 @@ final class TerminalNSView: NSView, NSTextInputClient, NSMenuItemValidation {
   var selecting = false
   var applicationDrag = false
   private var linkClick = false
+  private var clickSequence: UInt = 0
   private var selectionCopyReported = false
+  lazy var hover = TerminalHover(self)
+  var previewLocation: ((PreviewLocation) -> Void)?
   var openWebURL: (URL) -> Bool = { NSWorkspace.shared.open($0) }
   var copyPasteboard: NSPasteboard = .general
-  private static let linkDetector = try? NSDataDetector(
-    types: NSTextCheckingResult.CheckingType.link.rawValue)
   var scrollRemainder: Double = 0
   let composition = NSTextField(labelWithString: "")
   var cellSize: NSSize {
@@ -1805,6 +1981,7 @@ final class TerminalNSView: NSView, NSTextInputClient, NSMenuItemValidation {
   }
   override func viewDidMoveToWindow() {
     super.viewDidMoveToWindow()
+    hover.leave()
     displayClock?.invalidate()
     displayClock = nil
     displayTarget = nil
@@ -1901,6 +2078,7 @@ final class TerminalNSView: NSView, NSTextInputClient, NSMenuItemValidation {
       guard values["unchanged"] as? Bool != true else { return }
       if let text = values["text"] as? String { screenText = text }
       meta = values
+      hover.refresh()
       if let text = values["clipboard_text"] as? String, copyOnSelect, window.isKeyWindow,
         window.firstResponder === self, !TerminalInputGate.blocked
       {
@@ -1956,36 +2134,40 @@ final class TerminalNSView: NSView, NSTextInputClient, NSMenuItemValidation {
       extend ? "extend" : "select", Int32(max(0, p.x / cellSize.width)),
       Int32(max(0, (bounds.height - p.y) / cellSize.height)))
   }
-  static func webLink(_ context: [String: Any]) -> URL? {
-    let url: URL?
-    if let target = context["url"] as? String {
-      url = URL(string: target)
-    } else if let line = context["line"] as? String, let offset = context["offset"] as? Int {
-      let range = NSRange(line.startIndex..., in: line)
-      url =
-        linkDetector?.matches(in: line, range: range)
-        .first { NSLocationInRange(offset, $0.range) }?.url
-    } else {
-      return nil
-    }
-    guard let url, ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
-      url.host?.isEmpty == false
-    else { return nil }
-    return url
-  }
-
   private func openLink(at event: NSEvent) -> Bool {
+    clickSequence &+= 1
     guard event.modifierFlags.contains(.control) else { return false }
     let point = convert(event.locationInWindow, from: nil)
     guard bounds.contains(point) else { return false }
-    let response = action(
-      "link", Int32(point.x / cellSize.width),
-      Int32((bounds.height - point.y) / cellSize.height))
-    guard
-      let context = try? JSONSerialization.jsonObject(with: Data(response.utf8)) as? [String: Any],
-      let url = Self.webLink(context)
-    else { return false }
-    _ = openWebURL(url)
+    guard let target = hover.hit(point) else { return false }
+    switch target.destination {
+    case .web(let url): _ = openWebURL(url)
+    case .file(let location):
+      guard let previewLocation else { return false }
+      let confirmed = hover.confirmed(location.path)
+      if confirmed == true || (location.explicit && target.fallbackURL == nil) {
+        previewLocation(location)
+      } else if confirmed == false || hover.supported == false {
+        if let url = target.fallbackURL { _ = openWebURL(url) } else { return false }
+      } else {
+        // A fast click may precede the hover probe. Resolve an ambiguous filename on its owner.
+        let reader = PreviewReader(pane: pane)
+        let sequence = clickSequence
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+          let exists = (try? reader.inspect(location.path)) != nil
+          DispatchQueue.main.async { [weak self] in
+            guard let self, self.clickSequence == sequence, self.window?.isKeyWindow == true,
+              self.isCurrentFocus?() != false
+            else { return }
+            if exists {
+              previewLocation(location)
+            } else if let url = target.fallbackURL {
+              _ = self.openWebURL(url)
+            }
+          }
+        }
+      }
+    }
     return true
   }
 
@@ -2035,12 +2217,18 @@ final class TerminalNSView: NSView, NSTextInputClient, NSMenuItemValidation {
     if let tracking { removeTrackingArea(tracking) }
     let area = NSTrackingArea(
       rect: bounds,
-      options: [.mouseMoved, .activeInKeyWindow, .inVisibleRect, .enabledDuringMouseDrag],
+      options: [
+        .mouseEnteredAndExited, .mouseMoved, .activeInKeyWindow, .inVisibleRect,
+        .enabledDuringMouseDrag,
+      ],
       owner: self, userInfo: nil)
     addTrackingArea(area)
     tracking = area
   }
+  override func mouseEntered(with event: NSEvent) { hover.track(event) }
+  override func mouseExited(with event: NSEvent) { hover.leave() }
   override func mouseMoved(with event: NSEvent) {
+    hover.track(event)
     if meta["mouse"] as? Bool == true { mouse(event, 2, 255) }
   }
   override func rightMouseDragged(with event: NSEvent) {

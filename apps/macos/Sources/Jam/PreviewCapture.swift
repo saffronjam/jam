@@ -29,7 +29,8 @@ enum PreviewCapture {
       let store = Store()
       for other in NSApp.windows { other.orderOut(nil) }
       window.contentView = NSHostingView(
-        rootView: ContentView().environmentObject(store).preferredColorScheme(.dark))
+        rootView: ContentView().environmentObject(store).jamTheme(store.theme)
+          .preferredColorScheme(.dark))
       captureWindow = window
       window.center()
       window.makeKeyAndOrderFront(nil)

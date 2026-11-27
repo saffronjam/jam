@@ -14,6 +14,7 @@ pub mod worktree;
 pub mod worktree_template;
 
 mod pane_move;
+mod process_args;
 
 pub mod search;
 
@@ -21,6 +22,7 @@ pub mod remote;
 
 pub mod agents;
 mod clipboard;
+pub mod file_preview;
 pub mod input;
 
 pub mod reviews;

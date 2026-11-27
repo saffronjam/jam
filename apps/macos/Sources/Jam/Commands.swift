@@ -191,7 +191,7 @@ extension Store {
     {
       return true
     }
-    if isCreatingWorkspace(selected) { return false }
+    if isWorkspacePending(selected) { return false }
     if action == "new_worktree" {
       return current.map { worktreeReason($0) == nil } == true && !busy
     }
@@ -214,36 +214,6 @@ extension Store {
     guard let context = workspace.context, context.ready else { return "Checking repository…" }
     guard context.repository != nil else { return "This folder is not a Git repository" }
     return context.createDisabledReason
-  }
-  func operation(_ request: [String: Any], endpoint requestedEndpoint: String? = nil) {
-    let endpoint = requestedEndpoint ?? requestEndpoint(request)
-    guard !busy, !serverBusy.contains(endpoint) else { return }
-    if surface == .terminals { selections[selected] = (tab, focus) }
-    busy = true
-    DispatchQueue.global().async {
-      var reply = rpc(request, endpoint: endpoint)
-      while let op = reply["Operation"] as? [String: Any], op["done"] as? Bool == false,
-        let id = op["id"] as? String
-      {
-        Thread.sleep(forTimeInterval: 0.1)
-        reply = rpc(["Operation": ["id": id]], endpoint: endpoint)
-      }
-      let latestState = rpc("State", endpoint: endpoint)["State"] as? [String: Any]
-      DispatchQueue.main.async {
-        if let latestState { self.apply(latestState, endpoint: endpoint) }
-        self.busy = false
-        if let error = reply["error"] as? String {
-          self.error = error
-        } else if let op = reply["Operation"] as? [String: Any] {
-          if let error = op["error"] as? String {
-            self.error = error
-          } else if let id = op["workspace"] as? String {
-            self.select(id)
-          }
-        }
-        self.refresh()
-      }
-    }
   }
   func openCheckout(
     _ path: String, endpoint: String? = nil, workspace: String? = nil, branch: String? = nil
@@ -294,9 +264,9 @@ extension Store {
   }
 
   func closeWorkspace(_ w: Workspace, group: Bool) {
-    guard !isCreatingWorkspace(w.id) else { return }
+    guard !isWorkspacePending(w.id) else { return }
     if !workspaceCloseNeedsConfirmation(w, group: group) {
-      request(["WorkspaceClose": ["workspace": w.id, "group": group]])
+      beginWorkspaceRemoval(w, action: .close(group: group))
       return
     }
     guard let window = NSApp.keyWindow ?? NSApp.mainWindow,
@@ -310,12 +280,14 @@ extension Store {
     alert.addButton(withTitle: "Cancel")
     alert.beginSheetModal(for: window) { response in
       guard response == .alertFirstButtonReturn else { return }
-      self.request(["WorkspaceClose": ["workspace": w.id, "group": group]])
+      self.beginWorkspaceRemoval(w, action: .close(group: group))
     }
   }
   func removeWorktree(_ w: Workspace, force: Bool = false) {
-    guard config?.allowWorkspaceDeletion != false else { return }
-    guard let window = NSApp.keyWindow ?? NSApp.mainWindow else { return }
+    guard config?.allowWorkspaceDeletion != false, !isWorkspacePending(w.id) else { return }
+    guard let window = NSApp.keyWindow ?? NSApp.mainWindow, window.attachedSheet == nil else {
+      return
+    }
     let alert = NSAlert()
     alert.alertStyle = .warning
     alert.messageText = force ? "Force delete checkout?" : "Delete checkout?"
@@ -327,33 +299,7 @@ extension Store {
     // A sheet belongs to the Jam window, unlike a standalone runModal alert.
     alert.beginSheetModal(for: window) { response in
       guard response == .alertFirstButtonReturn else { return }
-      if force {
-        self.operation(["WorktreeRemove": ["workspace": w.id, "force": true]])
-        return
-      }
-      DispatchQueue.global().async {
-        var result = rpc(["WorktreeRemove": ["workspace": w.id, "force": false]])
-        while let op = result["Operation"] as? [String: Any], op["done"] as? Bool == false,
-          let id = op["id"] as? String
-        {
-          Thread.sleep(forTimeInterval: 0.1)
-          result = rpc(["Operation": ["id": id]])
-        }
-        let final = result
-        DispatchQueue.main.async {
-          let error =
-            (final["Operation"] as? [String: Any])?["error"] as? String
-            ?? final["error"] as? String
-          if let error {
-            if error.contains("local changes") {
-              self.removeWorktree(w, force: true)
-            } else {
-              self.error = error
-            }
-          }
-          self.refresh()
-        }
-      }
+      self.beginWorkspaceRemoval(w, action: .delete(force: force))
     }
   }
   func reloadConfig() {
@@ -377,7 +323,7 @@ extension Store {
       guard let self, self.editingWorkspace == nil, self.editingTab == nil, self.draggingTab == nil,
         !self.busy,
         !self.showSettings, !self.showAgentIntegrations, !self.showPalette,
-        !self.showWorktree, self.worktreePicker == nil,
+        !self.showWorktree, self.worktreePicker == nil, self.usageSelection == nil,
         !(event.window is NSColorPanel), event.window?.sheetParent == nil,
         event.window?.attachedSheet == nil, event.window == NSApp.keyWindow
       else { return event }
@@ -472,11 +418,10 @@ struct CommandPalette: View {
   }
   var body: some View {
     VStack(spacing: 12) {
-      TextField("Search commands, workspaces, tabs, and panes", text: $query).textFieldStyle(
-        .roundedBorder
-      ).focused($searching).onSubmit {
-        if !entries.isEmpty { run(entries[min(selected, entries.count - 1)]) }
-      }
+      TextField("Search commands, workspaces, tabs, and panes", text: $query)
+        .focused($searching).onSubmit {
+          if !entries.isEmpty { run(entries[min(selected, entries.count - 1)]) }
+        }
       ScrollView {
         LazyVStack(spacing: 2) {
           ForEach(Array(entries.enumerated()), id: \.element.id) { i, e in
@@ -525,20 +470,21 @@ struct WorktreeForm: View {
       TextField("Base revision", text: $base)
       TextField("Checkout path (optional)", text: $path)
       HStack {
-        Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
-        Spacer()
         if let workspace = store.current, let reason = store.worktreeReason(workspace) {
           Text(reason).font(.caption).foregroundStyle(.secondary)
         }
+        Spacer()
+        Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
         Button("Create") {
           guard let w = store.current else { return }
           store.beginCreation(
             .createWorktree(
               source: w.id, branch: branch, base: base, path: path.isEmpty ? nil : path))
           dismiss()
-        }.keyboardShortcut(.defaultAction).disabled(
-          branch.isEmpty || !store.enabled("new_worktree"))
+        }.keyboardShortcut(.defaultAction).buttonStyle(.borderedProminent)
+          .tint(Color(nsColor: store.theme.selectionFill)).disabled(
+            branch.isEmpty || !store.enabled("new_worktree"))
       }
-    }.textFieldStyle(.roundedBorder).padding(24).frame(width: 480)
+    }.padding(24).frame(width: 480)
   }
 }

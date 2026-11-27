@@ -17,7 +17,7 @@ final class WorkspaceCell: NSView {
 
   init(
     name: String, branch: String?, tint: NSColor?, symbol: String, diff: GitSummary?,
-    loading: Bool = false, leadingInset: CGFloat = 0, detail: String? = nil,
+    loadingLabel: String? = nil, leadingInset: CGFloat = 0, detail: String? = nil,
     image: NSImage? = nil
   ) {
     self.leadingInset = leadingInset
@@ -28,7 +28,7 @@ final class WorkspaceCell: NSView {
     nameField = NSTextField(labelWithString: name)
     icon = NSImageView(
       image: image ?? NSImage(systemSymbolName: symbol, accessibilityDescription: nil)!)
-    spinner = loading ? NSProgressIndicator() : nil
+    spinner = loadingLabel.map { _ in NSProgressIndicator() }
     detailField = detail.map { NSTextField(labelWithString: $0) }
     branchField = branch.map { NSTextField(labelWithString: $0) }
     if let diff, diff.added > 0 || diff.removed > 0 {
@@ -51,7 +51,7 @@ final class WorkspaceCell: NSView {
       spinner.style = .spinning
       spinner.controlSize = .small
       spinner.isIndeterminate = true
-      spinner.setAccessibilityLabel("Creating workspace")
+      spinner.setAccessibilityLabel(loadingLabel)
       addSubview(spinner)
       spinner.startAnimation(nil)
     }

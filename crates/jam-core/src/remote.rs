@@ -804,6 +804,7 @@ mod routing_tests {
                 path: Some("/tmp/checkouts/test".into()),
             },
             tab: InitialTab::Agent {
+                permissions: None,
                 provider: "claude".into(),
                 role: "worker".into(),
                 complex: false,

@@ -5,7 +5,11 @@ struct WarningContent {
   let summary: String
   let details: String?
   init(_ message: String) {
-    let clean = message.trimmingCharacters(in: .whitespacesAndNewlines)
+    let plain =
+      message.contains("\u{1b}")
+      ? message.replacingOccurrences(
+        of: #"\x1B\[[0-9:;]*m"#, with: "", options: .regularExpression) : message
+    let clean = plain.trimmingCharacters(in: .whitespacesAndNewlines)
     let lower = clean.lowercased()
     let friendly: String?
     if lower.contains("local server is not responding") {
@@ -27,7 +31,11 @@ struct WarningContent {
     {
       friendly =
         "Jam could not identify the previous conversation. Choose a saved session or start a new conversation."
-    } else if lower.contains("could not resume") || lower.contains("no saved session found") {
+    } else if lower.contains("codex response is too large") {
+      friendly = "Jam could not read the full Codex reply for this conversation."
+    } else if lower.contains("could not read the saved codex conversation")
+      || lower.contains("could not resume") || lower.contains("no saved session found")
+    {
       friendly =
         "The saved agent conversation could not be resumed. Choose another saved session or start a new conversation."
     } else if lower.contains("codex did not finish") || lower.contains("codex session service") {
@@ -45,7 +53,7 @@ struct WarningContent {
     let headline = first.hasPrefix("Error: ") ? String(first.dropFirst(7)) : first
     summary = friendly ?? (headline.count > 180 ? String(headline.prefix(180)) + "…" : headline)
     // Keep the original diagnostic intact, including its context chain.
-    details = clean.isEmpty || clean == summary ? nil : message
+    details = clean.isEmpty || clean == summary ? nil : plain
 
   }
 }

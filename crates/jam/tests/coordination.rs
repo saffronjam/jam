@@ -628,11 +628,14 @@ if 'app-server' in sys.argv:
             identifier = params.get('threadId', str(uuid.uuid4()))
             if method == 'thread/resume' and identifier not in saved(): error = {'message': 'saved conversation missing'}
             result = {'thread': {'id': identifier}, 'model': 'fixture-model'}
+            if method == 'thread/resume':
+                result['thread']['turns'] = [{'text': 'x' * (2 * 1024 * 1024)}]
         elif method == 'thread/name/set':
             data = saved(); data[params['threadId']] = {'id': params['threadId'], 'name': params['name'], 'cwd': os.getcwd()}
             sessions.write_text(json.dumps(data))
         elif method == 'thread/read':
-            if params['threadId'] not in saved(): error = {'message': 'thread is not durable'}
+            assert params.get('includeTurns') is False
+            if params['threadId'] not in saved(): error = {'message': 'saved conversation missing'}
             result = {'thread': saved().get(params['threadId'], {})}
         elif method == 'thread/list': result = {'data': list(saved().values())}
         response = {'id': request['id']}
@@ -753,10 +756,16 @@ fn codex_identity_is_durable_before_first_turn_and_recovers_without_prompts() {
         .filter(|v: &Value| v["argv"].is_array())
         .collect();
     assert_eq!(launches.len(), 2);
+    assert!(
+        !log.lines()
+            .map(|line| serde_json::from_str::<Value>(line).unwrap())
+            .any(|call| call["method"] == "thread/resume"),
+        "only the interactive client should load the saved conversation"
+    );
     for call in log
         .lines()
         .map(|s| serde_json::from_str::<Value>(s).unwrap())
-        .filter(|v| v["method"] == "thread/start" || v["method"] == "thread/resume")
+        .filter(|v| v["method"] == "thread/start")
     {
         assert_eq!(call["params"]["approvalPolicy"], "never");
         assert_eq!(call["params"]["sandbox"], "danger-full-access");
@@ -896,6 +905,90 @@ while True:
 }
 
 #[test]
+fn workspace_cli_propagates_standalone_launch_permissions() {
+    let f = Fixture::new();
+    install_fake_codex(&f);
+    let Message::State(state) = f.rpc(Request::CreateWorkspace {
+        path: f.dir.path().display().to_string(),
+        name: "Launcher".into(),
+    }) else {
+        panic!("missing launcher workspace")
+    };
+    let launcher = &state.panes[0].id;
+    f.coord(json!({"action":"register","pane":launcher,"session":id(),"provider":"claude","permission_mode":"bypassPermissions","event":"SessionStart"}));
+    let launch = |name: &str, pane: Option<&str>, yolo: bool| {
+        let path = f.dir.path().join(name);
+        std::fs::create_dir(&path).unwrap();
+        let mut cmd = Command::new(f.dir.path().join("Jam.app/Contents/Resources/bin/jam"));
+        cmd.args([
+            "workspace",
+            "create",
+            path.to_str().unwrap(),
+            "--agent",
+            "codex",
+            "--json",
+        ])
+        .env("HOME", f.dir.path())
+        .env("JAM_SOCKET", &f.socket)
+        .env("JAM_STATE_DIR", f.dir.path().join("state"))
+        .env_remove("JAM_PANE_ID")
+        .env_remove("JAM_AGENT_ID")
+        .env_remove("JAM_AGENT_RUN_ID");
+        if let Some(pane) = pane {
+            cmd.env("JAM_PANE_ID", pane);
+        }
+        if yolo {
+            cmd.arg("--yolo");
+        }
+        let out = cmd.output().unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        let reply: Value = serde_json::from_slice(&out.stdout).unwrap();
+        let pane = reply["CreatedWorkspace"]["pane"].as_str().unwrap();
+        f.wait(|| matches!(f.rpc(Request::Capture {pane:pane.into()}), Message::Capture(s) if s.contains("CODEX READY")));
+        let board =
+            coordination::Board::at(&f.dir.path().join("state/coordination.sqlite")).unwrap();
+        let agent = board.agent_for_pane(pane).unwrap().unwrap();
+        let log = std::fs::read_to_string(f.dir.path().join("codex-log")).unwrap();
+        let argv = log
+            .lines()
+            .filter_map(|s| serde_json::from_str::<Value>(s).ok())
+            .find(|v| v["argv"].as_array().and_then(|a| a.last()) == Some(&agent["session"]))
+            .unwrap()["argv"]
+            .clone();
+        assert_eq!(
+            argv.as_array().unwrap().contains(&json!("--yolo")),
+            agent["bypass"] == true
+        );
+        (agent, argv)
+    };
+    let (agent, _) = launch("inherited", Some(launcher), false);
+    assert!(agent["parent"].is_null() && agent["bypass"] == true);
+    let (agent, _) = launch("ordinary", None, false);
+    assert_eq!(agent["bypass"], false);
+    let source = f.coord(json!({"action":"list"}))["agents"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|a| a["pane"] == *launcher)
+        .unwrap()
+        .clone();
+    f.coord(json!({"action":"register","pane":launcher,"session":source["session"],"provider":"claude","permission_mode":"plan","event":"UserPromptSubmit"}));
+    let (agent, argv) = launch("restricted", Some(launcher), false);
+    assert_eq!(agent["bypass"], false);
+    assert!(
+        argv.as_array()
+            .unwrap()
+            .windows(2)
+            .any(|p| p == [json!("--sandbox"), json!("read-only")])
+    );
+    assert_eq!(launch("explicit", Some(launcher), true).0["bypass"], true);
+}
+
+#[test]
 fn create_with_initial_agent_never_starts_a_placeholder_shell() {
     let f = Fixture::with_test_shell(true);
     let directory = f.dir.path().join("repo");
@@ -1002,6 +1095,7 @@ fn create_with_initial_agent_never_starts_a_placeholder_shell() {
             name: "Agent only".into(),
         },
         tab: InitialTab::Agent {
+            permissions: None,
             provider: "claude".into(),
             role: "coordinator".into(),
             complex: false,
@@ -1091,6 +1185,7 @@ fn create_with_initial_agent_never_starts_a_placeholder_shell() {
                     path: Some(invalid.to_string_lossy().into())
                 },
                 tab: InitialTab::Agent {
+                    permissions: None,
                     provider: "claude".into(),
                     role: "worker".into(),
                     complex: false,
@@ -1337,7 +1432,10 @@ import json, os, socket, subprocess, sys
 from pathlib import Path
 home=Path(os.environ['HOME'])
 agent=os.environ['JAM_AGENT_ID']
-session=sys.argv[-1]
+flag='--resume' if '--resume' in sys.argv else '--session-id'
+session_arg=sys.argv.index(flag)+1
+session=sys.argv[session_arg]
+prompts=sys.argv[session_arg+1:]
 log=home/'recovery-launches'
 with log.open('a') as out: out.write(session+'\n')
 first=len(log.read_text().splitlines())==1
@@ -1352,13 +1450,18 @@ folder=home/'.claude/projects/fixture'; folder.mkdir(parents=True,exist_ok=True)
 (folder/(session+'.jsonl')).write_text('{}\n')
 hook('SessionStart')
 if first: hook('UserPromptSubmit','Do the fixture task')
+if prompts:
+    assert flag=='--resume' and len(prompts)==1 and not first
+    with (home/'recovery-messages').open('a') as out: out.write('launch '+prompts[0]+'\n')
+    hook('UserPromptSubmit',prompts[0])
+    hook('Stop')
 print('RECOVERY READY',flush=True)
 while True:
     c,_=listener.accept()
     with c:
         stream=c.makefile(); json.loads(stream.readline()); data=json.loads(stream.readline())
         prompt=data['message']['content']
-        with (home/'recovery-messages').open('a') as out: out.write(prompt+'\n')
+        with (home/'recovery-messages').open('a') as out: out.write('peer '+prompt+'\n')
         hook('UserPromptSubmit',prompt)
         hook('Stop')
 "#;
@@ -1382,7 +1485,10 @@ while True:
     f.wait(|| f.coord(json!({"action":"list"}))["agents"][0]["activity"] == "idle");
     let messages = std::fs::read_to_string(f.dir.path().join("recovery-messages")).unwrap();
     assert_eq!(messages.lines().count(), 1);
-    assert!(messages.starts_with("Continue the interrupted work"));
+    assert!(messages.starts_with("launch Continue the interrupted work"));
+    let launches = std::fs::read_to_string(f.dir.path().join("recovery-launches")).unwrap();
+    assert_eq!(launches.lines().count(), 2);
+    assert_eq!(launches.lines().next(), launches.lines().nth(1));
     assert!(!messages.contains("You are a Jam"));
     f.rpc(Request::Stop);
     f.child.wait().unwrap();
@@ -1620,6 +1726,7 @@ fn worktree_removal_accepts_already_paused_agents() {
             path: Some(checkout.to_string_lossy().into()),
         },
         tab: InitialTab::Agent {
+            permissions: None,
             provider: "claude".into(),
             role: "worker".into(),
             parent: None,

@@ -80,6 +80,7 @@ def assemble(staged, release):
     }
     for source in (ROOT / 'assets/agent-icons').glob('*'):
         files[str(source.relative_to(ROOT))] = 'Resources/agent-icons/' + source.name
+    shutil.copytree(ROOT / 'assets/file-preview', contents / 'Resources/file-preview')
     for source, relative in files.items():
         target = contents / relative
         target.parent.mkdir(parents=True, exist_ok=True)

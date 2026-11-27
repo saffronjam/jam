@@ -82,6 +82,9 @@ enum CoordinateCmd {
         workspace: String,
         #[arg(long)]
         provider: Option<String>,
+        /// Launch with full access and no command approval prompts.
+        #[arg(long)]
+        yolo: bool,
         #[arg(long, default_value = "coordinator", value_parser = ["coordinator", "worker", "reviewer"])]
         role: String,
         #[arg(long)]
@@ -197,23 +200,56 @@ struct InitialTabArgs {
     complex: bool,
     #[arg(long, requires = "agent")]
     parent: Option<String>,
+    /// Launch with full access and no command approval prompts.
+    #[arg(long, requires = "agent")]
+    yolo: bool,
     /// Name the first terminal or agent tab.
     #[arg(long)]
     tab_name: Option<String>,
 }
+fn launch_permissions(
+    yolo: bool,
+    role: &str,
+    parent: Option<&str>,
+) -> Result<Option<AgentPermissions>> {
+    if role == "coordinator" || parent.is_some() {
+        return Ok(None); // Coordinated roles already have an unattended launch policy.
+    }
+    if yolo {
+        return Ok(Some(AgentPermissions::FullAccess));
+    }
+    let Ok(pane) = std::env::var("JAM_PANE_ID") else {
+        return Ok(None);
+    };
+    // The calling pane lives on this socket even when --remote selects a different destination.
+    let reply = call(Request::Coordination(serde_json::json!({
+        "action":"launch_permissions", "pane":pane,
+        "caller":std::env::var("JAM_AGENT_ID").ok(), "run_id":std::env::var("JAM_AGENT_RUN_ID").ok()
+    })))
+    .context("Could not read the launching pane's permissions. Check its Jam server version")?;
+    let Message::Coordination(value) = reply else {
+        anyhow::bail!("Unexpected launch permissions response")
+    };
+    Ok(serde_json::from_value(value)?)
+}
+
 impl InitialTabArgs {
-    fn into_tab(self) -> Option<InitialTab> {
+    fn into_tab(self) -> Result<Option<InitialTab>> {
         if let Some(provider) = self.agent {
-            Some(InitialTab::Agent {
+            let role = self.role.unwrap_or_else(|| "worker".into());
+            let permissions = launch_permissions(self.yolo, &role, self.parent.as_deref())?;
+            Ok(Some(InitialTab::Agent {
                 provider,
-                role: self.role.unwrap_or_else(|| "worker".into()),
+                role,
+                permissions,
                 complex: self.complex,
                 parent: self.parent,
                 name: self.tab_name,
-            })
+            }))
         } else {
-            self.tab_name
-                .map(|name| InitialTab::Terminal { name: Some(name) })
+            Ok(self
+                .tab_name
+                .map(|name| InitialTab::Terminal { name: Some(name) }))
         }
     }
 }
@@ -303,12 +339,33 @@ enum PaneCmd {
 #[derive(Subcommand)]
 enum StatusCmd {
     List,
+    /// Replace this pane's task progress, or clear it when the task ends.
+    Progress {
+        #[arg(long)]
+        pane: Option<String>,
+        /// A short label and a percentage. Repeat for each step in display order.
+        #[arg(long = "step", value_name = "LABEL=PERCENT", value_parser = parse_progress_step, required_unless_present = "clear")]
+        steps: Vec<ProgressStep>,
+        #[arg(long, conflicts_with = "steps")]
+        clear: bool,
+    },
     Set {
         #[arg(long)]
         pane: Option<String>,
         #[arg(long)]
         state: String,
     },
+}
+fn parse_progress_step(value: &str) -> Result<ProgressStep> {
+    let (label, percent) = value.rsplit_once('=').context("Use --step 'Label=50'")?;
+    let step = ProgressStep {
+        label: label.trim().to_owned(),
+        percent: percent
+            .parse()
+            .context("Progress must be a whole percentage between 0 and 100")?,
+    };
+    ProgressStep::validate(std::slice::from_ref(&step))?;
+    Ok(step)
 }
 #[derive(Subcommand)]
 enum SkillCmd {
@@ -558,10 +615,12 @@ fn main() -> Result<()> {
                     provider,
                     role,
                     parent,
+                    yolo,
                     complex,
                     tab_name,
                 } => {
-                    serde_json::json!({"action":"start","workspace":workspace,"provider":provider,"role":role,"parent":parent,"complex":complex,"tab_name":tab_name})
+                    let permissions = launch_permissions(yolo, &role, parent.as_deref())?;
+                    serde_json::json!({"action":"start","workspace":workspace,"provider":provider,"role":role,"parent":parent,"complex":complex,"tab_name":tab_name,"permissions":permissions})
                 }
                 Task {
                     owner,
@@ -613,7 +672,7 @@ fn main() -> Result<()> {
                 name,
                 path,
                 initial,
-            } => match initial.into_tab() {
+            } => match initial.into_tab()? {
                 Some(tab) => Request::CreateWorkspaceWithTab {
                     location: WorkspaceLocation::Worktree {
                         workspace,
@@ -648,7 +707,7 @@ fn main() -> Result<()> {
             path,
             name,
             initial,
-        }) => match initial.into_tab() {
+        }) => match initial.into_tab()? {
             Some(tab) => Request::CreateWorkspaceWithTab {
                 location: WorkspaceLocation::Directory { path, name },
                 tab,
@@ -676,6 +735,13 @@ fn main() -> Result<()> {
         Command::Pane(PaneCmd::Close { pane }) => Request::Close {
             pane: target(pane)?,
         },
+        Command::Status(StatusCmd::Progress { pane, steps, .. }) => {
+            ProgressStep::validate(&steps)?;
+            Request::TaskProgress {
+                pane: target(pane)?,
+                steps,
+            }
+        }
         Command::Status(StatusCmd::Set { pane, state }) => Request::Status {
             pane: target(pane)?,
             state,
@@ -734,6 +800,26 @@ fn main() -> Result<()> {
                 "Update this machine's server to use coordination models and reviewer roles"
             );
         }
+    }
+    let permissions_requested = matches!(
+        &r,
+        Request::CreateWorkspaceWithTab {
+            tab: InitialTab::Agent {
+                permissions: Some(_),
+                ..
+            },
+            ..
+        }
+    ) || matches!(&r, Request::Coordination(v) if !v["permissions"].is_null());
+    if matches!(&r, Request::TaskProgress { .. })
+        && !matches!(call_at(&endpoint, Request::Capabilities)?, Message::Capabilities(c) if c.iter().any(|v| v == "task_progress"))
+    {
+        anyhow::bail!("Update this machine's Jam server to report task progress");
+    }
+    if permissions_requested
+        && !matches!(call_at(&endpoint, Request::Capabilities)?, Message::Capabilities(c) if c.iter().any(|v| v == "agent_launch_permissions"))
+    {
+        anyhow::bail!("Update the destination Jam server to apply the requested agent permissions");
     }
     if matches!(&r, Request::CreateWorkspaceWithTab { .. }) {
         let Message::Capabilities(capabilities) = call_at(&endpoint, Request::Capabilities)? else {

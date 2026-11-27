@@ -179,6 +179,7 @@ struct CoordinationView: View {
           }
         }
       }
+      .scrollContentBackground(.hidden)
       if !instructions.isEmpty {
         ScrollView {
           Text(instructions).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
@@ -405,16 +406,21 @@ struct CoordinatorRecoveryView: View {
       }
       if !failure.isEmpty { ErrorNotice(message: failure) }
       HStack {
-        Button("Start New Conversation") { recover(session: nil) }.disabled(busy)
+        if recovery.provider == "codex" { startNewConversation }
         Spacer()
         if busy { ProgressView().controlSize(.small) }
         Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction).disabled(busy)
         if recovery.provider == "codex" {
           Button("Resume Selected") { recover(session: selected) }
             .disabled(selected == nil || busy || loading).keyboardShortcut(.defaultAction)
+        } else {
+          startNewConversation
         }
       }
     }.padding(22).frame(width: 590).onAppear(perform: load).interactiveDismissDisabled(busy)
+  }
+  private var startNewConversation: some View {
+    Button("Start New Conversation") { recover(session: nil) }.disabled(busy)
   }
 }
 extension Dictionary where Key == String, Value == Any {

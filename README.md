@@ -36,6 +36,12 @@ Right-click a workspace or worktree to add a coordinator. Coordinators have a de
 
 Read [coordinator behavior](docs/coordinators.md) for roles, instructions, task delivery, and recovery. Agent usage may require granting Jam access to the provider's credentials in Keychain.
 
+## File previews
+
+Control-click a file path in terminal output to preview it beside the terminal. The expand button opens a larger view. Markdown opens formatted with tables and Mermaid diagrams. Choose **Raw** to read the source. A link to a specific line opens in Raw view, as do Markdown files over 2 MiB.
+
+MP4 and MOV files play with macOS controls and keep their playback position when expanded. Jam reads the requested ranges from the machine that owns the pane. **Settings → Integrations** shows which file previews are available for each machine.
+
 ## Remote machines
 
 Add a machine through the sidebar. Jam uses SSH and installs a server under your Linux user account. No root daemon is required. Session persistence between logins depends on systemd lingering; Jam explains when it needs enabling.

@@ -18,6 +18,37 @@ pub struct StatusRecord {
     pub kind: String,
     pub progress: Option<u8>,
 }
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProgressStep {
+    pub label: String,
+    pub percent: u8,
+}
+impl ProgressStep {
+    pub fn validate(steps: &[Self]) -> Result<()> {
+        if steps.len() > 10 {
+            bail!("Use at most 10 progress steps");
+        }
+        for (index, step) in steps.iter().enumerate() {
+            if step.label.is_empty()
+                || step.label.trim() != step.label
+                || step.label.chars().count() > 40
+                || step.label.chars().any(char::is_control)
+            {
+                bail!("Use a short, single-line step label of 1 to 40 characters");
+            }
+            if step.percent > 100 {
+                bail!("Progress must be between 0 and 100");
+            }
+            if steps[..index]
+                .iter()
+                .any(|previous| previous.label == step.label)
+            {
+                bail!("Each progress step needs a distinct label");
+            }
+        }
+        Ok(())
+    }
+}
 #[derive(Clone, Copy, Serialize, Deserialize, Debug, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum AgentSource {
@@ -52,6 +83,8 @@ pub struct Pane {
     pub exited: bool,
     #[serde(default)]
     pub reports: Vec<StatusRecord>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub progress: Vec<ProgressStep>,
     #[serde(default)]
     pub workspace: String,
 }
@@ -174,6 +207,20 @@ pub enum WorkspaceLocation {
         path: Option<String>,
     },
 }
+/// Permission settings forwarded to a new standalone agent. Provider credentials,
+/// repository trust and command approval rules stay with their original profile.
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub enum AgentPermissions {
+    FullAccess,
+    Codex {
+        sandbox: Option<String>,
+        approval: Option<String>,
+    },
+    Claude {
+        mode: String,
+    },
+}
+
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub enum InitialTab {
     Terminal {
@@ -185,6 +232,8 @@ pub enum InitialTab {
         #[serde(default)]
         complex: bool,
         parent: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        permissions: Option<AgentPermissions>,
         name: Option<String>,
     },
 }
@@ -236,6 +285,16 @@ pub enum Request {
     },
     Coordination(serde_json::Value),
     AgentUsage,
+    UsageResetCredits {
+        profile: String,
+        account: String,
+    },
+    RedeemUsageReset {
+        profile: String,
+        account: String,
+        credit: Option<String>,
+        attempt: String,
+    },
     AuthorizeUsage {
         profile: String,
     },
@@ -358,6 +417,15 @@ pub enum Request {
         pane: String,
         text: String,
     },
+    FilePreview {
+        pane: String,
+        path: String,
+        read: crate::file_preview::PreviewRead,
+    },
+    EditPreviewFile {
+        pane: String,
+        path: String,
+    },
     StoreClipboardImage {
         pane: String,
         png: String,
@@ -368,6 +436,10 @@ pub enum Request {
     Attach {
         pane: String,
     },
+    TaskProgress {
+        pane: String,
+        steps: Vec<ProgressStep>,
+    },
     Status {
         pane: String,
         state: String,
@@ -376,6 +448,7 @@ pub enum Request {
 }
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub enum Message {
+    FilePreview(crate::file_preview::PreviewFile),
     AgentModels(crate::model_catalog::Catalog),
     CreatedWorkspace {
         workspace: String,
@@ -400,6 +473,8 @@ pub enum Message {
     GitSummary(crate::worktree::GitSummary),
     Coordination(serde_json::Value),
     AgentUsage(Vec<crate::usage::Report>),
+    UsageResetCredits(crate::usage::ResetCredits),
+    UsageResetOutcome(crate::usage::ResetOutcome),
     Capabilities(Vec<String>),
     Settings(serde_json::Value),
     Worktrees(crate::worktree::Repository),
@@ -598,6 +673,13 @@ pub fn call_at(path: &std::path::Path, req: Request) -> Result<Message> {
     let started = std::time::Instant::now();
     let diagnostic = |phase, error| request_error(path, &req, started, phase, error);
     let mut s = connect_to(path).map_err(|e| diagnostic("handshake", e))?;
+    if matches!(
+        req,
+        Request::UsageResetCredits { .. } | Request::RedeemUsageReset { .. }
+    ) {
+        // Opening Codex and reading/verifying the account can each take 20s.
+        s.set_read_timeout(Some(std::time::Duration::from_secs(65)))?;
+    }
     s.set_write_timeout(Some(std::time::Duration::from_secs(10)))?;
     write_request(&mut s, &req).map_err(|e| diagnostic("write", e))?;
     let m = read_frame(&mut s).map_err(|e| diagnostic("reply", e))?;

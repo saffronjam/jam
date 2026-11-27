@@ -8,7 +8,7 @@ use std::{
     time::Duration,
 };
 
-struct Rpc {
+pub(crate) struct Rpc {
     child: Child,
     input: Option<ChildStdin>,
     messages: crossbeam_channel::Receiver<Result<Value, String>>,
@@ -17,13 +17,14 @@ struct Rpc {
     stderr_done: crossbeam_channel::Receiver<()>,
 }
 impl Rpc {
-    fn start(agent: &Value) -> Result<Self> {
+    pub(crate) fn start(agent: &Value) -> Result<Self> {
         let executable = crate::coordination::provider_executable("codex")?;
         let mut command = Command::new(executable);
         command
             .args(["app-server", "--listen", "stdio://"])
             .current_dir(agent["path"].as_str().context("Missing agent directory")?)
             .env_remove("CODEX_THREAD_ID")
+            .env("NO_COLOR", "1")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -105,7 +106,7 @@ impl Rpc {
             }
         )
     }
-    fn call(&mut self, method: &str, params: Value) -> Result<Value> {
+    pub(crate) fn call(&mut self, method: &str, params: Value) -> Result<Value> {
         self.next += 1;
         let id = self.next;
         if let Err(error) = self.write(&json!({"id":id,"method":method,"params":params})) {
@@ -225,7 +226,35 @@ pub(crate) fn prepare(agent: &Value, guidance: &str) -> Result<Value> {
     let base = config["config"]["developer_instructions"]
         .as_str()
         .unwrap_or("");
-    let mut params = json!({"cwd":agent["path"], "developerInstructions":format!("{base}\n\n{guidance}"),"ephemeral":false});
+    let instructions = format!("{base}\n\n{guidance}");
+    // The interactive client performs the resume. Reading metadata here validates
+    // the durable ID without loading a second copy of the conversation history.
+    let (session, model) = if let Some(saved) = agent["session"].as_str() {
+        (saved.to_owned(), agent["model"].clone())
+    } else {
+        let result = start_thread(&mut rpc, agent, &instructions)?;
+        let session = result["thread"]["id"]
+            .as_str()
+            .context("Codex did not return a session ID")?;
+        // Naming commits a blank thread to disk without a user turn.
+        rpc.call("thread/name/set", json!({"threadId":session,"name":format!("Jam {}",agent["role"].as_str().unwrap_or("agent"))}))?;
+        (session.to_owned(), result["model"].clone())
+    };
+    let metadata = rpc
+        .call(
+            "thread/read",
+            json!({"threadId":session,"includeTurns":false}),
+        )
+        .context("Could not read the saved Codex conversation")?;
+    if metadata["thread"]["id"].as_str() != Some(session.as_str()) {
+        bail!("Codex returned a different saved conversation");
+    }
+    Ok(json!({"thread":{"id":session},"model":model,"jam_instructions":instructions}))
+}
+
+fn start_thread(rpc: &mut Rpc, agent: &Value, instructions: &str) -> Result<Value> {
+    let mut params =
+        json!({"cwd":agent["path"], "developerInstructions":instructions,"ephemeral":false});
     if agent["model"].is_string() {
         params["model"] = agent["model"].clone();
     }
@@ -242,37 +271,8 @@ pub(crate) fn prepare(agent: &Value, guidance: &str) -> Result<Value> {
         params["approvalPolicy"] = json!("never");
         params["sandbox"] = json!("danger-full-access");
     }
-    let existing = agent["session"].as_str();
-    let mut result = if let Some(session) = existing {
-        params["threadId"] = json!(session);
-        params.as_object_mut().unwrap().remove("ephemeral");
-        rpc.call("thread/resume", params)
-            .context("Could not resume the saved Codex conversation")?
-    } else {
-        let result = rpc
-            .call("thread/start", params)
-            .context("Could not create a Codex conversation")?;
-        let session = result["thread"]["id"]
-            .as_str()
-            .context("Codex did not return a session ID")?;
-        // Naming commits an otherwise empty thread to disk. No user message/model call is made.
-        rpc.call("thread/name/set", json!({"threadId":session,"name":format!("Jam {}",agent["role"].as_str().unwrap_or("agent"))}))?;
-        result
-    };
-    let session = result["thread"]["id"]
-        .as_str()
-        .context("Codex did not return a session ID")?;
-    if existing.is_some_and(|id| id != session) {
-        bail!("Codex resumed a different conversation");
-    }
-    rpc.call(
-        "thread/read",
-        json!({"threadId":session,"includeTurns":false}),
-    )?;
-    // A blank thread does not persist developer context until its first turn.
-    // The TUI must receive it as a config override as well; never as a user prompt.
-    result["jam_instructions"] = json!(format!("{base}\n\n{guidance}"));
-    Ok(result)
+    rpc.call("thread/start", params)
+        .context("Could not create a Codex conversation")
 }
 pub(crate) fn sessions(agent: &Value) -> Result<Value> {
     let mut rpc = Rpc::start(agent)?;

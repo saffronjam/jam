@@ -1,0 +1,17 @@
+:root { color-scheme: light dark; font: 14px/1.55 -apple-system, sans-serif; overflow-wrap: anywhere; }
+body { margin: 0; }
+main { max-width: 80ch; padding: 16px clamp(12px, 4%, 36px); margin: auto; }
+main > :first-child { margin-top: 0; }
+h1, h2, h3, h4 { line-height: 1.2; margin: 1.3em 0 .45em; }
+h1 { font-size: 1.8em; } h2 { font-size: 1.45em; }
+p, ul, ol, pre, blockquote, table, figure { margin: .75em 0; }
+ul, ol { padding-inline-start: 1.7em; }
+li > p { margin: .3em 0; }
+pre, code { font: .91em/1.5 ui-monospace, monospace; background: color-mix(in srgb, currentColor 7%, transparent); border-radius: 4px; }
+code { padding: .12em .28em; } pre { overflow-x: auto; padding: .8em 1em; } pre code { background: none; padding: 0; font-size: inherit; }
+blockquote { border-inline-start: 3px solid GrayText; padding-inline-start: .8em; opacity: .85; }
+table { display: block; overflow-x: auto; border-collapse: collapse; }
+td, th { border: 1px solid color-mix(in srgb, currentColor 27%, transparent); padding: .28em .65em; }
+figure svg { display: block; height: auto; max-width: 100%; margin: auto; }
+figcaption { color: GrayText; font-size: .9em; }
+main img { max-width: 100%; height: auto; }

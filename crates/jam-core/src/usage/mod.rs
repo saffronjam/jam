@@ -3,6 +3,8 @@ mod cache;
 mod credentials;
 mod process;
 mod providers;
+mod resets;
+pub use resets::{ResetCredits, ResetOutcome, configured_reset, redeem_reset, reset_credits};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -129,6 +131,7 @@ struct Entry {
     report: Report,
     attempted: Option<Instant>,
     pending: bool,
+    refresh_after_reset: bool,
     cancelled: Arc<AtomicBool>,
 }
 #[derive(Default)]
@@ -138,6 +141,7 @@ struct State {
 struct Job {
     profile: Profile,
     allow_prompt: bool,
+    refresh_after_reset: bool,
     cancelled: Arc<AtomicBool>,
 }
 impl State {
@@ -158,6 +162,7 @@ impl State {
                     report: Report::new(&profile, count),
                     attempted: None,
                     pending: false,
+                    refresh_after_reset: false,
                     cancelled: Arc::new(AtomicBool::new(false)),
                 });
             entry.report.active_sessions = count;
@@ -169,11 +174,13 @@ impl State {
                     .try_send(Job {
                         profile,
                         allow_prompt: false,
+                        refresh_after_reset: entry.refresh_after_reset,
                         cancelled: entry.cancelled.clone(),
                     })
                     .is_ok()
             {
                 entry.pending = true;
+                entry.refresh_after_reset = false;
                 entry.report.checking = true;
                 entry.attempted = Some(Instant::now());
             }
@@ -219,7 +226,12 @@ impl Monitor {
                     {
                         continue;
                     }
-                    let report = providers::fetch(&job.profile, job.allow_prompt, &cache);
+                    let report = providers::fetch(
+                        &job.profile,
+                        job.allow_prompt,
+                        job.refresh_after_reset,
+                        &cache,
+                    );
                     state.lock().unwrap().apply(&job, report);
                 }
             });
@@ -278,6 +290,7 @@ impl Monitor {
         self.jobs.try_send(Job {
             profile: entry.profile.clone(),
             allow_prompt: true,
+            refresh_after_reset: false,
             cancelled: entry.cancelled.clone(),
         })?;
         entry.pending = true;

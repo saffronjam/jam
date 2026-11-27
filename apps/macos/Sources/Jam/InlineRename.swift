@@ -16,11 +16,27 @@ func activateInlineEditor(_ editor: NSTextField) {
   }
 }
 
+// A window normally shares a field editor across controls. Keep selection
+// colors local to Jam's inline renames.
+private final class InlineNameCell: NSTextFieldCell {
+  private lazy var editor: NSTextView = {
+    let view = NSTextView()
+    view.isFieldEditor = true
+    return view
+  }()
+
+  override func fieldEditor(for controlView: NSView) -> NSTextView? { editor }
+}
+
 final class InlineNameEditor: NSTextField, NSTextFieldDelegate {
+  var theme = JamTheme.midnight {
+    didSet { if theme != oldValue { applySelectionColors() } }
+  }
   var completion: ((String?) -> Void)?
   private var hasJoinedWindow = false
   override init(frame: NSRect) {
     super.init(frame: frame)
+    cell = InlineNameCell(textCell: "")
     delegate = self
     font = .systemFont(ofSize: 12)
     isEditable = true
@@ -29,6 +45,17 @@ final class InlineNameEditor: NSTextField, NSTextFieldDelegate {
     drawsBackground = true
   }
   required init?(coder: NSCoder) { fatalError("unsupported") }
+  override func selectText(_ sender: Any?) {
+    super.selectText(sender)
+    applySelectionColors()
+  }
+  private func applySelectionColors() {
+    guard let text = currentEditor() as? NSTextView else { return }
+    text.selectedTextAttributes = [
+      .backgroundColor: theme.textHighlight, .foregroundColor: NSColor.black,
+    ]
+    text.insertionPointColor = textColor ?? theme.accent
+  }
   override func viewDidMoveToWindow() {
     super.viewDidMoveToWindow()
     if window != nil {

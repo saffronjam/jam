@@ -20,6 +20,7 @@ libc = "0.2"
 percent-encoding = "2"
 toml = "0.8"
 rusqlite.workspace = true
+shell-words = "1"
 base64 = "0.22"
 sha2 = "0.10"
 time = { version = "0.3", features = ["parsing"] }

@@ -10,12 +10,16 @@
 | glyphon | 0.12.0, direct dependency | Apache-2.0 / MIT / Zlib |
 | cosmic-text | 0.19.0 through glyphon, Cargo.lock | Apache-2.0 / MIT |
 | JetBrains Mono | bundled regular/bold/italic/bold-italic, `assets/fonts` | SIL Open Font License, bundled OFL.txt |
+| markdown-it | npm 15.0.3, `dist/browser/markdown-it.umd.min.js` | MIT |
+| Mermaid | npm 12.3.0, `dist/mermaid.min.js` | MIT, with upstream bundled notices |
 | rusqlite / SQLite | rusqlite 0.38, bundled SQLite; durable coordination journal | MIT / public domain |
 | ureq / rustls | ureq 3.5.2, TLS versions in Cargo.lock; usage and authenticated release downloads | MIT / Apache-2.0 / ISC |
 | ed25519-dalek | Cargo.lock; verifies release manifests against the embedded public key | BSD-3-Clause |
 | Rust standard library | Pinned rustup distribution; upstream runtime copyright inventory and license texts bundled | MIT / Apache-2.0 / LLVM exception |
 | sha2 / base64 / time | Cargo.lock; opaque account keys, token claims, reset timestamps | MIT / Apache-2.0 |
 | core-foundation / security-framework-sys | Cargo.lock, macOS only; native Keychain reads | MIT / Apache-2.0 |
+
+Jam ships the upstream browser distributions and their LICENSE files in `assets/file-preview`. Markdown rendering works offline. Only documents containing a Mermaid fence load the diagram library.
 
 All Rust transitive versions are recorded in Cargo.lock. Building the bindings fetches Ghostty's pinned source into the Cargo build cache. There is no Ghostty app submodule or patched Ghostty renderer. Only `jam-core` uses terminal APIs; only `jam-render` implements terminal graphics; `jam-native` exposes the small C bridge used by Swift.
 
