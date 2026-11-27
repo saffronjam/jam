@@ -961,6 +961,12 @@ struct WorktreeListFixture: View {
     let workspace = store.workspaces[0].id
     let tab = store.workspaces[0].tabs[0].id
     store.select(workspace, tab: tab)
+    let originalSize = window.frame.size
+    window.setContentSize(NSSize(width: 1024, height: 674))
+    try wait("workspace tabs on a compact desktop") {
+      toolbarTabs(window).contains { $0.tabID == tab && $0.visibleRect.width > 0 }
+    }
+    window.setFrame(NSRect(origin: window.frame.origin, size: originalSize), display: true)
     try wait("tab for rename") {
       toolbarTabs(window).contains { $0.tabID == tab }
     }

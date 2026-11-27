@@ -1198,8 +1198,8 @@ final class Store: ObservableObject {
           store.config?.appearance == "dark"
             ? .dark : store.config?.appearance == "light" ? .light : nil
         )
-    }.defaultSize(width: 1100, height: 760).windowStyle(.hiddenTitleBar).windowToolbarStyle(
-      .unifiedCompact
+    }.defaultSize(width: 1100, height: 760).windowToolbarStyle(
+      .unifiedCompact(showsTitle: false)
     ).commands {
       CommandGroup(after: .appSettings) {
         Button("Check for Updates…") { store.appUpgrade.check() }
@@ -1305,19 +1305,19 @@ struct ContentView: View {
         detailWidth = $0.width
         detailHeight = $0.height
       }
-      .toolbar {
-        let workspaceToolbar = ToolbarItem(placement: .primaryAction) {
-          // AppKit moves the whole item into the overflow menu if its fitted
-          // width leaves too little room for the native toolbar margins.
-          let width = max(80, detailWidth - (columns == .detailOnly ? 138 : 24))
-          WorkspaceTitleBar(store: store)
-            .frame(minWidth: 80, idealWidth: width, maxWidth: width)
-        }
-        if #available(macOS 26, *) {
-          workspaceToolbar.sharedBackgroundVisibility(.hidden)
-        } else {
-          workspaceToolbar
-        }
+    }
+    .toolbar {
+      let workspaceToolbar = ToolbarItem(placement: .primaryAction) {
+        // AppKit moves the whole item into the overflow menu if its fitted
+        // width leaves too little room for the native toolbar margins.
+        let width = max(80, detailWidth - (columns == .detailOnly ? 152 : 64))
+        WorkspaceTitleBar(store: store)
+          .frame(minWidth: 80, idealWidth: width, maxWidth: width)
+      }
+      if #available(macOS 26, *) {
+        workspaceToolbar.sharedBackgroundVisibility(.hidden)
+      } else {
+        workspaceToolbar
       }
     }
     .toolbarBackground(.hidden, for: .windowToolbar)
