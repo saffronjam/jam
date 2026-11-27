@@ -126,19 +126,20 @@ struct UsagePanel: View {
                 Spacer(minLength: 0)
               }.font(.caption).foregroundStyle(.secondary).contentShape(Rectangle())
             }.accessibilityLabel("Show usage details")
+              .accessibilityValue(pages.count > 1 ? page.label : "")
             if pages.count > 1 {
               Button {
                 move(-1)
               } label: {
                 Image(systemName: "chevron.left").frame(width: 24, height: 24).contentShape(
                   Rectangle())
-              }.help("Previous usage account")
+              }.help("Previous usage account").accessibilityLabel("Previous usage account")
               Button {
                 move(1)
               } label: {
                 Image(systemName: "chevron.right").frame(width: 24, height: 24).contentShape(
                   Rectangle())
-              }.help("Next usage account")
+              }.help("Next usage account").accessibilityLabel("Next usage account")
             }
           }.buttonStyle(.plain).frame(height: headerHeight)
           VStack(alignment: .leading, spacing: 10) {
@@ -166,6 +167,19 @@ private struct UsageCard: View {
   let showDetails: () -> Void
   let local: Bool
   let stale: Bool
+  private var summary: String {
+    var parts = [report.accountLabel].compactMap { $0 }
+    if report.primaryWindows.isEmpty {
+      parts.append(report.availabilityText)
+    } else {
+      for window in report.primaryWindows {
+        let percent = window.percent.map { String(format: "%.0f%%", $0) } ?? "—"
+        parts.append("\(window.label) \(percent)")
+      }
+      if stale || report.error != nil { parts.append("Last known usage") }
+    }
+    return parts.joined(separator: ", ")
+  }
   var body: some View {
     VStack(alignment: .leading, spacing: 5) {
       Button(action: showDetails) {
@@ -191,8 +205,9 @@ private struct UsageCard: View {
               .opacity(stale || report.error != nil ? 0.5 : 1)
           }
         }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-      }.buttonStyle(.plain).help("Usage details").accessibilityLabel(
-        "Show \(report.name) usage details")
+      }.buttonStyle(.plain).help("Usage details")
+        .accessibilityLabel("Show \(report.name) usage details")
+        .accessibilityValue(summary)
       if report.needsKeychainAccess, local { UsageKeychainAccess(report: report) }
     }
   }

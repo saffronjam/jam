@@ -1,10 +1,15 @@
 import importlib.util
+import json
 import os
 from pathlib import Path
+import shutil
+import subprocess
+import tempfile
 import unittest
 from unittest.mock import patch
 
 SCRIPT = Path(__file__).resolve().parents[1] / 'macos_toolchain.py'
+BUILD_SCRIPT = SCRIPT.parent / 'release/build-macos.sh'
 spec = importlib.util.spec_from_file_location('macos_toolchain', SCRIPT)
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
@@ -87,3 +92,38 @@ class ToolchainTests(unittest.TestCase):
         for value in ('', 'sdk 26.5', metadata(platform='IOS')):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 module.verify_build_metadata(value)
+
+    def test_release_builder_preserves_fixture_flags_through_toolchain_selection(self):
+        with tempfile.TemporaryDirectory(prefix='jam-build-arguments-') as directory:
+            root = Path(directory)
+            (root / 'scripts/release').mkdir(parents=True)
+            shutil.copyfile(BUILD_SCRIPT, root / 'scripts/release/build-macos.sh')
+            (root / 'scripts/bootstrap.py').write_text('pass\n')
+            # Re-enter the real shell builder, without selecting a host SDK.
+            (root / 'scripts/macos_toolchain.py').write_text(
+                'import os, sys\n'
+                'assert sys.argv[1] == "--"\n'
+                'os.execvp(sys.argv[2], sys.argv[2:])\n')
+            binaries = root / 'bin'
+            binaries.mkdir()
+            cargo = binaries / 'cargo'
+            cargo.write_text(
+                '#!/usr/bin/env python3\n'
+                'import json, os, pathlib, sys\n'
+                'pathlib.Path(os.environ["BUILD_ARGUMENTS_LOG"]).write_text('
+                'json.dumps(sys.argv[1:]))\n'
+                'sys.exit(37)\n')
+            cargo.chmod(0o700)
+            log = root / 'arguments.json'
+            env = dict(os.environ, HOME=str(root), PATH=f'{binaries}:{os.environ["PATH"]}',
+                       BUILD_ARGUMENTS_LOG=str(log))
+            for arguments, features in (([], []), (['--fixture-services'],
+                                                  ['--features', 'jam-core/fixture-services'])):
+                with self.subTest(arguments=arguments):
+                    log.unlink(missing_ok=True)
+                    result = subprocess.run(
+                        ['bash', str(root / 'scripts/release/build-macos.sh'), *arguments],
+                        env=env, capture_output=True, text=True, timeout=10)
+                    self.assertEqual(result.returncode, 37, result.stderr)
+                    self.assertEqual(json.loads(log.read_text()),
+                                     ['build', '--release', '--workspace', '--locked', *features])

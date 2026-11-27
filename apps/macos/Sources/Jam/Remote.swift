@@ -139,6 +139,7 @@ extension Store {
         if result["error"] == nil {
           self.appUpgrade.forgetRequirement(endpoint: id)
           self.observeServer(result["HostInfo"] as? [String: Any], endpoint: id)
+          self.refreshServerAfterConnection(id)
         }
         self.remoteNext[id] = .distantPast
         self.refreshRemotes()
@@ -197,7 +198,10 @@ extension Store {
               delay * Double.random(in: 0.8...1.2))
           } else {
             self.appUpgrade.forgetRequirement(endpoint: remote.id)
-            self.recordRemoteResult(remote.id, error: nil, connecting: false)
+            if self.remoteMessages[remote.id] != "Connected" {
+              self.recordRemoteResult(remote.id, error: nil, connecting: false)
+              self.refreshServerAfterConnection(remote.id)
+            }
             if let agents, self.availableAgents[remote.id] != agents {
               self.availableAgents[remote.id] = agents
             }

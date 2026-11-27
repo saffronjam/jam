@@ -21,13 +21,27 @@ extension Store {
       busy: serverBusy.contains(endpoint), checking: checkingServers.contains(endpoint),
       status: serverStatuses[endpoint])
   }
-  func reconnectMachine(_ endpoint: String) {
+  func logServerStatus(_ event: String, endpoint: String, state: MachineActions) {
+    let observation =
+      "\(event) endpoint=\(endpoint.isEmpty ? "local" : endpoint) "
+      + "connected=\(state.connected) connecting=\(state.connecting) "
+      + "busy=\(state.busy) checking=\(state.checking) "
+      + "running=\(state.status?.running ?? false) compatible=\(state.status?.compatible ?? false) "
+      + "build=\(state.status?.build ?? "none") available=\(state.status?.availableBuild ?? "none") "
+      + "update=\(state.status?.updateAvailable ?? false) canUpdate=\(state.canUpdate) "
+      + "terminals=\(state.status?.terminals ?? -1)"
+    NSLog("Jam server status: %@", observation)
+  }
+  func openMachineStatus(_ endpoint: String) {
     if (endpoint.isEmpty && localTimeout != nil)
       || serverStatuses[endpoint]?.state == "inspection_failed"
     {
       showServerAction(endpoint, kind: .inspect)
       return
     }
+    reconnectMachine(endpoint)
+  }
+  func reconnectMachine(_ endpoint: String) {
     if serverActionErrors[endpoint] != nil {
       showServerAction(
         endpoint, kind: serverStatuses[endpoint]?.blocked == true ? .takeover : .restart)
@@ -94,6 +108,14 @@ extension Store {
       }
     }
   }
+  func refreshServerAfterConnection(_ endpoint: String) {
+    // A passive probe can finish before the SSH forwarding socket exists.
+    // Discard that result, including a reply still in flight, once connected.
+    serverGenerations[endpoint, default: 0] &+= 1
+    serverStatuses.removeValue(forKey: endpoint)
+    serverCheckDates.removeValue(forKey: endpoint)
+    checkServer(endpoint)
+  }
   func checkServer(_ endpoint: String) {
     guard !serverBusy.contains(endpoint), checkingServers.insert(endpoint).inserted else { return }
     serverCheckDates[endpoint] = Date()
@@ -129,6 +151,7 @@ extension Store {
         {
           self.start()
         }
+        self.logServerStatus("checked", endpoint: endpoint, state: self.machineActions(endpoint))
         guard self.scheduledServerUpdates.contains(endpoint), let status = decoded else { return }
         if status.running && status.compatible && !status.updateAvailable
           && status.availableBuild != nil
@@ -147,6 +170,7 @@ extension Store {
     if kind == .takeover {
       serverGenerations[endpoint, default: 0] &+= 1
       let generation = serverGenerations[endpoint, default: 0]
+      serverActionErrors.removeValue(forKey: endpoint)
       serverTokens.removeValue(forKey: endpoint)
       checkingServers.insert(endpoint)
       DispatchQueue.global().async {
@@ -314,7 +338,9 @@ struct ServerActionSheet: View {
             : "\(action.kind == .update ? "Update" : "Restart") Server — \(action.name)"
       ).font(
         .headline)
-      if store.serverBusy.contains(action.endpoint) || checking {
+      if store.serverBusy.contains(action.endpoint)
+        || (checking && store.serverActionErrors[action.endpoint] == nil)
+      {
         ProgressView(progressMessage)
           .frame(maxWidth: .infinity, alignment: .center)
       } else {
@@ -345,7 +371,6 @@ struct ServerActionSheet: View {
                 ? "Recover and Reconnect" : "Take Over and Reconnect"
           ) {
             if store.serverActionErrors[action.endpoint] != nil {
-              store.serverActionErrors.removeValue(forKey: action.endpoint)
               store.showServerAction(action.endpoint, kind: .takeover)
             } else {
               store.performServerAction(action.endpoint, kind: .takeover, force: true)

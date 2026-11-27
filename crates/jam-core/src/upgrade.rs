@@ -11,9 +11,9 @@ use std::{
     process::{Command, Stdio},
     time::Duration,
 };
-const ORIGIN: &str = "https://github.com/saffronjam/jam/releases/download";
-const LATEST: &str = "https://api.github.com/repos/saffronjam/jam/releases/latest";
-const KEY: &str = include_str!("../../../assets/update-public-key.hex");
+const ORIGIN: &str = crate::services::RELEASE_ORIGIN;
+const LATEST: &str = crate::services::RELEASE_LATEST;
+const KEY: &str = crate::services::UPDATE_KEY;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Asset {
@@ -85,6 +85,9 @@ const PROFILE_ENV: &[&str] = &[
 ];
 #[cfg(target_os = "macos")]
 fn relaunch(journal: &Journal) -> Result<()> {
+    if !app_pids(&journal.plan.installation)?.is_empty() {
+        return Ok(());
+    }
     let mut command = Command::new("/usr/bin/open");
     // A different installation may share our bundle identifier. Never reuse it.
     command.arg("-n");
@@ -93,7 +96,9 @@ fn relaunch(journal: &Journal) -> Result<()> {
             command.arg("--env").arg(format!("{key}={value}"));
         }
     }
-    run(command.arg(&journal.plan.installation))
+    run(command
+        .arg(&journal.plan.installation)
+        .args(["--args", "--restore-session"]))
 }
 const CHECKPOINT_FILES: &[&str] = &[
     "layout.json",
@@ -245,6 +250,7 @@ fn authenticate(bytes: &[u8], signature: &str, key: &str) -> Result<Release> {
 }
 fn get(url: &str, limit: u64) -> Result<Vec<u8>> {
     let agent: ureq::Agent = ureq::Agent::config_builder()
+        .tls_config(crate::services::tls_config())
         .timeout_global(Some(Duration::from_secs(180)))
         .build()
         .into();
@@ -1060,6 +1066,14 @@ pub fn apply(path: &Path) -> Result<()> {
     }
     let result = apply_inner(path, &mut journal);
     if let Err(ref error) = result {
+        // Before preparation, no app, daemon or live state has been changed.
+        // A refusal (such as fresh sessions invalidating consent) must not
+        // run restoration or relaunch another copy of the still-running app.
+        if cfg!(target_os = "macos") && journal.phase == "staged" {
+            journal.error = Some(format!("{error:#}"));
+            save_journal(path, &mut journal, "abandoned")?;
+            return result;
+        }
         if journal.plan.local_running {
             let expected = if cfg!(target_os = "macos") {
                 journal.plan.installation.join("Contents/MacOS/jamd")
@@ -1749,6 +1763,36 @@ pub fn cli(check_only: bool, yes: bool, json: bool) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn relaunch_keeps_an_existing_application_process() {
+        let fixture = tempfile::tempdir().unwrap();
+        let installation = fs::canonicalize(fixture.path()).unwrap().join("Jam.app");
+        let executable = installation.join("Contents/MacOS/Jam");
+        fs::create_dir_all(executable.parent().unwrap()).unwrap();
+        fs::copy("/bin/sleep", &executable).unwrap();
+        let journal: Journal = serde_json::from_value(serde_json::json!({
+            "schema":1,"token":"unused","phase":"staged","error":null,"environment":{},
+            "staged":{"directory":fixture.path(),"archive":fixture.path().join("unused.zip"),
+                "release":{"schema":1,"version":"0.0.5","protocol":crate::VERSION,
+                    "min_macos":"14.0","assets":[]}},
+            "plan":{"installation":installation.clone(),"local_running":false,"targets":[],
+                "offline":[],"app_pids":[]}
+        }))
+        .unwrap();
+        let mut child = Command::new(&executable).arg("60").spawn().unwrap();
+        let pid = child.id() as i32;
+        let observed = app_pids(&installation);
+        // This intentionally has no launchable Info.plist. An unnecessary
+        // LaunchServices call fails rather than silently passing the test.
+        let result = relaunch(&journal);
+        let alive = child.try_wait();
+        let _ = child.kill();
+        child.wait().unwrap();
+        assert_eq!(observed.unwrap(), vec![pid]);
+        assert!(alive.unwrap().is_none());
+        result.unwrap();
+    }
     #[test]
     fn active_updater_rejects_another_launch_before_creating_a_journal() {
         use std::os::unix::fs::PermissionsExt;
