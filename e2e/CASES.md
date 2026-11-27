@@ -649,9 +649,8 @@ Fixture: `isolated local installation`.
 1. `('write_config', '[bindings]\nnew_tab = ["ctrl+alt+j"]\n')`
 2. `('relaunch',)`
 3. `('chord', 'ctrl+alt+j')`
-4. `('target_visible', 'Tab name', 'field')`
-5. `('key', 'ESCAPE')`
-6. `('count', 'tabs', 2)`
+4. `('target_visible', 'Tab 2', 'button')`
+5. `('count', 'tabs', 2)`
 
 ## KEY-006: An explicitly unbound command stays disabled after restart
 
@@ -669,13 +668,11 @@ Fixture: `isolated local installation`.
 1. `('write_config', '[bindings]\nnew_tab = ["ctrl+alt+j", "ctrl+alt+k"]\n')`
 2. `('relaunch',)`
 3. `('chord', 'ctrl+alt+j')`
-4. `('target_visible', 'Tab name', 'field')`
-5. `('key', 'ESCAPE')`
-6. `('count', 'tabs', 2)`
-7. `('chord', 'ctrl+alt+k')`
-8. `('target_visible', 'Tab name', 'field')`
-9. `('key', 'ESCAPE')`
-10. `('count', 'tabs', 3)`
+4. `('target_visible', 'Tab 2', 'button')`
+5. `('count', 'tabs', 2)`
+6. `('chord', 'ctrl+alt+k')`
+7. `('target_visible', 'Tab 3', 'button')`
+8. `('count', 'tabs', 3)`
 
 ## FIND-001: History search finds needle
 
@@ -997,12 +994,11 @@ Fixture: `update-required`.
 
 1. `('visible', 'Upgrade available')`
 2. `('click', 'Upgrade available')`
-3. `('visible', 'Upgrade Jam')`
-4. `('visible', 'Jam 0.0.5')`
-5. `('visible', 'Fixture')`
-6. `('visible', '1 running terminal')`
-7. `('click', 'Cancel', 'button')`
-8. `('remote_workspace_preserved',)`
+3. `('single_sheet', 'Jam 0.0.5')`
+4. `('visible', 'Fixture')`
+5. `('visible', '1 running terminal')`
+6. `('click', 'Cancel', 'button')`
+7. `('remote_workspace_preserved',)`
 
 ## UPDATE-003: update interrupted
 
@@ -3176,14 +3172,13 @@ Behaviors: `update-settings`.
 5. `('visible', 'Jam 0.0.5 is available')`
 6. `('enabled', 'Upgrade…', 'button')`
 7. `('click', 'Upgrade…', 'button')`
-8. `('visible', 'Upgrade Jam')`
-9. `('single_sheet', 'Upgrade Jam')`
-10. `('enabled', 'Upgrade and Restart', 'button')`
-11. `('click', 'Cancel', 'button')`
-12. `('absent', 'Upgrade Jam')`
-13. `('installed_version', '0.0.4')`
-14. `('same_layout',)`
-15. `('same_pids',)`
+8. `('single_sheet', 'Jam 0.0.5')`
+9. `('enabled', 'Upgrade and Restart', 'button')`
+10. `('click', 'Cancel', 'button')`
+11. `('no_control', 'Upgrade and Restart', 'button')`
+12. `('installed_version', '0.0.4')`
+13. `('same_layout',)`
+14. `('same_pids',)`
 
 ## ACCOUNT-001: A configured login appears without any active agent session
 
@@ -3644,7 +3639,7 @@ Behaviors: `accounts`.
 5. `('visible', 'Sign in again to read usage')`
 6. `('absent', 'Allow Keychain Access')`
 7. `('click', 'Done', 'button')`
-8. `('absent', 'Codex usage')`
+8. `('no_control', 'Done', 'button')`
 9. `('click', 'Next usage account', 'button')`
 10. `('click', 'Show Codex usage details', 'button')`
 11. `('visible', '25%')`
@@ -3969,14 +3964,13 @@ Behaviors: `update-settings`.
 5. `('visible', 'Jam 0.0.5 is available')`
 6. `('enabled', 'Upgrade…', 'button')`
 7. `('click', 'Upgrade…', 'button')`
-8. `('visible', 'Downloading and verifying the update…')`
-9. `('single_sheet', 'Upgrade Jam')`
-10. `('disabled', 'Upgrade and Restart', 'button')`
-11. `('click', 'Cancel', 'button')`
-12. `('absent', 'Upgrade Jam')`
-13. `('installed_version', '0.0.4')`
-14. `('same_layout',)`
-15. `('same_pids',)`
+8. `('single_sheet', 'Downloading and verifying the update…')`
+9. `('disabled', 'Upgrade and Restart', 'button')`
+10. `('click', 'Cancel', 'button')`
+11. `('no_control', 'Upgrade and Restart', 'button')`
+12. `('installed_version', '0.0.4')`
+13. `('same_layout',)`
+14. `('same_pids',)`
 
 ## UPDATE-SETTINGS-003: Update preparation routes a foreign live server to a takeover confirmation
 
@@ -4011,7 +4005,7 @@ Behaviors: `update-settings`.
 4. `('click', 'Check for Updates…', 'button')`
 5. `('visible', 'Jam 0.0.5 is available')`
 6. `('disabled', 'Upgrade…', 'button')`
-7. `('absent', 'Upgrade Jam')`
+7. `('no_control', 'Upgrade and Restart', 'button')`
 8. `('click', 'Cancel', 'button')`
 9. `('absent', 'Jam 0.0.5 is available')`
 10. `('installed_version', '0.0.4')`
@@ -4048,7 +4042,7 @@ Behaviors: `update-settings`, `update-notices`.
 5. `('visible', 'Jam 0.0.5 is available')`
 6. `('enabled', 'Upgrade…', 'button')`
 7. `('click', 'Upgrade…', 'button')`
-8. `('single_sheet', 'Upgrade Jam')`
+8. `('single_sheet', 'Jam 0.0.5')`
 9. `('enabled', 'Upgrade and Restart', 'button')`
 10. `('click', 'Cancel', 'button')`
 11. `('visible', 'Automatically check for updates')`

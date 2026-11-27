@@ -373,6 +373,8 @@ def jam(request, case):
                         source = consent.with_suffix("." + extension)
                         if source.exists():
                             shutil.copy2(source, evidence / source.name)
+            if platform == "macos" and not ui.external_app:
+                ui.fit_initial_window()
             if not case.fixture:
                 client.count("workspaces", 1)
                 client.run("stty -echo")

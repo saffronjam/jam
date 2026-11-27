@@ -1025,6 +1025,10 @@ struct WorktreeListFixture: View {
     }
     // Opening a tab also commits an explicit rename in the previous tab.
     let previousView = toolbarTabs(window).first { $0.tabID == created.last }!
+    let center = NSPoint(x: previousView.bounds.midX, y: previousView.bounds.midY)
+    previousView.captureReorderSession(
+      origin: mouse(.leftMouseDown, in: previousView, point: center), window: window)
+    assert(previousView.siblings.count > 1 && previousView.reorderSession != nil)
     let previousMenu = try openTabMenu(previousView)
     previousMenu.performActionForItem(at: previousMenu.indexOfItem(withTitle: "Rename"))
     let (_, previousText) = try liveEditor("previous tab") { previousView.editor }

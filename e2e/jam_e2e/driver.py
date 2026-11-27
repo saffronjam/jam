@@ -205,17 +205,6 @@ class Desktop:
             if self.observed_process is None:
                 self.session.execute_script("macos: activateApp", {"path": str(self.app)})
             self.activate_owned_client()
-            # Bringing a process forward does not guarantee a key window in
-            # XCTest. Select its actual title bar, like a user switching clients.
-            rectangle = self.window_rect()
-            x, y = rectangle["x"] + rectangle["width"] / 2, rectangle["y"] + 12
-            if self.observed_process is None:
-                self.session.execute_script("macos: click", {"x": x, "y": y})
-            else:
-                actions = self._actions()
-                actions.pointer_action.move_to_location(round(x), round(y)).click()
-                actions.perform()
-            self.observations.append({"action": "focus_native_window", "rect": rectangle})
             self.activate_owned_client(inspect=True)
         else:
             self.session.execute_script("linux: activateWindow", {})
@@ -943,6 +932,32 @@ class Desktop:
         assert len(main) == 1, "Expected one main application window"
         return main[0]["rect"]
 
+    def fit_initial_window(self):
+        # AppKit can restore the frame left by a wide-window or Retina case
+        # on a smaller desktop. Physical clicks must land inside the display.
+        displays = self.session.execute_script("macos: listDisplays", {})
+        screens = [display["rect"] for display in displays.values()]
+
+        def contained(frame):
+            return any(frame["x"] >= rect["x"] and frame["y"] >= rect["y"]
+                       and frame["x"] + frame["width"] <= rect["x"] + rect["width"] + 1
+                       and frame["y"] + frame["height"] <= rect["y"] + rect["height"] + 1
+                       for rect in screens)
+
+        before = self.window_rect()
+        if contained(before):
+            return
+        primary = next(rect for rect in screens if rect["x"] == 0 and rect["y"] == 0)
+        # Use the same physical edge and title-bar drags as the resize journeys.
+        width = min(before["width"], primary["width"] - 40)
+        height = min(before["height"], primary["height"] - 100)
+        y = max(32, min(before["y"], primary["height"] - height - 64))
+        self._move_window(20, y)
+        self.resize(width, height)
+        wait(lambda: contained(self.window_rect()), "entire initial window on the desktop")
+        self.observations.append({"action": "fit_initial_window", "before": before,
+                                  "after": self.window_rect()})
+
     def resize(self, width, height):
         if self.platform == "macos":
             current = self.window_rect()
@@ -1003,7 +1018,7 @@ class Desktop:
         current = self.window_rect()
         if abs(current["x"] - x) <= 2 and abs(current["y"] - y) <= 2:
             return
-        start_x, start_y = current["x"] + current["width"] / 2, current["y"] + 12
+        start_x, start_y = current["x"] + 115, current["y"] + 12
         self._window_drag(start_x, start_y, start_x + x - current["x"], start_y + y - current["y"])
         # AppKit can constrain the origin by a few points when fitting an
         # oversized window or moving it on the secondary Retina display.

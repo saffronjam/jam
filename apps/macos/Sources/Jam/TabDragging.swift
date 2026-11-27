@@ -381,6 +381,10 @@ final class TabDragView: NSView {
       for child in view.subviews { collect(child) }
     }
     collect(content)
+    // AppKit hosts toolbar items outside the window's content view.
+    for item in window.toolbar?.visibleItems ?? [] {
+      if let view = item.view { collect(view) }
+    }
     guard let source = siblings.firstIndex(of: tabID),
       frames.count == siblings.count
     else { return }
