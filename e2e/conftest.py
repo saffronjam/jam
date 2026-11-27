@@ -270,7 +270,11 @@ def capture(item, jam, phase="call"):
         errors.append(f"upgrade diagnostics: {error}")
     try:
         for pane in jam.profile.layout()["panes"]:
-            (folder / ("pane-" + pane["id"] + ".txt")).write_text(jam.profile.capture(pane["id"]))
+            try:
+                text = jam.profile.capture(pane["id"])
+                (folder / ("pane-" + pane["id"] + ".txt")).write_text(text)
+            except Exception as error:
+                errors.append(f"pane {pane['id']} capture: {error}")
     except Exception as error:  # noqa: BLE001 - diagnostics must not mask the test failure
         errors.append(f"pane captures: {error}")
     for source in (
@@ -385,7 +389,8 @@ def jam(request, case):
                             evidence = Path(options.getoption("--artifacts-dir")) / kind / case.id
                             evidence.mkdir(parents=True, exist_ok=True)
                             shutil.copy2(source, evidence / source.name)
-                for kind in ("visual", "dialog", "selection", "scale", "motion", "ime", "file-link"):
+                for kind in ("visual", "dialog", "selection", "scale", "motion", "ime", "file-link",
+                             "preview-frame"):
                     for source in profile.repo.glob(kind + "-*"):
                         if source.is_file():
                             evidence = Path(options.getoption("--artifacts-dir")) / kind / case.id

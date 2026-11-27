@@ -6,7 +6,7 @@ import shlex
 import shutil
 from pathlib import Path
 
-from PIL import Image, ImageChops
+from PIL import Image, ImageChops, ImageFilter
 from selenium.webdriver.common.keys import Keys
 
 from .dialogs import screen_target
@@ -72,12 +72,16 @@ def preview_pixels(jam, color, reveal_controls=False):
         image = Image.open(io.BytesIO(png)).convert("RGB")
         small = image.resize((image.width // 4, image.height // 4), Image.Resampling.NEAREST)
         r, g, b = small.split()
-        mask = ImageChops.darker(r.point(lambda v: 255 if abs(v - red) < 45 else 0),
-                                g.point(lambda v: 255 if abs(v - green) < 45 else 0))
+        # ColorSync and YUV decoding shift the dark channel of the movie's
+        # magenta frame to about 52 on a real macOS display.
+        mask = ImageChops.darker(r.point(lambda v: 255 if abs(v - red) < 75 else 0),
+                                g.point(lambda v: 255 if abs(v - green) < 75 else 0))
         mask = ImageChops.darker(mask, b.point(lambda v: 255 if v > 205 else 0))
+        # A solid movie or image occupies a region larger than a dock icon.
+        mask = mask.filter(ImageFilter.MinFilter(13))
         if mask.histogram()[255] < 100:
             return None
-        (jam.profile.root / f"preview-{color}.png").write_bytes(png)
+        (jam.profile.repo / f"preview-frame-{color}.png").write_bytes(png)
         left, top, right, bottom = mask.getbbox()
         x, y = (left + right) / 2, (top + bottom) / 2
         return x * 4, y * 4, image.size
@@ -95,6 +99,20 @@ def preview_pixels(jam, color, reveal_controls=False):
         actions = ui._actions(desktop=True)
         actions.pointer_action.move_to_location(round(x), round(y))
         actions.perform()
+
+
+def set_playback(ui, playing):
+    if ui.platform == "macos":
+        # AVKit exposes one checkbox for both actions.
+        def checked():
+            return ui.element("play/pause", "toggle").get_attribute("value") == "1"
+
+        assert checked() != playing, "The player was already in the requested state"
+        ui.click("play/pause", "toggle")
+        wait(lambda: checked() == playing, "native playback control changed state")
+    else:
+        ui.click("Play" if playing else "Pause", "button")
+        ui.element("Pause" if playing else "Play", "button")
 
 
 def check_integrations(ui, expected):

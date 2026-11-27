@@ -4384,9 +4384,9 @@ Behaviors: `file-previews`.
 
 1. `('open_file_preview', 'movie')`
 2. `('preview_pixels', 'magenta', True)`
-3. `('click', 'Play', 'button')`
+3. `('preview_playback', True)`
 4. `('preview_pixels', 'cyan', True)`
-5. `('click', 'Pause', 'button')`
+5. `('preview_playback', False)`
 6. `('click', 'Expand preview', 'button')`
 7. `('preview_pixels', 'cyan')`
 8. `('click', 'Close preview', 'button')`
@@ -4400,9 +4400,9 @@ Behaviors: `file-previews`.
 
 1. `('open_file_preview', 'quicktime')`
 2. `('preview_pixels', 'magenta', True)`
-3. `('click', 'Play', 'button')`
+3. `('preview_playback', True)`
 4. `('preview_pixels', 'cyan', True)`
-5. `('click', 'Pause', 'button')`
+5. `('preview_playback', False)`
 6. `('click', 'Expand preview', 'button')`
 7. `('preview_pixels', 'cyan')`
 8. `('click', 'Close preview', 'button')`
@@ -4688,7 +4688,7 @@ Behaviors: `agent-recovery`.
 10. `('key', 'ENTER')`
 11. `('agent_field', 'activity', 'working')`
 12. `('restart_server',)`
-13. `('output', 'fixture-continuation-received')`
+13. `('agent_output', 'fixture-continuation-received')`
 14. `('same_agent_session',)`
 15. `('one_launch_continuation',)`
 16. `('same_layout',)`

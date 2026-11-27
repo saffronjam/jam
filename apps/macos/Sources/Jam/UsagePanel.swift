@@ -205,8 +205,8 @@ private struct UsageCard: View {
               .opacity(stale || report.error != nil ? 0.5 : 1)
           }
         }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-      }.buttonStyle(.plain).help("Usage details").accessibilityLabel(
-        "Show \(report.name) usage details")
+      }.buttonStyle(.plain).help("Usage details")
+        .accessibilityLabel("Show \(report.name) usage details")
         .accessibilityValue(summary)
       if report.needsKeychainAccess, local { UsageKeychainAccess(report: report) }
     }

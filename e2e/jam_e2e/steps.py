@@ -122,6 +122,10 @@ done
         from .previews import open_file
 
         open_file(jam, *args)
+    elif op == "preview_playback":
+        from .previews import set_playback
+
+        set_playback(ui, *args)
     elif op == "preview_pixels":
         from .previews import preview_pixels
 
@@ -284,8 +288,17 @@ done
         name, expected = args
         def matches_value():
             target = ui._find_element(name, None, None)
-            return target is not None and target.get_attribute(
-                "value" if ui.platform == "macos" else "description") == expected
+            if target is None:
+                return False
+            value = target.get_attribute("value" if ui.platform == "macos" else "description")
+            if value == expected:
+                return True
+            if (ui.platform == "macos" and expected.endswith(" percent")
+                    and target.tag_name == "XCUIElementTypeProgressIndicator"):
+                # AppKit may expose the indicator's numeric AXValue instead of its spoken value.
+                number = expected.removesuffix(" percent")
+                return value in {number + "%", str(int(number) / 100)}
+            return False
         wait(matches_value, f"{name} shows {expected}")
     elif op == "no_control":
         name, *roles = args
@@ -737,8 +750,12 @@ done
         current = (agents[0]["id"], agents[0]["session"])
         if op == "remember_agent_session":
             memory["agent_session"] = current
+            memory["agent_pane"] = agents[0]["pane"]
         else:
             assert current == memory["agent_session"], "Resume replaced the saved conversation"
+    elif op == "agent_output":
+        wait(lambda: args[0] in profile.capture(memory["agent_pane"]),
+             f"resumed agent printed {args[0]} in its original pane")
     elif op == "provider_resumed_conversation":
         _, session = memory["agent_session"]
         events = profile.home / "provider-events.jsonl"

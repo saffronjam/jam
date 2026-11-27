@@ -11,6 +11,11 @@ struct PaneProgressStep: Equatable {
     self.label = label
     self.percent = percent
   }
+  var accessibilityProgress: some View {
+    ProgressView(value: Double(percent), total: 100)
+      .accessibilityLabel(label)
+      .accessibilityValue("\(percent) percent")
+  }
 }
 
 struct PaneProgress: View {
@@ -43,9 +48,7 @@ struct PaneProgress: View {
               Spacer(minLength: 0)
               ProgressTrack(percent: Double(step.percent)).frame(width: 76, height: 12)
             }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(step.label)
-            .accessibilityValue("\(step.percent) percent")
+            .accessibilityRepresentation { step.accessibilityProgress }
           }
         }.padding(12).frame(width: 270)
       }
@@ -55,9 +58,7 @@ struct PaneProgress: View {
           .frame(maxWidth: 90, alignment: .trailing)
         ProgressTrack(percent: Double(step.percent)).frame(width: 64, height: 24)
       }
-      .accessibilityElement(children: .ignore)
-      .accessibilityLabel(step.label)
-      .accessibilityValue("\(step.percent) percent")
+      .accessibilityRepresentation { step.accessibilityProgress }
     }
   }
 }
