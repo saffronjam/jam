@@ -28,6 +28,10 @@ def test_unique_cases_have_assertions():
                 "settle_count",
                 "visible",
                 "visual_text",
+                "preview_pixels",
+                "preview_integrations",
+                "control_value",
+                "reset_receipts",
                 "clipboard_equals",
                 "clipboard_stable",
                 "target_visible",
@@ -67,7 +71,7 @@ def test_unique_cases_have_assertions():
                 "provider_inputs_unchanged",
             }
             for step in case.steps
-        )
+        ), case.id
 
 
 def test_no_unknown_scenario_operations():

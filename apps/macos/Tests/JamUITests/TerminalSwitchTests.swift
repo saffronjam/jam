@@ -151,6 +151,7 @@ struct WorktreeListFixture: View {
     window.setContentSize(NSSize(width: 1100, height: 700))
     window.toolbar?.isVisible = true
     window.makeKeyAndOrderFront(nil)
+    let application = NSApplication.shared
     application.activate(ignoringOtherApps: true)
     try wait("native PTY geometry owner") { application.isActive && window.isKeyWindow }
     defer { window.orderOut(nil) }

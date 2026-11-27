@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "source_base": "ac5d1613798fdd46bfd0d1c5f635c698ea328016",
-  "source_tip": "d7b775cfc43d25252dba4931d937ab659e6a225a",
+  "source_tip": "207ba8f02523ea65000c4c0b1dcb83b36f593253",
   "behaviors": [
     {
       "id": "images",
@@ -209,7 +209,7 @@
         "A remote-only account shows last known usage while disconnected and clears its stale warning on reconnect",
         "Organizations that share a login email remain distinct from each other and other providers",
         "Disabling a provider in Settings hides its cards while preserving other provider usage and terminal input",
-        "The merged account adds active provider processes across both machines",
+        "Concurrent agents with one login on two machines open a single account details page",
         "A rejected remote login has its own sign-in state and no local Keychain action, while the local login remains usable",
         "Missing account identity stays on its own page and authentication and rate-limit failures remain visible"
       ],
@@ -328,7 +328,8 @@
       "cases": [
         "LAYOUT-003",
         "LAYOUT-004",
-        "LAYOUT-005"
+        "LAYOUT-005",
+        "LAYOUT-006"
       ],
       "assertions": [
         "Split and new-tab previews become visible with the daemon suspended and each commits one new terminal after it resumes",
@@ -364,12 +365,14 @@
       "reviewed": true,
       "cases": [
         "RECOVERY-006",
-        "RECOVERY-007"
+        "RECOVERY-007",
+        "RECOVERY-008"
       ],
       "assertions": [
         "A manually started agent is recognized as shell-owned and its original conversation is restored by the provider after a daemon restart",
         "Interrupting a restored agent returns the same pane to a shell in its workspace without submitting provider input",
-        "Ordinary agent exit preserves the original shell process and removes the agent registration"
+        "Ordinary agent exit preserves the original shell process and removes the agent registration",
+        "A working Claude session receives one continuation at resume, tied to its saved conversation"
       ],
       "supporting_tests": [
         "crates/jam/tests/coordination.rs::restored_shell_agent_returns_to_a_usable_prompt_on_interrupt",
@@ -414,6 +417,136 @@
       "supporting_tests": [
         "apps/macos/Tests/JamUITests/TerminalSwitchTests.swift::checkToastTimeouts",
         "apps/macos/Tests/JamUITests/TerminalSwitchTests.swift::checkUpgradeChip"
+      ]
+    },
+    {
+      "id": "file-previews",
+      "title": "Terminal file previews and per-machine availability",
+      "reviewed": true,
+      "cases": [
+        "PREVIEW-001",
+        "PREVIEW-002",
+        "PREVIEW-003",
+        "PREVIEW-004",
+        "PREVIEW-005",
+        "PREVIEW-006",
+        "PREVIEW-007",
+        "PREVIEW-008",
+        "PREVIEW-009",
+        "PREVIEW-010"
+      ],
+      "assertions": [
+        "Control-click reads the local or remote pane directory, including quoted paths and Markdown line references",
+        "Formatted Markdown, raw source, large file paging, editor tabs and switching back to the drawer remain usable",
+        "Actual image pixels, MP4 and MOV playback positions survive expansion and returning from the sheet",
+        "Per-machine integration checks distinguish availability from an older server"
+      ],
+      "supporting_tests": [
+        "apps/macos/Tests/JamUITests/TerminalSwitchTests.swift::checkFilePreviews",
+        "apps/macos/Tests/JamUITests/TerminalSwitchTests.swift::checkPreviewDrawer",
+        "apps/macos/Tests/JamUITests/TerminalSwitchTests.swift::checkRichPreviews",
+        "crates/jam/tests/persistence.rs::file_preview_reads_the_panes_current_directory_and_rejects_stale_chunks"
+      ]
+    },
+    {
+      "id": "pane-progress",
+      "title": "Per-pane task progress and step details",
+      "reviewed": true,
+      "cases": [
+        "PROGRESS-001",
+        "PROGRESS-002"
+      ],
+      "assertions": [
+        "A single reported step shows its label and percent; multiple steps show the average and drill down to their individual values",
+        "Invalid updates preserve the prior report; tab changes and clearing respect pane ownership"
+      ],
+      "supporting_tests": [
+        "apps/macos/Tests/JamUITests/TerminalSwitchTests.swift::checkPaneProgress",
+        "crates/jam/tests/persistence.rs::pane_progress_is_atomic_revisable_and_ends_with_its_agent"
+      ]
+    },
+    {
+      "id": "free-resets",
+      "title": "Account-bound free usage resets",
+      "reviewed": true,
+      "cases": [
+        "RESET-001",
+        "RESET-002",
+        "RESET-003",
+        "RESET-004",
+        "RESET-005",
+        "RESET-006"
+      ],
+      "assertions": [
+        "Codex listed and count-only offers and verified Claude grants require confirmation; cancel makes no claim",
+        "Claim receipts identify the provider, grant and unique attempt; an unconfirmed retry preserves its UUID across relaunch",
+        "Cached availability survives restart, and an identity mismatch disables redemption until a verified retry"
+      ],
+      "supporting_tests": [
+        "apps/macos/Tests/JamUITests/TerminalSwitchTests.swift::checkUsageResetCache",
+        "crates/jam-core/src/usage/resets.rs::claude_uses_the_verified_organization_and_preferred_grant"
+      ]
+    },
+    {
+      "id": "toolbar-tabs",
+      "title": "Native toolbar tabs, focus and remote layouts",
+      "reviewed": true,
+      "cases": [
+        "PREVIEW-001",
+        "TAB-005",
+        "LAYOUT-006"
+      ],
+      "assertions": [
+        "New tabs accept shell input without inline renaming, background closure preserves the active terminal",
+        "A preview belongs to its tab; remote tabs retain their identities and sessions through switching machines and reconnecting"
+      ],
+      "supporting_tests": [
+        "apps/macos/Tests/JamUITests/TerminalSwitchTests.swift::checkInlineRename",
+        "apps/macos/Tests/JamUITests/TerminalSwitchTests.swift::checkWorkspaceHandoff"
+      ]
+    },
+    {
+      "id": "workspace-removal",
+      "title": "Pending workspace and checkout removal",
+      "reviewed": true,
+      "cases": [
+        "CLOSE-005"
+      ],
+      "assertions": [
+        "A pending group closure shows progress, hides terminal controls, and retains the checkout contents"
+      ],
+      "supporting_tests": [
+        "apps/macos/Tests/JamUITests/TerminalSwitchTests.swift::checkWorkspaceRemoval"
+      ]
+    },
+    {
+      "id": "staged-upgrade",
+      "title": "Verified download reuse and fresh upgrade consent",
+      "reviewed": true,
+      "cases": [
+        "UPDATE-016"
+      ],
+      "assertions": [
+        "Reopening the sheet builds consent for the current terminal count and reuses verified release archives"
+      ],
+      "supporting_tests": [
+        "apps/macos/Tests/JamUITests/TerminalSwitchTests.swift::checkUpgradeConsent",
+        "crates/jam-core/src/upgrade.rs"
+      ]
+    },
+    {
+      "id": "worker-permissions",
+      "title": "Standalone worker launch permissions",
+      "reviewed": true,
+      "cases": [
+        "WORKER-001",
+        "WORKER-002"
+      ],
+      "assertions": [
+        "Workers launched from an ordinary shell use provider defaults; explicit full-access requests reach the provider process"
+      ],
+      "supporting_tests": [
+        "crates/jam/tests/coordination.rs::workspace_cli_propagates_standalone_launch_permissions"
       ]
     }
   ],
@@ -463,11 +596,21 @@
     {
       "path": "apps/macos/Sources/CJam/include/jam.h",
       "behaviors": [
-        "render-lifecycle"
+        "render-lifecycle",
+        "free-resets"
       ],
       "classification": "backend",
       "reviewed": true,
       "reason": "Expose the renderer's target size separately from the displayed viewport."
+    },
+    {
+      "path": "apps/macos/Sources/Jam/ActivityStatus.swift",
+      "reviewed": true,
+      "classification": "ui",
+      "reason": "Pane activity and progress presentation and reporting.",
+      "behaviors": [
+        "pane-progress"
+      ]
     },
     {
       "path": "apps/macos/Sources/Jam/AppSettings.swift",
@@ -487,7 +630,8 @@
       "reason": "Present availability in a persistent toolbar chip and expire transient notices while keeping recovery reachable.",
       "behaviors": [
         "update-settings",
-        "update-notices"
+        "update-notices",
+        "staged-upgrade"
       ]
     },
     {
@@ -507,7 +651,8 @@
       "behaviors": [
         "creation",
         "focus-close",
-        "optimistic-layout"
+        "optimistic-layout",
+        "workspace-removal"
       ]
     },
     {
@@ -520,6 +665,24 @@
       "reason": "Resolve managed and shell-owned resume targets and guard asynchronous restarts."
     },
     {
+      "path": "apps/macos/Sources/Jam/FilePreview.swift",
+      "reviewed": true,
+      "classification": "ui",
+      "reason": "File resolution, format handling, preview controls or machine capability checks.",
+      "behaviors": [
+        "file-previews"
+      ]
+    },
+    {
+      "path": "apps/macos/Sources/Jam/FilePreviewView.swift",
+      "reviewed": true,
+      "classification": "ui",
+      "reason": "File resolution, format handling, preview controls or machine capability checks.",
+      "behaviors": [
+        "file-previews"
+      ]
+    },
+    {
       "path": "apps/macos/Sources/Jam/InlineRename.swift",
       "reviewed": true,
       "classification": "ui",
@@ -527,7 +690,8 @@
       "behaviors": [
         "rendering",
         "focus-close",
-        "optimistic-layout"
+        "optimistic-layout",
+        "theme-and-selection"
       ]
     },
     {
@@ -557,14 +721,19 @@
         "optimistic-layout",
         "render-lifecycle",
         "agent-recovery",
-        "update-notices"
+        "update-notices",
+        "file-previews",
+        "toolbar-tabs",
+        "pane-progress",
+        "workspace-removal"
       ]
     },
     {
       "path": "apps/macos/Sources/Jam/LayoutEdits.swift",
       "behaviors": [
         "optimistic-layout",
-        "focus-close"
+        "focus-close",
+        "toolbar-tabs"
       ],
       "classification": "ui",
       "reviewed": true,
@@ -582,6 +751,15 @@
       ]
     },
     {
+      "path": "apps/macos/Sources/Jam/MarkdownImages.swift",
+      "reviewed": true,
+      "classification": "ui",
+      "reason": "File resolution, format handling, preview controls or machine capability checks.",
+      "behaviors": [
+        "file-previews"
+      ]
+    },
+    {
       "path": "apps/macos/Sources/Jam/Node.swift",
       "behaviors": [
         "optimistic-layout"
@@ -593,7 +771,8 @@
     {
       "path": "apps/macos/Sources/Jam/PaneDragging.swift",
       "behaviors": [
-        "optimistic-layout"
+        "optimistic-layout",
+        "toolbar-tabs"
       ],
       "classification": "ui",
       "reviewed": true,
@@ -610,6 +789,51 @@
       "reason": "Select the nearest adjacent survivor on pane closure."
     },
     {
+      "path": "apps/macos/Sources/Jam/PaneProgress.swift",
+      "reviewed": true,
+      "classification": "ui",
+      "reason": "Pane activity and progress presentation and reporting.",
+      "behaviors": [
+        "pane-progress"
+      ]
+    },
+    {
+      "path": "apps/macos/Sources/Jam/PreviewCapture.swift",
+      "reviewed": true,
+      "classification": "ui",
+      "reason": "Applies the active theme to input, settings and sheets.",
+      "behaviors": [
+        "theme-and-selection"
+      ]
+    },
+    {
+      "path": "apps/macos/Sources/Jam/PreviewIntegrations.swift",
+      "reviewed": true,
+      "classification": "ui",
+      "reason": "File resolution, format handling, preview controls or machine capability checks.",
+      "behaviors": [
+        "file-previews"
+      ]
+    },
+    {
+      "path": "apps/macos/Sources/Jam/PreviewMarkdown.swift",
+      "reviewed": true,
+      "classification": "ui",
+      "reason": "File resolution, format handling, preview controls or machine capability checks.",
+      "behaviors": [
+        "file-previews"
+      ]
+    },
+    {
+      "path": "apps/macos/Sources/Jam/PreviewMovie.swift",
+      "reviewed": true,
+      "classification": "ui",
+      "reason": "File resolution, format handling, preview controls or machine capability checks.",
+      "behaviors": [
+        "file-previews"
+      ]
+    },
+    {
       "path": "apps/macos/Sources/Jam/Remote.swift",
       "reviewed": true,
       "classification": "ui",
@@ -617,7 +841,8 @@
       "behaviors": [
         "creation",
         "diagnostics",
-        "takeover"
+        "takeover",
+        "toolbar-tabs"
       ]
     },
     {
@@ -629,7 +854,8 @@
         "takeover",
         "diagnostics",
         "rendering",
-        "agent-recovery"
+        "agent-recovery",
+        "theme-and-selection"
       ]
     },
     {
@@ -662,7 +888,8 @@
       "behaviors": [
         "rendering",
         "focus-close",
-        "optimistic-layout"
+        "optimistic-layout",
+        "toolbar-tabs"
       ]
     },
     {
@@ -684,6 +911,24 @@
       ]
     },
     {
+      "path": "apps/macos/Sources/Jam/TerminalHover.swift",
+      "reviewed": true,
+      "classification": "ui",
+      "reason": "File resolution, format handling, preview controls or machine capability checks.",
+      "behaviors": [
+        "file-previews"
+      ]
+    },
+    {
+      "path": "apps/macos/Sources/Jam/TerminalTarget.swift",
+      "reviewed": true,
+      "classification": "ui",
+      "reason": "File resolution, format handling, preview controls or machine capability checks.",
+      "behaviors": [
+        "file-previews"
+      ]
+    },
+    {
       "path": "apps/macos/Sources/Jam/TerminalViewPool.swift",
       "behaviors": [
         "render-lifecycle",
@@ -694,6 +939,15 @@
       "reason": "Evict least-recently-used off-screen render resources and reclaim resources under memory pressure."
     },
     {
+      "path": "apps/macos/Sources/Jam/UsageDetails.swift",
+      "reviewed": true,
+      "classification": "ui",
+      "reason": "Verified reset reads and claims, provider transport, availability cache and account presentation.",
+      "behaviors": [
+        "free-resets"
+      ]
+    },
+    {
       "path": "apps/macos/Sources/Jam/UsagePanel.swift",
       "reviewed": true,
       "classification": "ui",
@@ -701,7 +955,17 @@
       "behaviors": [
         "accounts",
         "rendering",
-        "persistent-usage"
+        "persistent-usage",
+        "free-resets"
+      ]
+    },
+    {
+      "path": "apps/macos/Sources/Jam/UsageResetCache.swift",
+      "reviewed": true,
+      "classification": "ui",
+      "reason": "Verified reset reads and claims, provider transport, availability cache and account presentation.",
+      "behaviors": [
+        "free-resets"
       ]
     },
     {
@@ -712,7 +976,8 @@
       "behaviors": [
         "accounts",
         "rendering",
-        "persistent-usage"
+        "persistent-usage",
+        "free-resets"
       ]
     },
     {
@@ -737,7 +1002,8 @@
         "creation",
         "rendering",
         "focus-close",
-        "identity"
+        "identity",
+        "workspace-removal"
       ]
     },
     {
@@ -761,6 +1027,24 @@
       ]
     },
     {
+      "path": "apps/macos/Sources/Jam/WorkspaceName.swift",
+      "reviewed": true,
+      "classification": "ui",
+      "reason": "Tracks pending removal and presents stable sidebar names, rows and activity.",
+      "behaviors": [
+        "workspace-removal"
+      ]
+    },
+    {
+      "path": "apps/macos/Sources/Jam/WorkspaceRemoval.swift",
+      "reviewed": true,
+      "classification": "ui",
+      "reason": "Tracks pending removal and presents stable sidebar names, rows and activity.",
+      "behaviors": [
+        "workspace-removal"
+      ]
+    },
+    {
       "path": "apps/macos/Sources/Jam/WorkspaceSidebar.swift",
       "reviewed": true,
       "classification": "ui",
@@ -771,7 +1055,8 @@
         "focus-close",
         "identity",
         "theme-and-selection",
-        "optimistic-layout"
+        "optimistic-layout",
+        "workspace-removal"
       ]
     },
     {
@@ -781,7 +1066,26 @@
       "reason": "Creates, selects and reconciles pending workspace and worktree operations through visible controls.",
       "behaviors": [
         "creation",
-        "creation-recovery"
+        "creation-recovery",
+        "theme-and-selection"
+      ]
+    },
+    {
+      "path": "apps/macos/Tests/Fixtures/preview.mov",
+      "reviewed": true,
+      "classification": "test",
+      "reason": "Real video sample used by the native preview tests.",
+      "behaviors": [
+        "file-previews"
+      ]
+    },
+    {
+      "path": "apps/macos/Tests/Fixtures/preview.mp4",
+      "reviewed": true,
+      "classification": "test",
+      "reason": "Real video sample used by the native preview tests.",
+      "behaviors": [
+        "file-previews"
       ]
     },
     {
@@ -879,6 +1183,69 @@
       ]
     },
     {
+      "path": "assets/file-preview/markdown-it-LICENSE.txt",
+      "reviewed": true,
+      "classification": "documentation",
+      "reason": "Records licenses and dependencies for the packaged offline preview renderer.",
+      "behaviors": [
+        "file-previews"
+      ]
+    },
+    {
+      "path": "assets/file-preview/markdown-it.min.js",
+      "reviewed": true,
+      "classification": "ui",
+      "reason": "File resolution, format handling, preview controls or machine capability checks.",
+      "behaviors": [
+        "file-previews"
+      ]
+    },
+    {
+      "path": "assets/file-preview/mermaid-LICENSE.txt",
+      "reviewed": true,
+      "classification": "documentation",
+      "reason": "Records licenses and dependencies for the packaged offline preview renderer.",
+      "behaviors": [
+        "file-previews"
+      ]
+    },
+    {
+      "path": "assets/file-preview/mermaid.min.js",
+      "reviewed": true,
+      "classification": "ui",
+      "reason": "File resolution, format handling, preview controls or machine capability checks.",
+      "behaviors": [
+        "file-previews"
+      ]
+    },
+    {
+      "path": "assets/file-preview/preview.css",
+      "reviewed": true,
+      "classification": "ui",
+      "reason": "File resolution, format handling, preview controls or machine capability checks.",
+      "behaviors": [
+        "file-previews"
+      ]
+    },
+    {
+      "path": "assets/file-preview/preview.html",
+      "reviewed": true,
+      "classification": "ui",
+      "reason": "File resolution, format handling, preview controls or machine capability checks.",
+      "behaviors": [
+        "file-previews"
+      ]
+    },
+    {
+      "path": "assets/file-preview/preview.js",
+      "reviewed": true,
+      "classification": "ui",
+      "reason": "File resolution, format handling, preview controls or machine capability checks.",
+      "behaviors": [
+        "file-previews"
+      ]
+    },
+    {
       "path": "assets/jam.svg",
       "behaviors": [],
       "classification": "build",
@@ -899,7 +1266,8 @@
       "reason": "Resolves provider identity from registered agents or live OSC reports and separates identity from activity.",
       "behaviors": [
         "identity",
-        "focus-close"
+        "focus-close",
+        "worker-permissions"
       ]
     },
     {
@@ -924,6 +1292,15 @@
       ]
     },
     {
+      "path": "crates/jam-core/src/codex_session.rs",
+      "reviewed": true,
+      "classification": "backend",
+      "reason": "Verified reset reads and claims, provider transport, availability cache and account presentation.",
+      "behaviors": [
+        "free-resets"
+      ]
+    },
+    {
       "path": "crates/jam-core/src/config.rs",
       "reviewed": true,
       "classification": "backend",
@@ -941,7 +1318,17 @@
       "behaviors": [
         "diagnostics",
         "agent-recovery",
-        "takeover"
+        "takeover",
+        "worker-permissions"
+      ]
+    },
+    {
+      "path": "crates/jam-core/src/file_preview.rs",
+      "reviewed": true,
+      "classification": "backend",
+      "reason": "File resolution, format handling, preview controls or machine capability checks.",
+      "behaviors": [
+        "file-previews"
       ]
     },
     {
@@ -962,7 +1349,19 @@
         "creation",
         "images",
         "identity",
-        "diagnostics"
+        "diagnostics",
+        "free-resets",
+        "file-previews",
+        "worker-permissions"
+      ]
+    },
+    {
+      "path": "crates/jam-core/src/process_args.rs",
+      "reviewed": true,
+      "classification": "backend",
+      "reason": "Reads real launch arguments or applies worker permission and session policy.",
+      "behaviors": [
+        "worker-permissions"
       ]
     },
     {
@@ -976,7 +1375,11 @@
         "identity",
         "diagnostics",
         "agent-recovery",
-        "optimistic-layout"
+        "optimistic-layout",
+        "free-resets",
+        "file-previews",
+        "pane-progress",
+        "worker-permissions"
       ]
     },
     {
@@ -985,7 +1388,8 @@
       "classification": "backend",
       "reason": "Keeps board delivery and request timeouts separate from shell input and daemon responsiveness.",
       "behaviors": [
-        "diagnostics"
+        "diagnostics",
+        "agent-recovery"
       ]
     },
     {
@@ -1022,7 +1426,11 @@
         "diagnostics",
         "optimistic-layout",
         "agent-recovery",
-        "takeover"
+        "takeover",
+        "free-resets",
+        "file-previews",
+        "pane-progress",
+        "worker-permissions"
       ]
     },
     {
@@ -1055,7 +1463,8 @@
       "reason": "Resolves provider identity from registered agents or live OSC reports and separates identity from activity.",
       "behaviors": [
         "identity",
-        "focus-close"
+        "focus-close",
+        "pane-progress"
       ]
     },
     {
@@ -1066,7 +1475,8 @@
       "behaviors": [
         "takeover",
         "diagnostics",
-        "update-settings"
+        "update-settings",
+        "staged-upgrade"
       ]
     },
     {
@@ -1106,7 +1516,8 @@
       "reason": "Feed provider reports from the credential-aware daemon cache.",
       "behaviors": [
         "accounts",
-        "persistent-usage"
+        "persistent-usage",
+        "free-resets"
       ]
     },
     {
@@ -1115,7 +1526,8 @@
       "classification": "backend",
       "reason": "Discovers configured profiles, retains available quota observations and reports the active-session count.",
       "behaviors": [
-        "accounts"
+        "accounts",
+        "free-resets"
       ]
     },
     {
@@ -1125,7 +1537,17 @@
       "reason": "Retain fresh readings on errors, enforce rate-limit delays, and keep failure bodies private.",
       "behaviors": [
         "accounts",
-        "persistent-usage"
+        "persistent-usage",
+        "free-resets"
+      ]
+    },
+    {
+      "path": "crates/jam-core/src/usage/resets.rs",
+      "reviewed": true,
+      "classification": "backend",
+      "reason": "Verified reset reads and claims, provider transport, availability cache and account presentation.",
+      "behaviors": [
+        "free-resets"
       ]
     },
     {
@@ -1136,7 +1558,8 @@
       "behaviors": [
         "rendering",
         "theme-and-selection",
-        "render-lifecycle"
+        "render-lifecycle",
+        "file-previews"
       ]
     },
     {
@@ -1168,7 +1591,10 @@
         "identity",
         "diagnostics",
         "render-lifecycle",
-        "rendering"
+        "rendering",
+        "file-previews",
+        "free-resets",
+        "staged-upgrade"
       ]
     },
     {
@@ -1220,14 +1646,17 @@
         "identity",
         "diagnostics",
         "agent-recovery",
-        "optimistic-layout"
+        "optimistic-layout",
+        "pane-progress",
+        "worker-permissions"
       ]
     },
     {
       "path": "crates/jam/tests/coordination.rs",
       "behaviors": [
         "agent-recovery",
-        "takeover"
+        "takeover",
+        "worker-permissions"
       ],
       "classification": "test",
       "reviewed": true,
@@ -1249,6 +1678,13 @@
         "focus-close",
         "optimistic-layout"
       ]
+    },
+    {
+      "path": "docs/dependencies.md",
+      "reviewed": true,
+      "classification": "documentation",
+      "reason": "Records licenses and dependencies for the packaged offline preview renderer.",
+      "behaviors": []
     },
     {
       "path": "docs/interaction-performance.md",
@@ -1325,7 +1761,9 @@
       "reviewed": true,
       "classification": "build",
       "reason": "Pins the compiler and SDK used to package and validate desktop builds.",
-      "behaviors": []
+      "behaviors": [
+        "file-previews"
+      ]
     },
     {
       "path": "scripts/release/build-macos.sh",
@@ -1437,5 +1875,5 @@
       ]
     }
   ],
-  "changed_paths_sha256": "1dd79d46c77ae8fa05c1ba138619218f0d5db2de4d02d517319d7cf5320a6fa7"
+  "changed_paths_sha256": "3336630de6f44fc57bfd8863dab439834e54ed0bc8b6bf03a40ca56d22040131"
 }

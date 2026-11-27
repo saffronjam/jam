@@ -1,6 +1,6 @@
 # New-main behavior coverage
 
-Scope: `ac5d161..d7b775c`. Runtime proof is recorded separately.
+Scope: `ac5d161..207ba8f`. Runtime proof is recorded separately.
 
 Unreviewed mappings are incomplete, even when some scenarios exist.
 
@@ -17,8 +17,15 @@ Unreviewed mappings are incomplete, even when some scenarios exist.
 | Focus acknowledgement and close confirmations | Reviewed | CLOSE-001, CLOSE-002, CLOSE-003, CLOSE-004, FOCUS-001, FOCUS-002, RENAME-001, CREATE-015 |
 | Synchronized frames, cursor and sidebar presentation | Reviewed | LONG-001, VISUAL-001, VISUAL-002, VISUAL-003, RENDER-001, RENDER-002, RENDER-003, SIDEBAR-001, RENAME-001 |
 | Themes and default terminal selection | Reviewed | THEME-001, SELECT-003 |
-| Optimistic layout and pane focus | Reviewed | LAYOUT-003, LAYOUT-004, LAYOUT-005 |
+| Optimistic layout and pane focus | Reviewed | LAYOUT-003, LAYOUT-004, LAYOUT-005, LAYOUT-006 |
 | Terminal geometry during layout transitions | Reviewed | LAYOUT-003 |
-| Continuity for manually started agents | Reviewed | RECOVERY-006, RECOVERY-007 |
+| Continuity for manually started agents | Reviewed | RECOVERY-006, RECOVERY-007, RECOVERY-008 |
 | Usage readings and rate-limit backoff across restarts | Reviewed | USAGE-007, USAGE-008 |
 | Upgrade toolbar and expiring notifications | Reviewed | UPDATE-004, UPDATE-SETTINGS-006, UPDATE-014, UPDATE-015 |
+| Terminal file previews and per-machine availability | Reviewed | PREVIEW-001, PREVIEW-002, PREVIEW-003, PREVIEW-004, PREVIEW-005, PREVIEW-006, PREVIEW-007, PREVIEW-008, PREVIEW-009, PREVIEW-010 |
+| Per-pane task progress and step details | Reviewed | PROGRESS-001, PROGRESS-002 |
+| Account-bound free usage resets | Reviewed | RESET-001, RESET-002, RESET-003, RESET-004, RESET-005, RESET-006 |
+| Native toolbar tabs, focus and remote layouts | Reviewed | PREVIEW-001, TAB-005, LAYOUT-006 |
+| Pending workspace and checkout removal | Reviewed | CLOSE-005 |
+| Verified download reuse and fresh upgrade consent | Reviewed | UPDATE-016 |
+| Standalone worker launch permissions | Reviewed | WORKER-001, WORKER-002 |

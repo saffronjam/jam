@@ -5,6 +5,7 @@ import os
 import select
 import subprocess
 import sys
+import uuid
 from pathlib import Path
 
 import pytest
@@ -95,3 +96,30 @@ def test_native_provider_identity_and_signal_cleanup(tmp_path):
             process.wait(timeout=5)
         process.stdin.close()
         process.stdout.close()
+
+
+def test_unconfirmed_reset_requires_the_original_attempt(tmp_path):
+    home = tmp_path / "home"
+    home.mkdir()
+    (tmp_path / "bin").mkdir()
+    provision = Path(__file__).parents[1] / "fixtures/provision_provider.py"
+    subprocess.run([sys.executable, str(provision), str(tmp_path), "--world",
+                    json.dumps({"reset_offer": "unconfirmed"})], check=True, timeout=30)
+    env = dict(os.environ, HOME=str(home))
+    attempt = str(uuid.uuid4())
+
+    def rpc(method, params):
+        result = subprocess.run(
+            [str(tmp_path / "bin/codex"), "app-server"],
+            input=json.dumps({"id": 1, "method": method, "params": params}) + "\n",
+            env=env, text=True, capture_output=True, check=True, timeout=5)
+        return json.loads(result.stdout)
+
+    read = "account/rateLimits/read"
+    consume = "account/rateLimitResetCredit/consume"
+    params = {"creditId": "fixture-credit", "idempotencyKey": attempt}
+    assert rpc(read, {})["result"]["rateLimitResetCredits"]["availableCount"] == 1
+    assert "error" in rpc(consume, params)
+    assert rpc(consume, params)["result"]["outcome"] == "reset"
+    assert rpc(read, {})["result"]["rateLimitResetCredits"]["availableCount"] == 0
+    assert (home / "fixture-reset-spent").read_text() == attempt

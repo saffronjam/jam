@@ -1,6 +1,6 @@
 # Desktop acceptance cases
 
-324 cases; identical collection on macOS and Linux. No skips or expected failures.
+349 cases; identical collection on macOS and Linux. No skips or expected failures.
 
 Each numbered step is performed externally. Fixture names identify required setup recipes, not alternate assertions.
 
@@ -1995,10 +1995,10 @@ Fixture: `usage-unknown-account`.
 
 Behaviors: `accounts`.
 
-1. `('click', 'Codex', 'button')`
+1. `('click', 'Show Codex usage details', 'button')`
 2. `('visible', 'Codex usage')`
-3. `('visible', 'Account identity unavailable. Shown separately for this machine.')`
-4. `('visible', 'Local')`
+3. `('visible', 'Account identity unavailable. Refresh usage after signing in.')`
+4. `('absent', 'Use free reset')`
 
 ## USAGE-004: usage no sessions external user workflow
 
@@ -2015,7 +2015,7 @@ Fixture: `usage-auth-error`.
 Behaviors: `accounts`.
 
 1. `('visible', 'Sign in again to read usage')`
-2. `('click', 'Codex, fixture@example.invalid', 'button')`
+2. `('click', 'Show Codex usage details', 'button')`
 3. `('visible', 'Codex usage')`
 4. `('visible', 'Sign in again to read usage')`
 5. `('key', 'ESCAPE')`
@@ -2029,7 +2029,7 @@ Fixture: `usage-rate-limited`.
 Behaviors: `accounts`.
 
 1. `('visible', 'Usage service rate limited. Retrying later')`
-2. `('click', 'Codex, fixture@example.invalid', 'button')`
+2. `('click', 'Show Codex usage details', 'button')`
 3. `('visible', 'Codex usage')`
 4. `('visible', 'Usage service rate limited. Retrying later')`
 5. `('key', 'ESCAPE')`
@@ -3192,10 +3192,10 @@ Fixture: `usage-configured-login`.
 Behaviors: `accounts`.
 
 1. `('visible', 'USAGE')`
-2. `('click', 'Codex, fixture@example.invalid', 'button')`
+2. `('click', 'Show Codex usage details', 'button')`
 3. `('visible', 'Codex usage')`
 4. `('visible', 'fixture@example.invalid')`
-5. `('visible', '0 active sessions')`
+5. `('visible', 'Free resets')`
 6. `('key', 'ESCAPE')`
 7. `('pane_field', 'agent_provider', None)`
 8. `('run', 'printf configured-account-shell-usable')`
@@ -3542,14 +3542,14 @@ Behaviors: `accounts`.
 3. `('visible', 'fixture@example.invalid')`
 4. `('visible', 'Claude')`
 5. `('absent', 'Next usage account')`
-6. `('click', 'Codex, fixture@example.invalid', 'button')`
-7. `('visible', '0 active sessions')`
+6. `('click', 'Show Codex usage details', 'button')`
+7. `('visible', 'Free resets')`
 8. `('key', 'ESCAPE')`
 9. `('context', 'Fixture', 'machine')`
 10. `('click', 'Disconnect', 'menu')`
-11. `('click', 'Codex, fixture@example.invalid', 'button')`
-12. `('visible', '0 active sessions')`
-13. `('absent', 'Machine unavailable. Showing last known usage.')`
+11. `('click', 'Show Codex usage details', 'button')`
+12. `('visible', 'Free resets')`
+13. `('absent', 'Showing last known usage from Fixture.')`
 14. `('key', 'ESCAPE')`
 15. `('remote_workspace_preserved',)`
 
@@ -3567,20 +3567,20 @@ Behaviors: `accounts`.
 6. `('visible', 'Claude')`
 7. `('click', 'Previous usage account', 'button')`
 8. `('visible', 'second@example.invalid')`
-9. `('click', 'Codex, second@example.invalid', 'button')`
-10. `('visible', '0 active sessions')`
+9. `('click', 'Show Codex usage details', 'button')`
+10. `('visible', 'Free resets')`
 11. `('key', 'ESCAPE')`
 12. `('context', 'Fixture', 'machine')`
 13. `('click', 'Disconnect', 'menu')`
-14. `('click', 'Codex, second@example.invalid', 'button')`
-15. `('visible', 'Machine unavailable. Showing last known usage.')`
+14. `('click', 'Show Codex usage details', 'button')`
+15. `('visible', 'Showing last known usage from Fixture.')`
 16. `('visible', '25%')`
 17. `('key', 'ESCAPE')`
 18. `('context', 'Fixture', 'machine')`
 19. `('click', 'Reconnect', 'menu')`
 20. `('remote_shell',)`
-21. `('click', 'Codex, second@example.invalid', 'button')`
-22. `('absent', 'Machine unavailable. Showing last known usage.')`
+21. `('click', 'Show Codex usage details', 'button')`
+22. `('absent', 'Showing last known usage from Fixture.')`
 23. `('key', 'ESCAPE')`
 24. `('remote_workspace_preserved',)`
 
@@ -3609,13 +3609,13 @@ Behaviors: `accounts`.
 5. `('save',)`
 6. `('config', 'enabled_agents', ['codex'])`
 7. `('absent', 'Claude')`
-8. `('click', 'Codex, fixture@example.invalid', 'button')`
+8. `('click', 'Show Codex usage details', 'button')`
 9. `('visible', 'Codex usage')`
 10. `('key', 'ESCAPE')`
 11. `('run', 'printf terminal-available-with-integration-disabled')`
 12. `('output', 'terminal-available-with-integration-disabled')`
 
-## ACCOUNT-006: The account page sums active provider processes across local and remote terminals
+## ACCOUNT-006: Agents running under the same account on two machines share one usage details page
 
 Fixture: `usage-remote-account`.
 
@@ -3624,11 +3624,12 @@ Behaviors: `accounts`.
 1. `('run', "bash -c 'exec -a codex /bin/sleep 180' & :")`
 2. `('remote_shell', "bash -c 'exec -a codex /bin/sleep 180' & :")`
 3. `('usage_requests_from_both_hosts',)`
-4. `('click', 'Codex, fixture@example.invalid', 'button')`
-5. `('visible', '2 active sessions')`
-6. `('key', 'ESCAPE')`
-7. `('absent', 'Next usage account')`
-8. `('remote_workspace_preserved',)`
+4. `('click', 'Show Codex usage details', 'button')`
+5. `('visible', 'Codex usage')`
+6. `('visible', 'fixture@example.invalid')`
+7. `('key', 'ESCAPE')`
+8. `('absent', 'Next usage account')`
+9. `('remote_workspace_preserved',)`
 
 ## ACCOUNT-007: A rejected remote login shows its own error with no local authorization action
 
@@ -3639,13 +3640,13 @@ Behaviors: `accounts`.
 1. `('remote_shell',)`
 2. `('usage_requests_from_both_hosts',)`
 3. `('visible', 'Sign in again to read usage')`
-4. `('click', 'Codex, second@example.invalid', 'button')`
+4. `('click', 'Show Codex usage details', 'button')`
 5. `('visible', 'Sign in again to read usage')`
 6. `('absent', 'Allow Keychain Access')`
-7. `('click', 'Codex, second@example.invalid', 'button')`
+7. `('click', 'Done', 'button')`
 8. `('absent', 'Codex usage')`
 9. `('click', 'Next usage account', 'button')`
-10. `('click', 'Codex, fixture@example.invalid', 'button')`
+10. `('click', 'Show Codex usage details', 'button')`
 11. `('visible', '25%')`
 12. `('absent', 'Sign in again to read usage')`
 13. `('key', 'ESCAPE')`
@@ -4235,14 +4236,14 @@ Fixture: `usage-configured-login`.
 
 Behaviors: `persistent-usage`.
 
-1. `('click', 'Codex, fixture@example.invalid', 'button')`
+1. `('click', 'Show Codex usage details', 'button')`
 2. `('visible', '25%')`
 3. `('key', 'ESCAPE')`
 4. `('remember_usage_requests',)`
 5. `('usage_service_error', 503)`
 6. `('restart_server',)`
 7. `('relaunch',)`
-8. `('click', 'Codex, fixture@example.invalid', 'button')`
+8. `('click', 'Show Codex usage details', 'button')`
 9. `('visible', '25%')`
 10. `('visible', '50%')`
 11. `('usage_requests_unchanged',)`
@@ -4260,7 +4261,7 @@ Behaviors: `persistent-usage`.
 5. `('stop_local_daemon',)`
 6. `('relaunch',)`
 7. `('local_server_replaced',)`
-8. `('click', 'Codex, fixture@example.invalid', 'button')`
+8. `('click', 'Show Codex usage details', 'button')`
 9. `('visible', 'Usage service rate limited. Retrying later')`
 10. `('usage_requests_unchanged',)`
 
@@ -4293,3 +4294,448 @@ Behaviors: `update-notices`.
 5. `('click', 'Cancel', 'button')`
 6. `('enabled', 'Upgrade available', 'button')`
 7. `('installed_version', '0.0.4')`
+
+## PREVIEW-001: A quoted path opens a drawer that stays with its tab and returns focus when closed
+
+Fixture: `isolated local installation`.
+
+Behaviors: `file-previews`, `toolbar-tabs`.
+
+1. `('open_file_preview', 'quoted')`
+2. `('visible', 'Private drawer content')`
+3. `('click', 'Expand preview', 'button')`
+4. `('visible', 'Private drawer content')`
+5. `('click', 'Close preview', 'button')`
+6. `('enabled', 'Expand preview', 'button')`
+7. `('command', 'New Tab')`
+8. `('target_visible', 'Tab 2', 'button')`
+9. `('absent', 'Close preview')`
+10. `('click', 'Tab 1', 'button')`
+11. `('visible', 'Private drawer content')`
+12. `('click', 'Close preview', 'button')`
+13. `('run_focused', 'printf drawer-restored-shell')`
+14. `('output', 'drawer-restored-shell')`
+
+## PREVIEW-002: Markdown starts formatted and exposes its original table and diagram source on demand
+
+Fixture: `isolated local installation`.
+
+Behaviors: `file-previews`.
+
+1. `('open_file_preview', 'markdown')`
+2. `('visible', 'Fixture heading')`
+3. `('visible', 'Pear')`
+4. `('click', 'Raw')`
+5. `('visible', '| Fruit | Pear |')`
+6. `('visible', 'North --> South')`
+7. `('click', 'Formatted')`
+8. `('visible', 'Fixture heading')`
+9. `('absent', '| Fruit | Pear |')`
+
+## PREVIEW-003: A Markdown line reference opens raw source and the editor opens on its owning machine
+
+Fixture: `isolated local installation`.
+
+Behaviors: `file-previews`.
+
+1. `('open_file_preview', 'line')`
+2. `('visible', '**Source marker**')`
+3. `('click', 'Edit in terminal', 'button')`
+4. `('count', 'tabs', 2)`
+5. `('click', 'Tab 1', 'button')`
+6. `('visible', '**Source marker**')`
+
+## PREVIEW-004: Large Markdown stays raw and supports paging in both directions
+
+Fixture: `isolated local installation`.
+
+Behaviors: `file-previews`.
+
+1. `('open_file_preview', 'large')`
+2. `('visible', 'Markdown over 2 MiB opens in Raw view.')`
+3. `('visible', 'First page')`
+4. `('disabled', 'Earlier', 'button')`
+5. `('click', 'Later', 'button')`
+6. `('enabled', 'Earlier', 'button')`
+7. `('absent', 'First page')`
+8. `('click', 'Earlier', 'button')`
+9. `('visible', 'First page')`
+
+## PREVIEW-005: An image displays its pixels in the drawer and at actual size in the expanded preview
+
+Fixture: `isolated local installation`.
+
+Behaviors: `file-previews`.
+
+1. `('open_file_preview', 'image')`
+2. `('preview_pixels', 'magenta')`
+3. `('click', 'Expand preview', 'button')`
+4. `('click', '100%', 'button')`
+5. `('enabled', 'Fit', 'button')`
+6. `('preview_pixels', 'magenta')`
+7. `('click', 'Close preview', 'button')`
+8. `('enabled', 'Expand preview', 'button')`
+
+## PREVIEW-006: MP4 playback retains its current frame when expanded
+
+Fixture: `isolated local installation`.
+
+Behaviors: `file-previews`.
+
+1. `('open_file_preview', 'movie')`
+2. `('preview_pixels', 'magenta', True)`
+3. `('click', 'Play', 'button')`
+4. `('preview_pixels', 'cyan', True)`
+5. `('click', 'Pause', 'button')`
+6. `('click', 'Expand preview', 'button')`
+7. `('preview_pixels', 'cyan')`
+8. `('click', 'Close preview', 'button')`
+9. `('enabled', 'Expand preview', 'button')`
+
+## PREVIEW-007: MOV playback retains its current frame when expanded
+
+Fixture: `isolated local installation`.
+
+Behaviors: `file-previews`.
+
+1. `('open_file_preview', 'quicktime')`
+2. `('preview_pixels', 'magenta', True)`
+3. `('click', 'Play', 'button')`
+4. `('preview_pixels', 'cyan', True)`
+5. `('click', 'Pause', 'button')`
+6. `('click', 'Expand preview', 'button')`
+7. `('preview_pixels', 'cyan')`
+8. `('click', 'Close preview', 'button')`
+9. `('enabled', 'Expand preview', 'button')`
+
+## PREVIEW-008: A remote terminal reads its own file when the local checkout has the same filename
+
+Fixture: `remote-connected`.
+
+Behaviors: `file-previews`.
+
+1. `('open_file_preview', 'text', True)`
+2. `('visible', 'Remote-only preview content')`
+3. `('absent', 'Local-only preview content')`
+4. `('click', 'Close preview', 'button')`
+5. `('remote_workspace_preserved',)`
+
+## PREVIEW-009: Integrations checks each supported local file format and can refresh its results
+
+Fixture: `isolated local installation`.
+
+Behaviors: `file-previews`.
+
+1. `('settings', 'Integrations')`
+2. `('visible', 'File previews')`
+3. `('visible', 'Text')`
+4. `('visible', 'Images')`
+5. `('visible', 'Formatted Markdown')`
+6. `('visible', 'Mermaid diagrams')`
+7. `('visible', 'MP4 playback')`
+8. `('visible', 'MOV playback')`
+9. `('preview_integrations', 'Available')`
+10. `('click', 'Check again', 'button')`
+11. `('preview_integrations', 'Available')`
+12. `('click', 'Cancel', 'button')`
+
+## PROGRESS-001: Replacing a pane's steps updates its average, individual percentages and clear state
+
+Fixture: `isolated local installation`.
+
+Behaviors: `pane-progress`.
+
+1. `('run', "jam status progress --step 'Build=20' --step 'Check=80'")`
+2. `('control_value', 'Task progress', '50 percent across 2 steps')`
+3. `('click', 'Task progress', 'button')`
+4. `('control_value', 'Build', '20 percent')`
+5. `('control_value', 'Check', '80 percent')`
+6. `('key', 'ESCAPE')`
+7. `('run', "jam status progress --step 'Review=75'")`
+8. `('control_value', 'Review', '75 percent')`
+9. `('absent', 'Task progress')`
+10. `('run', 'jam status progress --clear')`
+11. `('no_control', 'Review')`
+12. `('run', 'printf progress-cleared')`
+13. `('output', 'progress-cleared')`
+
+## PROGRESS-002: Invalid duplicate steps leave the previous progress attached only to its owning tab
+
+Fixture: `isolated local installation`.
+
+Behaviors: `pane-progress`.
+
+1. `('run', "jam status progress --step 'Upload=40'")`
+2. `('control_value', 'Upload', '40 percent')`
+3. `('run', "jam status progress --step 'Build=50' --step 'Build=80' || printf duplicate-rejected")`
+4. `('output', 'duplicate-rejected')`
+5. `('control_value', 'Upload', '40 percent')`
+6. `('command', 'New Tab')`
+7. `('target_visible', 'Tab 2', 'button')`
+8. `('no_control', 'Upload')`
+9. `('click', 'Tab 1', 'button')`
+10. `('control_value', 'Upload', '40 percent')`
+
+## TAB-005: A new toolbar tab accepts typing immediately and a background tab can be closed in place
+
+Fixture: `isolated local installation`.
+
+Behaviors: `toolbar-tabs`.
+
+1. `('command', 'New Tab')`
+2. `('target_visible', 'Tab 2', 'button')`
+3. `('run_focused', 'printf toolbar-keyboard-owner')`
+4. `('output', 'toolbar-keyboard-owner')`
+5. `('context', 'Tab 1', 'button')`
+6. `('click', 'Close Tab', 'menu')`
+7. `('count', 'tabs', 1)`
+8. `('target_visible', 'Tab 2', 'button')`
+9. `('output', 'toolbar-keyboard-owner')`
+
+## CLOSE-005: A pending group closure shows progress and preserves the checkout's working files
+
+Fixture: `dirty-checkout`.
+
+Behaviors: `workspace-removal`.
+
+1. `('click', 'Fixture', 'row')`
+2. `('context', 'Fixture', 'row')`
+3. `('click', 'Close Workspace', 'menu')`
+4. `('visible', 'Close project and its open worktrees?')`
+5. `('suspend_daemon',)`
+6. `('click', 'Close', 'button')`
+7. `('visible', 'Closing workspace')`
+8. `('no_control', 'Tab 1', 'button')`
+9. `('resume_daemon',)`
+10. `('settle_count', 'workspaces', 0)`
+11. `('file_text', '../Fixture checkout/dirty.txt', 'Keep this uncommitted work\n')`
+
+## UPDATE-016: Reopening a verified upgrade reuses the downloads and refreshes the session plan
+
+Fixture: `update-available`.
+
+Behaviors: `staged-upgrade`.
+
+1. `('click', 'Upgrade available', 'button')`
+2. `('enabled', 'Upgrade and Restart', 'button')`
+3. `('remember_release_downloads',)`
+4. `('click', 'Cancel', 'button')`
+5. `('command', 'New Tab')`
+6. `('count', 'tabs', 2)`
+7. `('click', 'Upgrade available', 'button')`
+8. `('enabled', 'Upgrade and Restart', 'button')`
+9. `('visible', '2 running terminals')`
+10. `('same_release_downloads',)`
+11. `('click', 'Cancel', 'button')`
+12. `('count', 'panes', 2)`
+
+## PREVIEW-010: An older machine explains missing preview support while local integrations remain available
+
+Fixture: `remote-limited`.
+
+Behaviors: `file-previews`.
+
+1. `('open_file_preview', 'text', True)`
+2. `('visible', 'Update this machine’s Jam server to preview files.')`
+3. `('click', 'Close preview', 'button')`
+4. `('settings', 'Integrations')`
+5. `('preview_integrations', 'Available')`
+6. `('click', 'Machine')`
+7. `('click', 'Fixture', 'menu')`
+8. `('preview_integrations', 'Update the Jam server')`
+9. `('click', 'Cancel', 'button')`
+10. `('remote_workspace_preserved',)`
+
+## RESET-001: Codex listed reset requires confirmation and refreshes the remaining balance
+
+Fixture: `usage-configured-login`.
+
+Behaviors: `free-resets`.
+
+1. `('reset_offer', 'listed')`
+2. `('click', 'Show Codex usage details', 'button')`
+3. `('visible', '1 reset available')`
+4. `('click', 'Use reset…', 'button')`
+5. `('visible', 'Use one free reset for fixture@example.invalid?')`
+6. `('click', 'Cancel', 'button')`
+7. `('reset_receipts', 'codex', 0, 'listed')`
+8. `('visible', '1 reset available')`
+9. `('click', 'Use reset…', 'button')`
+10. `('click', 'Use free reset', 'button')`
+11. `('visible', 'Free reset applied.')`
+12. `('visible', '0 resets available')`
+13. `('no_control', 'Use reset…', 'button')`
+14. `('reset_receipts', 'codex', 1, 'listed')`
+15. `('click', 'Done', 'button')`
+
+## RESET-002: Codex count reset requires confirmation and refreshes the remaining balance
+
+Fixture: `usage-configured-login`.
+
+Behaviors: `free-resets`.
+
+1. `('reset_offer', 'count')`
+2. `('click', 'Show Codex usage details', 'button')`
+3. `('visible', '1 reset available')`
+4. `('click', 'Use reset…', 'button')`
+5. `('visible', 'Use one free reset for fixture@example.invalid?')`
+6. `('click', 'Cancel', 'button')`
+7. `('reset_receipts', 'codex', 0, 'count')`
+8. `('visible', '1 reset available')`
+9. `('click', 'Use reset…', 'button')`
+10. `('click', 'Use free reset', 'button')`
+11. `('visible', 'Free reset applied.')`
+12. `('visible', '0 resets available')`
+13. `('no_control', 'Use reset…', 'button')`
+14. `('reset_receipts', 'codex', 1, 'count')`
+15. `('click', 'Done', 'button')`
+
+## RESET-003: Claude claude reset requires confirmation and refreshes the remaining balance
+
+Fixture: `usage-configured-login`.
+
+Behaviors: `free-resets`.
+
+1. `('reset_offer', 'claude')`
+2. `('click', 'Show Claude usage details', 'button')`
+3. `('visible', '1 reset available')`
+4. `('click', 'Use reset…', 'button')`
+5. `('visible', 'Use one free reset for fixture@example.invalid?')`
+6. `('click', 'Cancel', 'button')`
+7. `('reset_receipts', 'claude', 0, 'claude')`
+8. `('visible', '1 reset available')`
+9. `('click', 'Use reset…', 'button')`
+10. `('click', 'Use free reset', 'button')`
+11. `('visible', 'Free reset applied.')`
+12. `('visible', '0 resets available')`
+13. `('no_control', 'Use reset…', 'button')`
+14. `('reset_receipts', 'claude', 1, 'claude')`
+15. `('click', 'Done', 'button')`
+
+## RESET-004: An unconfirmed Codex reset reuses its attempt ID after the app relaunches
+
+Fixture: `usage-configured-login`.
+
+Behaviors: `free-resets`.
+
+1. `('reset_offer', 'unconfirmed')`
+2. `('click', 'Show Codex usage details', 'button')`
+3. `('visible', '1 reset available')`
+4. `('click', 'Use reset…', 'button')`
+5. `('click', 'Use free reset', 'button')`
+6. `('visible', 'Codex did not confirm this reset.')`
+7. `('reset_receipts', 'codex', 1, 'unconfirmed')`
+8. `('click', 'Done', 'button')`
+9. `('relaunch',)`
+10. `('click', 'Show Codex usage details', 'button')`
+11. `('click', 'Use reset…', 'button')`
+12. `('click', 'Use free reset', 'button')`
+13. `('visible', 'Free reset applied.')`
+14. `('reset_receipts', 'codex', 2, 'unconfirmed')`
+
+## RESET-005: A cached free reset survives reopening and relaunching the app without another provider read
+
+Fixture: `usage-configured-login`.
+
+Behaviors: `free-resets`.
+
+1. `('reset_offer', 'listed')`
+2. `('click', 'Show Codex usage details', 'button')`
+3. `('visible', '1 reset available')`
+4. `('remember_reset_reads',)`
+5. `('click', 'Done', 'button')`
+6. `('relaunch',)`
+7. `('click', 'Show Codex usage details', 'button')`
+8. `('stable_visible', '1 reset available', 2)`
+9. `('same_reset_reads',)`
+10. `('reset_receipts', 'codex', 0, 'listed')`
+
+## RESET-006: An account mismatch blocks redemption and an explicit retry loads the verified account
+
+Fixture: `usage-configured-login`.
+
+Behaviors: `free-resets`.
+
+1. `('reset_offer', 'mismatch')`
+2. `('click', 'Show Codex usage details', 'button')`
+3. `('visible', 'Codex could not verify the selected account')`
+4. `('no_control', 'Use reset…', 'button')`
+5. `('reset_receipts', 'codex', 0, 'mismatch')`
+6. `('reset_offer', 'listed')`
+7. `('click', 'Retry', 'button')`
+8. `('visible', '1 reset available')`
+9. `('enabled', 'Use reset…', 'button')`
+
+## RECOVERY-008: An interrupted working Claude session gets one continuation in its original conversation
+
+Fixture: `provider-detected`.
+
+Behaviors: `agent-recovery`.
+
+1. `('remember_layout',)`
+2. `('click', 'Terminal', 'terminal', 0)`
+3. `('type_shell_command', 'claude --dangerously-skip-permissions')`
+4. `('key', 'ENTER')`
+5. `('output', 'fixture-agent-resumed')`
+6. `('agent_field', 'shell_launched', True)`
+7. `('remember_agent_session',)`
+8. `('type_terminal', 'fixture pending job')`
+9. `('key', 'ENTER')`
+10. `('agent_field', 'activity', 'working')`
+11. `('restart_server',)`
+12. `('output', 'fixture-continuation-received')`
+13. `('same_agent_session',)`
+14. `('one_launch_continuation',)`
+15. `('same_layout',)`
+
+## WORKER-001: A standalone worker receives provider defaults
+
+Fixture: `provider-detected`.
+
+Behaviors: `worker-permissions`.
+
+1. `('run', 'mkdir Worker && jam workspace create "$PWD/Worker" --agent codex > worker-created.json')`
+2. `('count', 'workspaces', 2)`
+3. `('target_visible', 'Worker', 'row')`
+4. `('worker_permission', False)`
+5. `('click', 'Worker', 'row')`
+6. `('visible', 'fixture-agent-resumed')`
+
+## WORKER-002: A standalone worker receives explicit full access
+
+Fixture: `provider-detected`.
+
+Behaviors: `worker-permissions`.
+
+1. `('run', 'mkdir Worker && jam workspace create "$PWD/Worker" --agent codex --yolo > worker-created.json')`
+2. `('count', 'workspaces', 2)`
+3. `('target_visible', 'Worker', 'row')`
+4. `('worker_permission', True)`
+5. `('click', 'Worker', 'row')`
+6. `('visible', 'fixture-agent-resumed')`
+
+## LAYOUT-006: Switching machines and reconnecting preserves the remote toolbar tabs and their live terminals
+
+Fixture: `remote-connected`.
+
+Behaviors: `toolbar-tabs`, `optimistic-layout`.
+
+1. `('remote_shell', 'printf x > remote-tabs')`
+2. `('command', 'New Tab')`
+3. `('target_visible', 'Tab 2', 'button')`
+4. `('remember_remote_tabs',)`
+5. `('type_shell_command', 'printf y >> remote-tabs')`
+6. `('key', 'ENTER')`
+7. `('remote_file_text', 'remote-tabs', 'xy')`
+8. `('click', 'Fixture', 'row')`
+9. `('no_control', 'Tab 2', 'button')`
+10. `('click', 'Remote project', 'row')`
+11. `('target_visible', 'Tab 2', 'button')`
+12. `('context', 'Fixture', 'machine')`
+13. `('click', 'Disconnect', 'menu')`
+14. `('context', 'Fixture', 'machine')`
+15. `('click', 'Reconnect', 'menu')`
+16. `('remote_shell', 'printf z >> remote-tabs')`
+17. `('target_visible', 'Tab 2', 'button')`
+18. `('same_remote_tabs',)`
+19. `('remote_file_text', 'remote-tabs', 'xyz')`

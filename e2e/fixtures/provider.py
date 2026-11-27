@@ -65,6 +65,31 @@ def codex_rpc():
         result = {}
         if world().get("helper_failure"):
             response["error"] = {"message": "fixture-launch-error"}
+        elif method == "account/rateLimits/read":
+            offer = world().get("reset_offer")
+            spent = (HOME / "fixture-reset-spent").exists()
+            summary = {"availableCount": int(bool(offer) and not spent)}
+            if offer not in ("count", None):
+                summary["credits"] = [] if spent else [
+                    {"id": "fixture-credit", "resetType": "codexRateLimits", "status": "available",
+                     "title": "Fixture reset"},
+                ]
+            result = {"accountId": "other-account" if offer == "mismatch" else "fixture-account",
+                      "rateLimitResetCredits": summary}
+        elif method == "account/rateLimitResetCredit/consume":
+            key = str(uuid.UUID(params["idempotencyKey"]))
+            offer = world().get("reset_offer")
+            assert params.get("creditId") == (None if offer == "count" else "fixture-credit")
+            if offer == "unconfirmed" and not (HOME / "fixture-reset-first-attempt").exists():
+                (HOME / "fixture-reset-first-attempt").write_text(key)
+                response["error"] = {"message": "Fixture provider lost the confirmation"}
+            else:
+                first = HOME / "fixture-reset-first-attempt"
+                if first.exists():
+                    assert first.read_text() == key
+                with (HOME / "fixture-reset-spent").open("x") as receipt:
+                    receipt.write(key)
+                result = {"outcome": "reset"}
         elif method == "config/read":
             result = {
                 "config": {
@@ -228,6 +253,11 @@ def interactive():
         threading.Thread(target=receive, daemon=True).start()
     if not world().get("hold_readiness"):
         hook("SessionStart", session)
+        if PROVIDER == "claude" and "--resume" in sys.argv:
+            for argument in sys.argv[1:]:
+                if argument.startswith("Continue the interrupted work from this conversation."):
+                    hook("UserPromptSubmit", session, argument)
+                    print("fixture-continuation-received", flush=True)
     print("fixture-agent-resumed", flush=True)
     for line in sys.stdin:
         if "exit" == line.strip():
@@ -236,7 +266,8 @@ def interactive():
         if line.strip():
             record({"input": line.strip()})
             hook("UserPromptSubmit", session, line.strip())
-            hook("Stop", session)
+            if line.strip() != "fixture pending job":
+                hook("Stop", session)
 
 
 def main():

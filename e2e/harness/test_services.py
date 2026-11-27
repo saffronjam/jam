@@ -6,7 +6,7 @@ import ssl
 import subprocess
 import threading
 from urllib.error import HTTPError, URLError
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
 import pytest
 
@@ -91,6 +91,18 @@ def test_https_trust_and_signed_artifacts(tmp_path, monkeypatch):
             assert response.read() == asset.read_bytes()
         (release / "manifest.json").write_bytes(downloaded + b" ")
         assert subprocess.run(verify, check=False, capture_output=True, timeout=5).returncode != 0
+        scenario.write_text(json.dumps({"reset_offer": "claude"}))
+        with urlopen(origin + "/api/oauth/profile", context=trusted, timeout=3) as response:
+            org = json.load(response)["organization"]["uuid"]
+        claim = Request(origin + f"/api/organizations/{org}/reset_rate_limits",
+                        data=json.dumps({"program": "cedar_ember", "grant_id": "fixture-grant",
+                                         "request_id": "ffffffff-0000-4100-8200-000000000000"}).encode(),
+                        headers={"Authorization": "Bearer fixture-local-only"})
+        for expected in ("reset", "already_used"):
+            with urlopen(claim, context=trusted, timeout=3) as response:
+                assert json.load(response)["result"] == expected
+        with urlopen(origin + "/api/oauth/usage?cedar_ember=1", context=trusted, timeout=3) as response:
+            assert json.load(response)["cedar_ember"]["grants"][0]["resets_left"] == 0
         scenario.write_text(json.dumps({"http_error": 503}))
         with pytest.raises(HTTPError, match="503"):
             urlopen(origin + "/codex/usage", context=trusted, timeout=3)

@@ -6,6 +6,7 @@ import json
 import ssl
 import subprocess
 import time
+import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from socketserver import TCPServer
 from pathlib import Path
@@ -75,7 +76,11 @@ def signed_manifest(directory, config, version, protocol, assets):
     return manifest
 
 
+CLAUDE_ORG = "abababab-cdcd-4ded-8efe-121212121212"
+
+
 def handler(root, scenario, events):
+    spent = events.with_suffix(".claude-reset")
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *_):
             pass
@@ -104,12 +109,16 @@ def handler(root, scenario, events):
             if remote_login and state.get("remote_auth_error") and path == "/codex/usage":
                 self.send_error(401)
                 return
-            if path == "/claude/usage":
+            if path in ("/claude/usage", "/api/oauth/usage"):
                 value = {
                     "five_hour": {"utilization": 38 if separate_usage else 25,
                                   "resets_at": "2030-01-01T00:00:00Z"},
                     "seven_day": {"utilization": 50, "resets_at": "2030-01-05T00:00:00Z"},
                 }
+                if path == "/api/oauth/usage":
+                    available = state.get("reset_offer") == "claude" and not spent.exists()
+                    value["cedar_ember"] = {"eligible": True, "next_grant_id": "fixture-grant",
+                        "grants": [{"id": "fixture-grant", "resets_left": int(available)}]}
             elif path == "/codex/usage":
                 value = {
                     "rate_limit": {
@@ -126,10 +135,10 @@ def handler(root, scenario, events):
                     },
                     "credits": {"balance": "42"},
                 }
-            elif path == "/claude/profile":
+            elif path in ("/claude/profile", "/api/oauth/profile"):
                 value = {
                     "account": {"uuid": "fixture-account", "email": "fixture@example.invalid"},
-                    "organization": {"uuid": "fixture-org"},
+                    "organization": {"uuid": CLAUDE_ORG},
                 }
             elif path == "/releases/latest":
                 if not state.get("version"):
@@ -164,6 +173,38 @@ def handler(root, scenario, events):
                 self.send_error(404)
                 return
             data = json.dumps(value).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def do_POST(self):
+            if self.path != f"/api/organizations/{CLAUDE_ORG}/reset_rate_limits":
+                self.send_error(404)
+                return
+            if self.headers.get("Authorization") != "Bearer fixture-local-only":
+                self.send_error(401)
+                return
+            body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            if (body.get("program"), body.get("grant_id")) != ("cedar_ember", "fixture-grant"):
+                self.send_error(400)
+                return
+            attempt = str(uuid.UUID(body["request_id"]))
+            state = json.loads(scenario.read_text())
+            if state.get("reset_offer") != "claude":
+                self.send_error(409)
+                return
+            try:
+                with spent.open("x") as receipt:
+                    receipt.write(attempt)
+                result = "reset"
+            except FileExistsError:
+                result = "already_used"
+            with events.open("a") as log:
+                log.write(json.dumps({"path": self.path, "grant": body["grant_id"],
+                                      "attempt": attempt, "result": result}) + "\n")
+            data = json.dumps({"result": result}).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(data)))

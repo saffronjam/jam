@@ -118,6 +118,29 @@ done
         jam.terminal()
         ui.type("exit")
         ui.key("ENTER")
+    elif op == "open_file_preview":
+        from .previews import open_file
+
+        open_file(jam, *args)
+    elif op == "preview_pixels":
+        from .previews import preview_pixels
+
+        preview_pixels(jam, *args)
+    elif op in {"remember_remote_tabs", "same_remote_tabs"}:
+        from .remote import peer_call
+
+        def live_tabs():
+            state = peer_call(profile, "workspace", "list")["State"]
+            [workspace] = state["workspaces"]
+            tabs = [t["id"] for t in workspace["tabs"]]
+            sessions = {p["id"]: p.get("session_generation") for p in state["panes"] if not p["exited"]}
+            return (tabs, sessions) if len(tabs) == len(sessions) == 2 and all(sessions.values()) else None
+
+        snapshot = wait(live_tabs, "two committed remote tabs with distinct live terminals")
+        if op == "remember_remote_tabs":
+            memory["remote_tabs"] = snapshot
+        else:
+            assert memory["remote_tabs"] == snapshot
     elif op == "remote_server_changed":
         from .remote import server_changed
 
@@ -257,6 +280,21 @@ done
         from .visual import cursor_frames
 
         cursor_frames(jam)
+    elif op == "control_value":
+        name, expected = args
+        def matches_value():
+            target = ui._find_element(name, None, None)
+            return target is not None and target.get_attribute(
+                "value" if ui.platform == "macos" else "description") == expected
+        wait(matches_value, f"{name} shows {expected}")
+    elif op == "no_control":
+        name, *roles = args
+        wait(lambda: ui._find_element(name, roles[0] if roles else None, None) is None,
+             f"{name} leaves the desktop")
+    elif op == "preview_integrations":
+        from .previews import check_integrations
+
+        check_integrations(ui, args[0])
     elif op == "target_visible":
         ui.element(*args)
     elif op == "absent":
@@ -438,6 +476,32 @@ done
             while time.monotonic() < deadline:
                 assert readings() == memory["usage_requests"], "Usage reached the server during backoff"
                 time.sleep(0.1)
+    elif op == "reset_offer":
+        from .reset_offers import offer
+
+        offer(profile, *args)
+    elif op == "reset_receipts":
+        from .reset_offers import receipts
+
+        receipts(profile, *args)
+    elif op in {"remember_reset_reads", "same_reset_reads"}:
+        from .reset_offers import reads
+
+        if op == "remember_reset_reads":
+            memory["reset_reads"] = reads(profile)
+            assert memory["reset_reads"] > 0
+        else:
+            assert reads(profile) == memory["reset_reads"]
+    elif op in {"remember_release_downloads", "same_release_downloads"}:
+        events = (profile.root / "https.events").read_text().splitlines()
+        urls = [entry["path"] for entry in map(json.loads, events)
+                if entry["path"].startswith("/releases/download/")
+                and entry["path"].endswith((".zip", ".tar.gz"))]
+        if op == "remember_release_downloads":
+            assert urls
+            memory["release_downloads"] = urls
+        else:
+            assert urls == memory["release_downloads"]
     elif op == "usage_service_error":
         scenario = profile.root / "service-world.json"
         state = json.loads(scenario.read_text())
@@ -673,6 +737,20 @@ done
             return False
 
         wait(resumed, "real provider process resumed the saved conversation")
+    elif op == "one_launch_continuation":
+        starts = [json.loads(line) for line in (profile.home / "provider-events.jsonl").read_text().splitlines()]
+        resumed = [row["argv"] for row in starts if "--resume" in row.get("argv", [])]
+        assert len(resumed) == 1
+        assert sum(arg.startswith("Continue the interrupted work from this conversation.")
+                   for arg in resumed[0]) == 1
+        assert "fixture pending job" not in resumed[0]
+    elif op == "worker_permission":
+        def launched():
+            records = [json.loads(line) for line in (profile.home / "provider-events.jsonl").read_text().splitlines()]
+            return next((r for r in records if r.get("provider") == "codex"
+                         and r.get("agent") and r.get("argv")), None)
+        row = wait(launched, "standalone worker provider launch")
+        assert ("--yolo" in row["argv"]) == args[0]
     elif op == "no_registered_agents":
         wait(lambda: not profile.call("coordinate", "list")["Coordination"]["agents"],
              "the exited agent no longer owns the shell")

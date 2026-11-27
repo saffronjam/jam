@@ -65,7 +65,8 @@ def prepare(source, output, version, cargo_target, revision="HEAD", wire_protoco
     if limited_capabilities:
         server = output / "crates/jam-core/src/server.rs"
         server_source = server.read_text()
-        for name in ("clipboard_images", "workspace_creation_v1"):
+        for name in ("clipboard_images", "workspace_creation_v1", "file_preview", "task_progress",
+                     "usage_reset_credits", "claude_usage_resets"):
             capability = f'                "{name}".into(),\n'
             if server_source.count(capability) != 1:
                 raise ValueError(f"Cannot uniquely locate {name} capability")
