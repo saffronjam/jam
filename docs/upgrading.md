@@ -25,7 +25,7 @@ jam update                  # Alias for upgrade
 
 Automatic checks run shortly after launch when due, then wait a day after a successful check. Choose **Jam → Check for Updates…** or use **Settings → General** to check immediately. Automatic checks can be disabled in General settings.
 
-When Jam finds an update, **Upgrade available** appears in the top toolbar. Click it to download and verify the update before confirming the restart. Right-click it to **Skip This Version**. A skipped version stays hidden until a newer release appears or you check manually.
+When Jam finds an update, **Upgrade available** appears in the top toolbar. Click it to download and verify the update before confirming the restart. Open its arrow menu and choose **Skip This Version** to hide the update until a newer release appears or you check manually.
 
 If an upgrade was interrupted, Jam offers recovery with fresh confirmation. Recovery does not reuse earlier permission to upgrade remote machines.
 

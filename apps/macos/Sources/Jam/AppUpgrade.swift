@@ -516,23 +516,29 @@ struct UpgradeAvailableChip: View {
 
   var body: some View {
     if controller.managed, let release = controller.available, !controller.showSheet {
-      Button(action: controller.prepare) {
-        Text("Upgrade available")
-          .font(.caption.weight(.medium))
-          .padding(.horizontal, 10).padding(.vertical, 4)
-          .foregroundStyle(.primary)
-          .overlay(Capsule().strokeBorder(Color.yellow.opacity(0.8), lineWidth: 1))
-          .contentShape(Capsule())
+      HStack(spacing: 0) {
+        Button(action: controller.prepare) {
+          Text("Upgrade available")
+            .font(.caption.weight(.medium))
+            .padding(.leading, 10).padding(.trailing, 6).padding(.vertical, 4)
+            .foregroundStyle(.primary)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Install Jam \(release.version)")
+        .accessibilityHint("Install Jam \(release.version)")
+        Menu {
+          Button("Skip This Version", action: controller.skip)
+        } label: {
+          Image(systemName: "chevron.down").font(.caption2).padding(.trailing, 6)
+        }
+        .menuStyle(.borderlessButton).menuIndicator(.hidden)
+        .accessibilityLabel("Upgrade options")
       }
-      .buttonStyle(.plain)
       .fixedSize()
-      .help("Install Jam \(release.version)")
-      .accessibilityHint("Install Jam \(release.version)")
+      .background(Color.yellow.opacity(0.08), in: Capsule())
+      .overlay(Capsule().strokeBorder(Color.yellow.opacity(0.8), lineWidth: 1))
       .disabled(controller.busy)
-      .contextMenu {
-        Button("Skip This Version", action: controller.skip)
-          .disabled(controller.busy)
-      }
     }
   }
 }
@@ -688,11 +694,13 @@ struct AppUpgradeRecoverySheet: View {
   }
 }
 struct AppUpdateSettings: View {
+  @ObservedObject var store: Store
   @ObservedObject var controller: AppUpgradeController
   @Binding var automatic: Bool
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
       Toggle("Automatically check for updates", isOn: $automatic)
+        .accessibilityLabel("Automatically check for updates")
       HStack {
         Text("Jam \(controller.currentVersion)").foregroundStyle(.secondary)
         Spacer()
@@ -715,9 +723,32 @@ struct AppUpdateSettings: View {
       }
       if !controller.error.isEmpty { ErrorNotice(message: controller.error) }
     }
-    .jamSheet(isPresented: $controller.showSheet) { AppUpgradeSheet(controller: controller) }
+    .jamSheet(
+      isPresented: Binding(
+        get: { controller.showSheet || store.serverAction != nil },
+        set: { presented in
+          if !presented {
+            controller.showSheet = false
+            store.serverAction = nil
+          }
+        })
+    ) {
+      SettingsUpdateConfirmation(store: store, controller: controller)
+    }
     .jamSheet(item: $controller.recovery) { interrupted in
       AppUpgradeRecoverySheet(controller: controller, interrupted: interrupted)
+    }
+  }
+}
+
+private struct SettingsUpdateConfirmation: View {
+  @ObservedObject var store: Store
+  @ObservedObject var controller: AppUpgradeController
+  var body: some View {
+    if let action = store.serverAction {
+      ServerActionSheet(action: action).environmentObject(store)
+    } else {
+      AppUpgradeSheet(controller: controller)
     }
   }
 }

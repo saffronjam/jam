@@ -4,6 +4,8 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+[features]
+fixture-services = []
 [dependencies]
 ed25519-dalek = "2"
 semver = "1"

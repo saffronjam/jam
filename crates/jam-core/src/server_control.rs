@@ -90,6 +90,9 @@ fn status(endpoint: &str, daemon: &Path, artifacts: &Path, local_socket: &Path) 
             }
         }
         Ok(_) => result["error"] = "Unexpected server response".into(),
+        Err(error) if error.downcast_ref::<crate::RequestTimeout>().is_some() => {
+            return Err(error);
+        }
         Err(error) => {
             result["error"] = error.to_string().into();
             result["update_available"] = (running && available.is_some()).into();

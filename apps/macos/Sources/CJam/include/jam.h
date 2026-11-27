@@ -1,5 +1,6 @@
 #ifndef JAM_H
 #define JAM_H
+#include <stdbool.h>
 #include <stdint.h>
 /* Pinned libghostty-vt modifier ABI, shared with Request::Key/Mouse. */
 #define JAM_MOD_SHIFT 1
@@ -24,7 +25,8 @@ char *jam_upgrade(const char *request);
 void *jam_view_new(void *view, const char *pane, uint32_t width, uint32_t height);
 void jam_view_invalidate(void *view);
 char *jam_view_draw(void *view, uint32_t width, uint32_t height,
-                    uint32_t target_width, uint32_t target_height, float font_scale);
+                    uint32_t target_width, uint32_t target_height, float font_scale,
+                    bool owns_geometry);
 void jam_view_set_colors(void *view, uint32_t foreground, uint32_t background);
 void jam_view_drop(void *view);
 char *jam_view_action(void *view, const char *action, int32_t x, int32_t y);

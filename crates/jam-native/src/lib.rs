@@ -417,6 +417,7 @@ pub unsafe extern "C" fn jam_view_draw(
     target_width: u32,
     target_height: u32,
     scale: f32,
+    owns_geometry: bool,
 ) -> *mut c_char {
     json_result(|| {
         if ptr.is_null() || !scale.is_finite() || scale <= 0.0 {
@@ -443,7 +444,7 @@ pub unsafe extern "C" fn jam_view_draw(
                 v.last_size = (0, 0);
             }
         }
-        let resized = size != v.last_size;
+        let resized = owns_geometry && size != v.last_size;
         if resized
             && v.mirror.request(Request::Resize {
                 pane: v.pane.clone(),
@@ -517,6 +518,7 @@ pub unsafe extern "C" fn jam_view_action(
         let v = unsafe { &mut *ptr.cast::<View>() };
         let action = unsafe { string(action) };
         match action.as_str() {
+            "reclaim_size" => v.last_size = (0, 0),
             "clear_selection" => v.mirror.clear_selection(),
             "bottom" => v.mirror.bottom(),
             "scroll" => v.mirror.scroll(y as isize),

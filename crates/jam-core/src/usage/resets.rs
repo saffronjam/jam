@@ -1,5 +1,6 @@
 use super::{MONITOR, Profile, Provider, credentials, process, providers, unix_now};
 use crate::codex_session::Rpc;
+use crate::services::CLAUDE_API;
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -82,8 +83,6 @@ enum Session {
         organization: uuid::Uuid,
     },
 }
-
-const CLAUDE_API: &str = "https://api.anthropic.com";
 
 fn claude_grants(reading: &Value) -> Result<ResetCredits> {
     let block = &reading["cedar_ember"];

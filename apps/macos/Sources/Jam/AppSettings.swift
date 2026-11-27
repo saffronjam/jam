@@ -260,7 +260,8 @@ struct AppSettingsView: View {
     case "General":
       settingsGroup("Updates") {
         AppUpdateSettings(
-          controller: store.appUpgrade, automatic: $draft.config.automaticCheckUpdates)
+          store: store, controller: store.appUpgrade, automatic: $draft.config.automaticCheckUpdates
+        )
       }
       settingsGroup("Workspaces") {
         settingToggle(
@@ -311,6 +312,7 @@ struct AppSettingsView: View {
           Spacer()
           Text("\(draft.config.maxAgentsPerCoordinator)").monospacedDigit()
           Toggle("Automatically resume interrupted work", isOn: $draft.config.resumeInterruptedWork)
+            .accessibilityLabel("Automatically resume interrupted work")
           Stepper("Maximum workers", value: $draft.config.maxAgentsPerCoordinator, in: 1...64)
             .labelsHidden().fixedSize()
         }

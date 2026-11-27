@@ -28,6 +28,18 @@ fn connection(path: &Path) -> Slot {
         .or_default()
         .clone()
 }
+
+/// Retire the stream carried by a closed transport, even if the same daemon
+/// will return on the same socket path. Pending input is never replayed.
+pub(crate) fn disconnect(path: &Path) {
+    let slot = LINKS
+        .get()
+        .and_then(|links| links.lock().unwrap().get(path).cloned());
+    if let Some(slot) = slot {
+        slot.lock().unwrap().link = None;
+    }
+}
+
 /// Discard an input stream to a replaced server before accepting fresh input.
 /// No queued or already transmitted request is copied to the new connection.
 pub fn observe_server(path: &Path, incarnation: &str) {
@@ -101,7 +113,7 @@ impl Drop for Link {
 mod tests {
     use super::*;
     #[test]
-    fn server_replacement_resets_input_without_replaying_previous_requests() {
+    fn replacing_the_server_or_transport_resets_input_without_replay() {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("input.sock");
         let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
@@ -131,9 +143,11 @@ mod tests {
             let mut old = accept();
             read(&mut old, "first");
             read(&mut old, "second");
-            // Observing the same incarnation must keep the original link;
-            // observing the next one closes it before fresh input is sent.
+            // A new transport to the same server also needs a fresh stream.
             assert!(read_frame::<Request>(&mut old).is_err());
+            let mut reconnected = accept();
+            read(&mut reconnected, "reconnected");
+            assert!(read_frame::<Request>(&mut reconnected).is_err());
             let mut new = accept();
             read(&mut new, "fresh");
             write_frame(&mut new, &Message::Ok).unwrap();
@@ -150,6 +164,16 @@ mod tests {
             )
             .unwrap();
         }
+        disconnect(&path);
+        observe_server(&path, "old");
+        send(
+            &path,
+            Request::Send {
+                pane: "pane".into(),
+                data: b"reconnected".to_vec(),
+            },
+        )
+        .unwrap();
         observe_server(&path, "new");
         send(
             &path,
