@@ -608,6 +608,8 @@ class Desktop:
             return matches[0] if matches else None
         roles = {
             "button": ("XCUIElementTypeButton", "*[self::push_button or self::button]"),
+            "picker": ("XCUIElementTypePopUpButton", "combo_box"),
+            "progress": ("XCUIElementTypeProgressIndicator", "progress_bar"),
             "field": ("XCUIElementTypeTextField", "*[self::text or self::entry]"),
             "terminal": ("XCUIElementTypeTextView", "text"),
             "menu": ("XCUIElementTypeMenuItem", "menu_item"),
@@ -707,6 +709,24 @@ class Desktop:
             wait(lambda: element.get_attribute("value") == "1", f"expanded {name}")
         else:
             self._click_element(element, desktop=self.platform == "macos" and role == "menu")
+
+    def click_workspace_row(self, name, branch):
+        row = ("XCUIElementTypeCell" if self.platform == "macos"
+               else "*[self::list_item or self::tree_item or self::table_cell]")
+        # Both the machine heading and a project can have the same name.
+        # The workspace row also displays its current Git branch.
+        def text(value):
+            term = literal(value)
+            return f"@name={term} or @label={term} or @value={term} or @description={term}"
+
+        query = f"//{row}[({text(name)}) or .//*[{text(name)}]][.//*[{text(branch)}]]"
+
+        def target():
+            matches = [e for e in self.session.find_elements(By.XPATH, query) if e.is_displayed()]
+            assert len(matches) <= 1, f"Multiple workspaces named {name!r} on branch {branch!r}"
+            return matches[0] if matches else None
+
+        self._click_element(wait(target, f"workspace {name} on branch {branch}"))
 
     def _click_element(self, element, button=0, desktop=False):
         if self.platform == "macos" and button == 0 and self.observed_process is None and not desktop:

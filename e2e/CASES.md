@@ -4544,7 +4544,7 @@ Behaviors: `file-previews`.
 3. `('click', 'Close preview', 'button')`
 4. `('settings', 'Integrations')`
 5. `('preview_integrations', 'Available')`
-6. `('click', 'Machine')`
+6. `('click', 'Local', 'picker')`
 7. `('click', 'Fixture', 'menu')`
 8. `('preview_integrations', 'Update the Jam server')`
 9. `('click', 'Cancel', 'button')`
@@ -4732,7 +4732,7 @@ Behaviors: `toolbar-tabs`, `optimistic-layout`.
 5. `('type_shell_command', 'printf y >> remote-tabs')`
 6. `('key', 'ENTER')`
 7. `('remote_file_text', 'remote-tabs', 'xy')`
-8. `('click', 'Fixture', 'row')`
+8. `('click_workspace_row', 'Fixture', 'main')`
 9. `('no_control', 'Tab 2', 'button')`
 10. `('click', 'Remote project', 'row')`
 11. `('target_visible', 'Tab 2', 'button')`

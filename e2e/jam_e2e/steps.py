@@ -225,6 +225,8 @@ done
         jam.settings(*args)
     elif op == "save":
         jam.save()
+    elif op == "click_workspace_row":
+        ui.click_workspace_row(*args)
     elif op == "click":
         ui.click(*args)
     elif op == "context":
@@ -286,15 +288,16 @@ done
         cursor_frames(jam)
     elif op == "control_value":
         name, expected = args
+        role = "progress" if expected.endswith(" percent") else "button"
+
         def matches_value():
-            target = ui._find_element(name, None, None)
+            target = ui._find_element(name, role, None)
             if target is None:
                 return False
             value = target.get_attribute("value" if ui.platform == "macos" else "description")
             if value == expected:
                 return True
-            if (ui.platform == "macos" and expected.endswith(" percent")
-                    and target.tag_name == "XCUIElementTypeProgressIndicator"):
+            if ui.platform == "macos" and role == "progress":
                 # AppKit may expose the indicator's numeric AXValue instead of its spoken value.
                 number = expected.removesuffix(" percent")
                 return value in {number + "%", str(int(number) / 100)}
