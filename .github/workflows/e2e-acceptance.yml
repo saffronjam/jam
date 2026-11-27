@@ -1,0 +1,283 @@
+name: Desktop acceptance
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      proof_lane:
+        description: Optional independent queue for a complete verification run
+        type: string
+        required: false
+        default: ''
+      fixture_run:
+        description: Optional completed fixture producer from the exact same revision
+        type: string
+        required: false
+        default: ''
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        required: false
+        default: ''
+      proof_lane:
+        type: string
+        required: false
+        default: ''
+      fixture_run:
+        type: string
+        required: false
+        default: ''
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: desktop-acceptance-${{ github.event.pull_request.number || github.ref }}${{ inputs.proof_lane && format('::{0}', inputs.proof_lane) || '' }}
+  cancel-in-progress: false
+jobs:
+  coverage:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - name: Check the reviewed behavior and case inventories
+        working-directory: e2e
+        run: |
+          python3 -m jam_e2e.catalog --check
+          python3 -m jam_e2e.coverage --check
+  fixtures:
+    needs: coverage
+    uses: ./.github/workflows/e2e-release-fixtures.yml
+    with:
+      ref: ${{ inputs.ref || github.sha }}
+      fixture_run: ${{ inputs.fixture_run || '' }}
+  desktop:
+    needs: [coverage, fixtures]
+    if: ${{ !cancelled() && needs.coverage.result == 'success' && needs.fixtures.result == 'success' }}
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        os: [ubuntu-24.04, macos-26]
+        shard: [0, 1]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: ${{ matrix.os == 'macos-26' && 360 || 240 }}
+    env:
+      E2E_SHARD_INDEX: ${{ matrix.shard }}
+      E2E_SOURCE_REVISION: ${{ inputs.ref || github.sha }}
+      E2E_FIXTURE_PRODUCER: ${{ inputs.fixture_run || github.run_id }}
+      CARGO_BUILD_JOBS: 2
+      APPIUM_HOME: ${{ github.workspace }}/.cache/appium-home
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: ./.github/actions/setup-macos
+        if: runner.os == 'macOS'
+      - name: Install fixture prerequisites
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 -m venv .cache/e2e-bootstrap
+          .cache/e2e-bootstrap/bin/python -m pip install uv==0.13.5
+          python3 e2e/fixtures/fetch_vm_image.py .cache/debian-bookworm-arm64.qcow2
+          mkdir -p .cache/previous-server
+          gh release download v0.0.4 --repo saffronjam/jam --pattern jam-v0.0.4-linux-aarch64.tar.gz --dir .cache/previous-server
+          if [[ "$RUNNER_OS" == macOS ]]; then
+            brew list tesseract >/dev/null 2>&1 || brew install tesseract
+            brew list openssl@3 >/dev/null 2>&1 || brew install openssl@3
+            brew list qemu >/dev/null 2>&1 || brew install qemu
+            echo "$(brew --prefix openssl@3)/bin" >> "$GITHUB_PATH"
+          fi
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        if: runner.os == 'Linux'
+        with:
+          repository: KDE/selenium-webdriver-at-spi
+          ref: 4199d3ea3ccdcaa175b5a06ed3ad8f1af498f38a
+          path: e2e/environments/linux/upstream
+          persist-credentials: false
+      - name: Build the isolated Linux desktop and SSH environment
+        if: runner.os == 'Linux'
+        run: |
+          docker build --memory=2g --build-arg TEST_UID="$(id -u)" -t jam-e2e-wayland e2e/environments/linux
+          docker build --memory=2g -f e2e/environments/linux/Dockerfile.acceptance -t jam-e2e-acceptance e2e/environments/linux
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: fixture-release-bundle
+          path: build
+      - name: Use the genuine managed fixture installations
+        shell: bash
+        run: |
+          mkdir -p .cache/e2e-bundle
+          tar -xzf build/fixture-release-bundle.tar.gz -C .cache/e2e-bundle
+          test "$(cat .cache/e2e-bundle/source-revision)" = "$(git rev-parse HEAD)"
+          if [[ -f build/fixture-source.json ]]; then
+            mkdir -p e2e/artifacts
+            cp build/fixture-source.json e2e/artifacts/fixture-source.json
+          fi
+          ssh_fixture=()
+          if [[ "$RUNNER_OS" == macOS ]]; then
+            app="$PWD/.cache/e2e-bundle/installation/Jam.app"
+            codesign --verify --deep --strict "$app"
+            echo "E2E_CLI=$app/Contents/Resources/bin/jam" >> "$GITHUB_ENV"
+            echo "E2E_DAEMON=$app/Contents/MacOS/jamd" >> "$GITHUB_ENV"
+            ssh_fixture=(
+              --remote-archive "$PWD/.cache/e2e-bundle/releases/v0.0.4/jam-v0.0.4-linux-aarch64.tar.gz"
+              --remote-legacy-archive "$PWD/.cache/previous-server/jam-v0.0.4-linux-aarch64.tar.gz"
+              --remote-previous-archive "$PWD/.cache/e2e-bundle/releases/previous/jam-previous-linux-aarch64.tar.gz"
+              --remote-limited-archive "$PWD/.cache/e2e-bundle/releases/limited/jam-limited-linux-aarch64.tar.gz"
+              --remote-next-archive "$PWD/.cache/e2e-bundle/releases/v0.0.5/jam-v0.0.5-linux-aarch64.tar.gz"
+              --remote-incompatible-archive "$PWD/.cache/e2e-bundle/releases/incompatible/jam-incompatible-linux-aarch64.tar.gz"
+              --vm-image "$PWD/.cache/debian-bookworm-arm64.qcow2"
+              --qemu "$(command -v qemu-system-aarch64)" --qemu-img "$(command -v qemu-img)"
+              --vm-firmware "$(brew --prefix qemu)/share/qemu/edk2-aarch64-code.fd"
+            )
+          else
+            mkdir -p build/fixture-server
+            tar -xzf .cache/e2e-bundle/releases/v0.0.4/jam-v0.0.4-linux-x86_64.tar.gz -C build/fixture-server
+            echo "E2E_CLI=$PWD/build/fixture-server/jam" >> "$GITHUB_ENV"
+            echo "E2E_DAEMON=$PWD/build/fixture-server/jamd" >> "$GITHUB_ENV"
+          fi
+          python3 e2e/fixtures/build_bundle.py .cache/current-bundle \
+            --trust .cache/e2e-bundle/trust --releases .cache/e2e-bundle/releases "${ssh_fixture[@]}"
+      - name: Verify external provider and release dependencies
+        shell: bash
+        run: |
+          .cache/e2e-bootstrap/bin/uv run --project e2e --locked pytest -c e2e/pyproject.toml e2e/checks \
+            --cli "$E2E_CLI" --daemon "$E2E_DAEMON" \
+            --fixture-bundle .cache/current-bundle/manifest.json --junitxml=e2e/artifacts/dependencies.xml
+      - name: Provision Mac2 in the native graphical session
+        if: ${{ !cancelled() && runner.os == 'macOS' }}
+        shell: bash
+        run: |
+          npm install --prefix .cache/appium appium@3.9.1
+          .cache/appium/node_modules/.bin/appium driver install mac2@4.6.1
+          python3 e2e/environments/macos/prepare_driver.py "$APPIUM_HOME/node_modules/appium-mac2-driver"
+          sudo automationmodetool enable-automationmode-without-authentication
+          .cache/appium/node_modules/.bin/appium driver doctor mac2
+          mkdir -p e2e/artifacts
+          .cache/appium/node_modules/.bin/appium --address 127.0.0.1 --port 4723 --log "$PWD/e2e/artifacts/appium.log" &
+          python3 - <<'PY'
+          import time
+          from urllib.request import urlopen
+          deadline = time.monotonic() + 30
+          while True:
+              try:
+                  with urlopen('http://127.0.0.1:4723/status', timeout=1) as response:
+                      assert response.status == 200
+                  break
+              except OSError:
+                  if time.monotonic() >= deadline:
+                      raise
+                  time.sleep(.2)
+          PY
+      - name: Probe native automation before the complete run
+        if: ${{ !cancelled() && runner.os == 'macOS' }}
+        shell: bash
+        run: |
+          .cache/e2e-bootstrap/bin/uv run --project e2e --locked pytest -c e2e/pyproject.toml e2e/native_checks/test_macos_input.py \
+            --platform macos --artifacts-dir e2e/artifacts/probe --junitxml=e2e/artifacts/probe.xml
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always() && runner.os == 'macOS'
+        with:
+          name: native-automation-probe-shard-${{ matrix.shard }}
+          path: e2e/artifacts/
+          if-no-files-found: error
+      - name: Fetch the published stock macOS release
+        if: ${{ !cancelled() && runner.os == 'macOS' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p .cache/stock
+          gh release download v0.0.8 --repo saffronjam/jam --pattern Jam-v0.0.8-macos-arm64.zip --dir .cache/stock
+          ditto -xk .cache/stock/Jam-v0.0.8-macos-arm64.zip .cache/stock
+          codesign --verify --deep --strict .cache/stock/Jam.app
+      - name: Smoke the unmodified installed stock artifact
+        if: ${{ !cancelled() && runner.os == 'macOS' }}
+        run: |
+          .cache/e2e-bootstrap/bin/uv run --project e2e --locked pytest -c e2e/pyproject.toml e2e/installed \
+            --app "$PWD/.cache/stock/Jam.app" --platform macos \
+            --artifacts-dir e2e/artifacts/stock --junitxml=e2e/artifacts/stock.xml
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always() && runner.os == 'macOS'
+        with:
+          name: stock-macos-smoke-shard-${{ matrix.shard }}
+          path: e2e/artifacts/stock*
+          if-no-files-found: error
+      - name: Run the complete shared desktop contract
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          E2E_SOURCE_REVISION=$(git rev-parse HEAD)
+          if [[ "$RUNNER_OS" == macOS ]]; then
+            app="$PWD/.cache/e2e-bundle/installation/Jam.app"
+            platform=macos
+            binaries=()
+          else
+            mkdir -p e2e/artifacts
+            docker run --rm --memory=2g --cpus=2 -v "$PWD:/work" \
+              -e E2E_SHARD_INDEX -e E2E_SOURCE_REVISION -e E2E_FIXTURE_PRODUCER \
+              -e UV_PROJECT_ENVIRONMENT=/tmp/jam-e2e-venv \
+              -e APPIUM_ARTIFACT_OUTPUT_PATH=/work/e2e/artifacts/linux-desktop \
+              jam-e2e-acceptance sh e2e/environments/linux/run-acceptance.sh
+            exit $?
+          fi
+          .cache/e2e-bootstrap/bin/uv run --project e2e --locked pytest -v -c e2e/pyproject.toml e2e/tests \
+            --app "$app" --platform "$platform" "${binaries[@]}" \
+            --fixture-bundle "$PWD/.cache/current-bundle/manifest.json" \
+            --shard-index "$E2E_SHARD_INDEX" --shard-count 2 \
+            --source-revision "$E2E_SOURCE_REVISION" --fixture-producer "$E2E_FIXTURE_PRODUCER" \
+            --junitxml=e2e/artifacts/acceptance.xml
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: desktop-acceptance-${{ matrix.os }}-shard-${{ matrix.shard }}
+          path: e2e/artifacts/
+          if-no-files-found: error
+
+  reconcile:
+    needs: [coverage, desktop]
+    if: ${{ !cancelled() && needs.coverage.result == 'success' && needs.desktop.result != 'skipped' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: desktop-acceptance-*-shard-*
+          path: build/acceptance-shards
+      - name: Reconcile every required case and platform
+        env:
+          PRODUCER: ${{ inputs.fixture_run || github.run_id }}
+        run: |
+          cd e2e
+          python3 - <<'PYCODE'
+          import json, os, subprocess, sys
+          from pathlib import Path
+          from jam_e2e.cases import CASES
+          from jam_e2e.sharding import AcceptanceFailed, reconcile
+          revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          results = {}
+          root = Path('../build/acceptance-shards')
+          for platform, runner in [('macos', 'macos-26'), ('linux', 'ubuntu-24.04')]:
+              try:
+                  results[platform] = reconcile(
+                      [root / f'desktop-acceptance-{runner}-shard-{i}' for i in range(2)],
+                      [case.id for case in CASES], platform, revision, os.environ['PRODUCER'])
+              except AcceptanceFailed as error:
+                  results[platform] = {**error.report, 'error': str(error)}
+              except Exception as error:
+                  results[platform] = {'error': str(error)}
+          (root / 'summary.json').write_text(json.dumps(results, indent=2) + '\n')
+          print(json.dumps(results, indent=2))
+          sys.exit(any('error' in result for result in results.values()))
+          PYCODE
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: desktop-acceptance-summary
+          path: build/acceptance-shards/summary.json
+          if-no-files-found: error

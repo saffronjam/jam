@@ -1,0 +1,47 @@
+name: E2E harness
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: e2e-harness-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  harness:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-26]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - uses: ./.github/actions/setup-macos
+        if: runner.os == 'macOS'
+      - name: Install pinned test bootstrap
+        run: |
+          python3 -m venv .cache/e2e-bootstrap
+          .cache/e2e-bootstrap/bin/python -m pip install uv==0.13.5
+          if [ "$RUNNER_OS" = macOS ]; then
+            brew list openssl@3 >/dev/null 2>&1 || brew install openssl@3
+            echo "$(brew --prefix openssl@3)/bin" >> "$GITHUB_PATH"
+          fi
+      - name: Verify external harness and failure policy
+        run: |
+          .cache/e2e-bootstrap/bin/uv run --project e2e --locked pytest -c e2e/pyproject.toml e2e/harness --allow-subset --junitxml=e2e/artifacts/harness.xml
+          cd e2e
+          ../.cache/e2e-bootstrap/bin/uv run --locked python -m jam_e2e.catalog --check
+      - name: Type-check native operating-system observers
+        if: runner.os == 'macOS'
+        run: |
+          for helper in e2e/native/macos/*.swift; do
+            swiftc -typecheck "$helper"
+          done
+          clang -fobjc-arc -fsyntax-only e2e/native/macos/virtual-display.m
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: e2e-harness-${{ matrix.os }}
+          path: e2e/artifacts/
+          if-no-files-found: error
