@@ -1,0 +1,102 @@
+--- a/WebDriverAgentMac/WebDriverAgentLib/Routing/FBSession.m
++++ b/WebDriverAgentMac/WebDriverAgentLib/Routing/FBSession.m
+@@ -12,0 +13 @@
++#import <AppKit/AppKit.h>
+@@ -23,0 +25,7 @@
++// Explicit attachment uses the native XCTest process identity, rather than
++// its ambiguous cached bundle identity for accessory helpers.
++@interface XCUIApplication (AMObservedProcess)
++- (void)setProcessID:(pid_t)processID;
++- (pid_t)processID;
++@end
++
+@@ -27,0 +36 @@
++@property (nonatomic) pid_t observedProcessID;
+@@ -74,0 +84 @@
++  self.observedProcessID = 0;
+@@ -97,2 +107,26 @@
+-    if (self.testedApplication.state <= XCUIApplicationStateNotRunning) {
+-      NSString *description = @"The application under test is not running, possibly crashed";
++    BOOL running;
++    NSString *binding = @"";
++    if (self.observedProcessID > 1) {
++      // XCTest can retain a terminated same-bundle accessory in its state
++      // cache even after binding the actual main PID. Validate that exact
++      // OS process instead; subsequent snapshots still have to read its UI.
++      NSRunningApplication *observed = [NSRunningApplication runningApplicationWithProcessIdentifier:self.observedProcessID];
++      NSString *actual = observed.bundleURL.URLByResolvingSymlinksInPath.path;
++      NSString *expected = [NSURL fileURLWithPath:self.testedApplication.am_path].URLByResolvingSymlinksInPath.path;
++      running = nil != observed && !observed.terminated
++        && nil != actual && [actual isEqualToString:expected];
++      if (running) {
++        // XCTest asynchronously clears this binding after an accessory exits.
++        // Restore only the already-verified live process before this UI command;
++        // never launch an app or substitute another PID.
++        [self.testedApplication setProcessID:self.observedProcessID];
++        running = self.testedApplication.processID == self.observedProcessID;
++      }
++      binding = [NSString stringWithFormat:@" [observed PID=%d, SDK PID=%d, terminated=%d, actual=%@, expected=%@]",
++        self.observedProcessID, self.testedApplication.processID,
++        nil == observed || observed.terminated, actual, expected];
++    } else {
++      running = self.testedApplication.state > XCUIApplicationStateNotRunning;
++    }
++    if (!running) {
++      NSString *description = [@"The application under test is not running, possibly crashed" stringByAppendingString:binding];
+@@ -110,0 +145,52 @@
++  NSNumber *observedPID = (NSNumber *)environment[@"webdriver:attachProcess"];
++  if (nil != observedPID) {
++    if (![observedPID isKindOfClass:NSNumber.class] || observedPID.intValue <= 1
++        || nil == path || arguments.count != 0 || environment.count != 1) {
++      @throw [NSException exceptionWithName:FBInvalidArgumentException
++                                   reason:@"Process attachment requires an observed PID and bundle path, without launch arguments"
++                                 userInfo:nil];
++    }
++    NSRunningApplication *running = [NSRunningApplication runningApplicationWithProcessIdentifier:observedPID.intValue];
++    NSString *actual = running.bundleURL.URLByResolvingSymlinksInPath.path;
++    NSString *expected = [NSURL fileURLWithPath:path].URLByResolvingSymlinksInPath.path;
++    if (nil == running || running.terminated || nil == actual || ![actual isEqualToString:expected]) {
++      @throw [NSException exceptionWithName:FBInvalidArgumentException
++                                   reason:@"The observed process does not belong to the requested running application"
++                                 userInfo:nil];
++    }
++    // Preserve the ordinary filesystem-URL factory while using the
++    // canonical path reported by the observed process, not a /var alias.
++    XCUIApplication *attached = [[XCUIApplication alloc] initWithURL:[NSURL fileURLWithPath:actual]];
++    if (![attached respondsToSelector:@selector(setProcessID:)]) {
++      NSMutableDictionary *available = [NSMutableDictionary new];
++      for (NSNumber *kind in @[@NO, @YES]) {
++        unsigned int count = 0;
++        Class cls = kind.boolValue ? object_getClass(XCUIApplication.class) : XCUIApplication.class;
++        Method *methods = class_copyMethodList(cls, &count);
++        NSMutableArray *names = [NSMutableArray new];
++        for (unsigned int index = 0; index < count; ++index) {
++          NSString *name = NSStringFromSelector(method_getName(methods[index]));
++          if ([name.lowercaseString containsString:@"process"]
++              || [name.lowercaseString containsString:@"pid"]
++              || [name hasPrefix:@"init"]) {
++            [names addObject:name];
++          }
++        }
++        free(methods);
++        available[kind.boolValue ? @"class" : @"instance"] = names;
++      }
++      NSString *reason = [NSString stringWithFormat:@"This XCTest version does not support exact process attachment; available process APIs: %@", available];
++      @throw [NSException exceptionWithName:FBInvalidArgumentException reason:reason userInfo:nil];
++    }
++    [attached setProcessID:observedPID.intValue];
++    if (attached.processID != observedPID.intValue) {
++      @throw [NSException exceptionWithName:FBApplicationCrashedException
++                                   reason:@"Cannot attach to the observed running application process"
++                                 userInfo:nil];
++    }
++    self.observedProcessID = observedPID.intValue;
++    self.testedApplication = attached;
++    [self.elementCache reset];
++    return attached;
++  }
++  self.observedProcessID = 0;
+@@ -131,0 +218 @@
++    self.observedProcessID = 0;
+@@ -149,0 +237 @@
++    self.observedProcessID = 0;

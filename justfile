@@ -102,3 +102,14 @@ daemon action="status":
       cargo build --locked -p jam
     fi
     python3 scripts/daemon.py "$action"
+
+[doc('Run external desktop acceptance tests (requires installed app and native driver)')]
+[group('check')]
+e2e *args:
+    uv run --project e2e --locked pytest -c e2e/pyproject.toml e2e/tests {{ args }}
+
+[doc('Check E2E harness isolation and failure policy without launching Jam')]
+[group('check')]
+e2e-harness:
+    uv run --project e2e --locked pytest -c e2e/pyproject.toml e2e/harness --allow-subset
+    cd e2e && uv run --locked python -m jam_e2e.catalog --check

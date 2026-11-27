@@ -1,0 +1,1879 @@
+{
+  "schema": 1,
+  "source_base": "ac5d1613798fdd46bfd0d1c5f635c698ea328016",
+  "source_tip": "207ba8f02523ea65000c4c0b1dcb83b36f593253",
+  "behaviors": [
+    {
+      "id": "images",
+      "title": "Native image paste and errors",
+      "reviewed": true,
+      "cases": [
+        "IMAGE-001",
+        "IMAGE-002",
+        "IMAGE-003",
+        "IMAGE-004",
+        "IMAGE-005",
+        "IMAGE-006",
+        "IMAGE-007",
+        "IMAGE-008"
+      ],
+      "assertions": [
+        "Mixed format PNG and TIFF paste uses image bytes on the target host",
+        "Pasted path and following input arrive as separate arguments",
+        "Oversized and capability-limited image paste show errors and leave a usable terminal",
+        "Ctrl-V in a plain shell reaches the raw PTY unchanged",
+        "A refused storage directory leaves its occupant and shell intact"
+      ],
+      "supporting_tests": [
+        "apps/macos/Tests/JamUITests/TerminalSwitchTests.swift::checkImageClipboard",
+        "crates/jam-core/src/clipboard.rs::images_are_private_unique_and_reject_invalid_content",
+        "crates/jam-core/src/clipboard.rs::retention_only_removes_old_owned_images",
+        "crates/jam/tests/persistence.rs::clipboard_images_are_stored_on_the_target_host_before_pasting"
+      ]
+    },
+    {
+      "id": "creation",
+      "title": "Pending workspace and worktree operations",
+      "reviewed": true,
+      "cases": [
+        "WT-008",
+        "WT-009",
+        "CREATE-001",
+        "CREATE-002",
+        "CREATE-003",
+        "CREATE-004",
+        "CREATE-005",
+        "CREATE-006",
+        "CREATE-007",
+        "CREATE-008",
+        "CREATE-009",
+        "CREATE-010",
+        "CREATE-011",
+        "CREATE-012",
+        "CREATE-013",
+        "CREATE-014",
+        "CREATE-015"
+      ],
+      "assertions": [
+        "Failed worktree creation preserves existing state and supports explicit Retry or Dismiss",
+        "Successful Retry creates one usable workspace",
+        "A real blocked Git checkout is pending until released, then exposes a usable first terminal",
+        "Opening the same local or remote directory twice leaves one live workspace at that path",
+        "Completing a worktree does not take back selection after the user moves away",
+        "Local New Workspace starts a usable terminal in the private home",
+        "Workspace order stays fixed during a pending checkout and can change after completion",
+        "Opening an existing checkout gives one terminal in the selected checkout, including the exact remote branch and working directory",
+        "During a pending worktree handoff the previous terminal receives no key input and remains usable after reselecting it"
+      ],
+      "supporting_tests": [
+        "apps/macos/Tests/JamTests/WorkspaceCreationTests.swift",
+        "apps/macos/Tests/JamUITests/TerminalSwitchTests.swift::checkWorkspaceHandoff"
+      ]
+    },
+    {
+      "id": "creation-recovery",
+      "title": "Creation interruption and compatibility",
+      "reviewed": true,
+      "cases": [
+        "CREATE-003",
+        "CREATE-005",
+        "CREATE-009",
+        "CREATE-012",
+        "CREATE-013"
+      ],
+      "assertions": [
+        "Capability-limited remote fallback creates a live terminal using the peer home",
+        "Explicit Retry after a real timed-out operation results in one workspace",
+        "Cutting the client SSH path leaves the peer's checkout running, and Retry recovers its one persisted workspace",
+        "Retry after a remote daemon restart selects the persisted checkout if present and does not resubmit an unconfirmed checkout"
+      ],
+      "supporting_tests": [
+        "crates/jam/tests/persistence.rs::retrying_workspace_creation_returns_the_same_workspace_and_pane"
+      ]
+    },
+    {
+      "id": "takeover",
+      "title": "Explicit server takeover and rollback",
+      "reviewed": true,
+      "cases": [
+        "TAKEOVER-001",
+        "TAKEOVER-002",
+        "TAKEOVER-003",
+        "TAKEOVER-004",
+        "TAKEOVER-005",
+        "TAKEOVER-006",
+        "TAKEOVER-007",
+        "UPDATE-SETTINGS-003"
+      ],
+      "assertions": [
+        "Cancel preserves the existing server and its session identities",
+        "Confirm uses the current build with the same workspace layout and new sessions",
+        "A newer server offers only a client upgrade and leaves the remote sessions intact",
+        "A signed replacement refused by the real remote service rolls back to the prior server and saved layout",
+        "An actual interrupted installation remains pending until recovery is confirmed, then restores the previous build and layout without replay",
+        "Confirmation is bound to the inspected process; a stale confirmation makes no change, and Retry prepares fresh consent",
+        "A foreign local daemon can be replaced after confirmation, with the saved workspace and one execution of each command"
+      ],
+      "supporting_tests": [
+        "crates/jam/tests/persistence.rs::explicit_takeover_preserves_workspace_and_rejects_replayed_confirmation",
+        "crates/jam/tests/persistence.rs::failed_takeover_restores_previous_server_and_checkpoint",
+        "crates/jam/tests/persistence.rs::interrupted_takeover_before_shutdown_keeps_live_sessions",
+        "scripts/tests/test_remote_install.py"
+      ]
+    },
+    {
+      "id": "diagnostics",
+      "title": "Timeout diagnostics and server operations",
+      "reviewed": true,
+      "cases": [
+        "REMOTE-002",
+        "REMOTE-003",
+        "DIAG-001",
+        "DIAG-002",
+        "SIDEBAR-001"
+      ],
+      "assertions": [
+        "A stopped owned daemon exposes Retry and resumes without replacing the daemon or shell",
+        "SSH transport failure exposes inspection and Retry while disabling destructive actions and preserving the remote server",
+        "Offline or rejected SSH reports an unavailable server, and the retry action preserves the peer",
+        "An unavailable status remains legible in the workspace outline and machine list at narrow window sizes"
+      ],
+      "supporting_tests": [
+        "crates/jam/tests/persistence.rs::a_blocked_coordination_write_does_not_block_health_or_terminal_input",
+        "crates/jam/tests/persistence.rs::unresponsive_local_server_reports_inspection_failure_without_takeover",
+        "apps/macos/Tests/JamTests/ServerStatusTests.swift",
+        "scripts/tests/test_server_inspect.py",
+        "apps/macos/Tests/JamTests/SidebarUpdatesTests.swift"
+      ]
+    },
+    {
+      "id": "update-settings",
+      "title": "Nested settings update flows",
+      "reviewed": true,
+      "cases": [
+        "UPDATE-004",
+        "UPDATE-005",
+        "UPDATE-006",
+        "UPDATE-007",
+        "UPDATE-008",
+        "UPDATE-009",
+        "UPDATE-010",
+        "UPDATE-011",
+        "UPDATE-012",
+        "UPDATE-SETTINGS-001",
+        "TAKEOVER-003",
+        "UPDATE-SETTINGS-002",
+        "UPDATE-SETTINGS-003",
+        "UPDATE-SETTINGS-004",
+        "UPDATE-SETTINGS-005",
+        "UPDATE-SETTINGS-006",
+        "UPDATE-SETTINGS-007"
+      ],
+      "assertions": [
+        "An available managed update prepares a sheet from Settings and cancellation preserves the installation",
+        "A newer server offers an app upgrade instead of server replacement",
+        "A slow signed download shows progress with install disabled and cancellation preserves state",
+        "A foreign server is presented as a takeover confirmation before applying an app upgrade",
+        "Settings presents exactly one native upgrade or recovery sheet and retains the surrounding Settings controls after cancellation",
+        "Unmanaged installations show the checked release in Settings with upgrade disabled and no updater notice in the main window",
+        "Missing the minimum client release leaves the remote server and shells intact without enabling an app upgrade",
+        "A skipped release can still be staged explicitly in Settings"
+      ],
+      "supporting_tests": [
+        "apps/macos/Tests/JamUITests/TerminalSwitchTests.swift::checkUpdateSettingsControls",
+        "apps/macos/Tests/JamUITests/TerminalSwitchTests.swift::checkUpgradeNotifications"
+      ]
+    },
+    {
+      "id": "accounts",
+      "title": "Account grouping and source availability",
+      "reviewed": true,
+      "cases": [
+        "USAGE-001",
+        "USAGE-002",
+        "USAGE-003",
+        "USAGE-004",
+        "USAGE-005",
+        "USAGE-006",
+        "ACCOUNT-001",
+        "ACCOUNT-002",
+        "ACCOUNT-003",
+        "ACCOUNT-004",
+        "ACCOUNT-005",
+        "ACCOUNT-006",
+        "ACCOUNT-007"
+      ],
+      "assertions": [
+        "A configured account is visible without any active agent session",
+        "Shared logins collapse to one page, separate logins can be selected independently",
+        "A remote-only account shows last known usage while disconnected and clears its stale warning on reconnect",
+        "Organizations that share a login email remain distinct from each other and other providers",
+        "Disabling a provider in Settings hides its cards while preserving other provider usage and terminal input",
+        "Concurrent agents with one login on two machines open a single account details page",
+        "A rejected remote login has its own sign-in state and no local Keychain action, while the local login remains usable",
+        "Missing account identity stays on its own page and authentication and rate-limit failures remain visible"
+      ],
+      "supporting_tests": [
+        "apps/macos/Tests/JamTests/AgentUsageTests.swift",
+        "crates/jam-core/src/usage/mod.rs::only_explicit_authorization_can_queue_a_keychain_prompt"
+      ]
+    },
+    {
+      "id": "identity",
+      "title": "Reported agent identity and lifetime",
+      "reviewed": true,
+      "cases": [
+        "IDENTITY-001",
+        "IDENTITY-002",
+        "IDENTITY-003",
+        "IDENTITY-004",
+        "IDENTITY-005",
+        "IMAGE-004",
+        "FOCUS-001",
+        "FOCUS-002"
+      ],
+      "assertions": [
+        "Canonical provider and reported source appear via the public CLI and visible pane label",
+        "Acknowledgement/clear retain provider; shell return ends it",
+        "Titles alone do not register agents",
+        "Foreground acknowledgement preserves reported provider identity",
+        "Client relaunch preserves live identity and a daemon restart clears it from the new shell",
+        "Registered coordinator provider and role appear on its pane and in the visible terminal header"
+      ],
+      "supporting_tests": [
+        "crates/jam-core/src/status.rs::identity_is_separate_from_activity_and_nested_tool_reports",
+        "crates/jam/tests/persistence.rs::manual_agent_identity_survives_acknowledgement_and_ends_at_shell_return",
+        "crates/jam/tests/persistence.rs::reported_agent_identity_is_not_restored_into_a_new_shell"
+      ]
+    },
+    {
+      "id": "focus-close",
+      "title": "Focus acknowledgement and close confirmations",
+      "reviewed": true,
+      "cases": [
+        "CLOSE-001",
+        "CLOSE-002",
+        "CLOSE-003",
+        "CLOSE-004",
+        "FOCUS-001",
+        "FOCUS-002",
+        "RENAME-001",
+        "CREATE-015"
+      ],
+      "assertions": [
+        "Closing an exited workspace requires no confirmation and preserves its files",
+        "Completion stays unread on an inactive tab and selecting it acknowledges only its activity",
+        "Terminal focus returns after inline editing without an extra focus click",
+        "A live worktree or coordinator requires confirmation before closing its otherwise empty project",
+        "An inactive client leaves completion unread; reselecting the workspace in the active client acknowledges that pane",
+        "An empty project and worktree close as a group without a confirmation or checkout removal",
+        "Pending workspace selection keeps terminal input away from the previous pane"
+      ],
+      "supporting_tests": [
+        "apps/macos/Tests/JamUITests/TerminalSwitchTests.swift::checkAutomaticFocusAcknowledgement",
+        "apps/macos/Tests/JamUITests/TerminalSwitchTests.swift::checkEmptyGroups"
+      ]
+    },
+    {
+      "id": "rendering",
+      "title": "Synchronized frames, cursor and sidebar presentation",
+      "reviewed": true,
+      "cases": [
+        "LONG-001",
+        "VISUAL-001",
+        "VISUAL-002",
+        "VISUAL-003",
+        "RENDER-001",
+        "RENDER-002",
+        "RENDER-003",
+        "SIDEBAR-001",
+        "RENAME-001"
+      ],
+      "assertions": [
+        "Native pixel samples during a fragmented redraw show the last completed frame",
+        "An unterminated redraw eventually publishes its frame and terminal input continues",
+        "The renamed editor shows its new text without the old label in native pixels",
+        "Hidden, steady and blinking cursor states are distinguishable in actual native terminal pixels",
+        "Long Unicode titles remain accessible and survive resize and client relaunch",
+        "The actual terminal remains legible across light and dark appearance and resize",
+        "The inset sidebar leaves both copies of the machine status readable beside a long name"
+      ],
+      "supporting_tests": [
+        "crates/jam-core/src/client.rs::fragmented_synchronized_redraws_only_publish_complete_frames",
+        "apps/macos/Tests/JamUITests/TerminalSwitchTests.swift::checkSidebarAlignment",
+        "apps/macos/Tests/JamUITests/TerminalSwitchTests.swift::checkInlineRename"
+      ]
+    },
+    {
+      "id": "theme-and-selection",
+      "title": "Themes and default terminal selection",
+      "reviewed": true,
+      "cases": [
+        "THEME-001",
+        "SELECT-003"
+      ],
+      "assertions": [
+        "Saving Warm changes the actual terminal pixels while Cancel preserves Midnight",
+        "The saved palette survives relaunch, can be reverted, and leaves the portable appearance setting intact",
+        "Drag selection copies by default, automatic copy emits a short notification, and explicit Copy preserves the selected text"
+      ],
+      "supporting_tests": [
+        "apps/macos/Tests/JamUITests/TerminalSwitchTests.swift::checkTerminalMouseGestures"
+      ]
+    },
+    {
+      "id": "optimistic-layout",
+      "title": "Optimistic layout and pane focus",
+      "reviewed": true,
+      "cases": [
+        "LAYOUT-003",
+        "LAYOUT-004",
+        "LAYOUT-005",
+        "LAYOUT-006"
+      ],
+      "assertions": [
+        "Split and new-tab previews become visible with the daemon suspended and each commits one new terminal after it resumes",
+        "The original shell processes survive these additions and the new terminals accept physical input",
+        "After closing the focused pane the next input reaches its nearest surviving neighbor"
+      ],
+      "supporting_tests": [
+        "apps/macos/Tests/JamUITests/TerminalSwitchTests.swift::checkOptimisticSplit",
+        "apps/macos/Tests/JamUITests/TerminalSwitchTests.swift::checkRapidFocus",
+        "apps/macos/Tests/JamTests/PaneLayoutTests.swift",
+        "crates/jam/tests/persistence.rs::stale_layout_edits_leave_authoritative_layout_unchanged"
+      ]
+    },
+    {
+      "id": "render-lifecycle",
+      "title": "Terminal geometry during layout transitions",
+      "reviewed": true,
+      "cases": [
+        "LAYOUT-003"
+      ],
+      "assertions": [
+        "The surviving terminal has already narrowed before the daemon replies to a split, and retains its original process"
+      ],
+      "supporting_tests": [
+        "apps/macos/Tests/JamUITests/TerminalSwitchTests.swift::checkOptimisticSplit",
+        "docs/interaction-performance.md",
+        "docs/tab-performance.md"
+      ]
+    },
+    {
+      "id": "agent-recovery",
+      "title": "Continuity for manually started agents",
+      "reviewed": true,
+      "cases": [
+        "RECOVERY-006",
+        "RECOVERY-007",
+        "RECOVERY-008"
+      ],
+      "assertions": [
+        "A manually started agent is recognized as shell-owned and its original conversation is restored by the provider after a daemon restart",
+        "Interrupting a restored agent returns the same pane to a shell in its workspace without submitting provider input",
+        "Ordinary agent exit preserves the original shell process and removes the agent registration",
+        "A working Claude session receives one continuation at resume, tied to its saved conversation"
+      ],
+      "supporting_tests": [
+        "crates/jam/tests/coordination.rs::restored_shell_agent_returns_to_a_usable_prompt_on_interrupt",
+        "crates/jam/tests/coordination.rs::takeover_commit_resumes_saved_managed_panes_only",
+        "apps/macos/Tests/JamUITests/TerminalSwitchTests.swift::checkManagedResume",
+        "apps/macos/Tests/JamUITests/TerminalSwitchTests.swift::checkStoppedPaneFocusAndResume"
+      ]
+    },
+    {
+      "id": "persistent-usage",
+      "title": "Usage readings and rate-limit backoff across restarts",
+      "reviewed": true,
+      "cases": [
+        "USAGE-007",
+        "USAGE-008"
+      ],
+      "assertions": [
+        "Last successful readings for the signed-in account still appear after daemon and client restart while the fixture would reject a fresh request",
+        "The same account retains its rate-limit notice over both restarts and makes no further HTTPS request during the observed backoff window"
+      ],
+      "supporting_tests": [
+        "crates/jam-core/src/usage/providers.rs::usage_transport_only_gets_and_never_exposes_error_bodies",
+        "crates/jam-core/src/usage/providers.rs::rate_limited_usage_survives_daemon_restart_for_the_same_login",
+        "crates/jam-core/src/usage/providers.rs::handles_provider_windows_scopes_unknowns_and_resets"
+      ]
+    },
+    {
+      "id": "update-notices",
+      "title": "Upgrade toolbar and expiring notifications",
+      "reviewed": true,
+      "cases": [
+        "UPDATE-004",
+        "UPDATE-SETTINGS-006",
+        "UPDATE-014",
+        "UPDATE-015"
+      ],
+      "assertions": [
+        "The available upgrade stays in the toolbar and returns after cancelling confirmation",
+        "Skipping from the toolbar menu hides that release across relaunch and Settings can still prepare it on request",
+        "An interrupted upgrade notice expires and the pending recovery remains actionable in Settings"
+      ],
+      "supporting_tests": [
+        "apps/macos/Tests/JamUITests/TerminalSwitchTests.swift::checkToastTimeouts",
+        "apps/macos/Tests/JamUITests/TerminalSwitchTests.swift::checkUpgradeChip"
+      ]
+    },
+    {
+      "id": "file-previews",
+      "title": "Terminal file previews and per-machine availability",
+      "reviewed": true,
+      "cases": [
+        "PREVIEW-001",
+        "PREVIEW-002",
+        "PREVIEW-003",
+        "PREVIEW-004",
+        "PREVIEW-005",
+        "PREVIEW-006",
+        "PREVIEW-007",
+        "PREVIEW-008",
+        "PREVIEW-009",
+        "PREVIEW-010"
+      ],
+      "assertions": [
+        "Control-click reads the local or remote pane directory, including quoted paths and Markdown line references",
+        "Formatted Markdown, raw source, large file paging, editor tabs and switching back to the drawer remain usable",
+        "Actual image pixels, MP4 and MOV playback positions survive expansion and returning from the sheet",
+        "Per-machine integration checks distinguish availability from an older server"
+      ],
+      "supporting_tests": [
+        "apps/macos/Tests/JamUITests/TerminalSwitchTests.swift::checkFilePreviews",
+        "apps/macos/Tests/JamUITests/TerminalSwitchTests.swift::checkPreviewDrawer",
+        "apps/macos/Tests/JamUITests/TerminalSwitchTests.swift::checkRichPreviews",
+        "crates/jam/tests/persistence.rs::file_preview_reads_the_panes_current_directory_and_rejects_stale_chunks"
+      ]
+    },
+    {
+      "id": "pane-progress",
+      "title": "Per-pane task progress and step details",
+      "reviewed": true,
+      "cases": [
+        "PROGRESS-001",
+        "PROGRESS-002"
+      ],
+      "assertions": [
+        "A single reported step shows its label and percent; multiple steps show the average and drill down to their individual values",
+        "Invalid updates preserve the prior report; tab changes and clearing respect pane ownership"
+      ],
+      "supporting_tests": [
+        "apps/macos/Tests/JamUITests/TerminalSwitchTests.swift::checkPaneProgress",
+        "crates/jam/tests/persistence.rs::pane_progress_is_atomic_revisable_and_ends_with_its_agent"
+      ]
+    },
+    {
+      "id": "free-resets",
+      "title": "Account-bound free usage resets",
+      "reviewed": true,
+      "cases": [
+        "RESET-001",
+        "RESET-002",
+        "RESET-003",
+        "RESET-004",
+        "RESET-005",
+        "RESET-006"
+      ],
+      "assertions": [
+        "Codex listed and count-only offers and verified Claude grants require confirmation; cancel makes no claim",
+        "Claim receipts identify the provider, grant and unique attempt; an unconfirmed retry preserves its UUID across relaunch",
+        "Cached availability survives restart, and an identity mismatch disables redemption until a verified retry"
+      ],
+      "supporting_tests": [
+        "apps/macos/Tests/JamUITests/TerminalSwitchTests.swift::checkUsageResetCache",
+        "crates/jam-core/src/usage/resets.rs::claude_uses_the_verified_organization_and_preferred_grant"
+      ]
+    },
+    {
+      "id": "toolbar-tabs",
+      "title": "Native toolbar tabs, focus and remote layouts",
+      "reviewed": true,
+      "cases": [
+        "PREVIEW-001",
+        "TAB-005",
+        "LAYOUT-006"
+      ],
+      "assertions": [
+        "New tabs accept shell input without inline renaming, background closure preserves the active terminal",
+        "A preview belongs to its tab; remote tabs retain their identities and sessions through switching machines and reconnecting"
+      ],
+      "supporting_tests": [
+        "apps/macos/Tests/JamUITests/TerminalSwitchTests.swift::checkInlineRename",
+        "apps/macos/Tests/JamUITests/TerminalSwitchTests.swift::checkWorkspaceHandoff"
+      ]
+    },
+    {
+      "id": "workspace-removal",
+      "title": "Pending workspace and checkout removal",
+      "reviewed": true,
+      "cases": [
+        "CLOSE-005"
+      ],
+      "assertions": [
+        "A pending group closure shows progress, hides terminal controls, and retains the checkout contents"
+      ],
+      "supporting_tests": [
+        "apps/macos/Tests/JamUITests/TerminalSwitchTests.swift::checkWorkspaceRemoval"
+      ]
+    },
+    {
+      "id": "staged-upgrade",
+      "title": "Verified download reuse and fresh upgrade consent",
+      "reviewed": true,
+      "cases": [
+        "UPDATE-016"
+      ],
+      "assertions": [
+        "Reopening the sheet builds consent for the current terminal count and reuses verified release archives"
+      ],
+      "supporting_tests": [
+        "apps/macos/Tests/JamUITests/TerminalSwitchTests.swift::checkUpgradeConsent",
+        "crates/jam-core/src/upgrade.rs"
+      ]
+    },
+    {
+      "id": "worker-permissions",
+      "title": "Standalone worker launch permissions",
+      "reviewed": true,
+      "cases": [
+        "WORKER-001",
+        "WORKER-002"
+      ],
+      "assertions": [
+        "Workers launched from an ordinary shell use provider defaults; explicit full-access requests reach the provider process"
+      ],
+      "supporting_tests": [
+        "crates/jam/tests/coordination.rs::workspace_cli_propagates_standalone_launch_permissions"
+      ]
+    }
+  ],
+  "changed_files": [
+    {
+      "path": ".github/actions/setup-macos/action.yml",
+      "reviewed": true,
+      "classification": "build",
+      "reason": "Pins the compiler and SDK used to package and validate desktop builds.",
+      "behaviors": []
+    },
+    {
+      "path": ".github/workflows/check.yml",
+      "reviewed": true,
+      "classification": "build",
+      "reason": "Run the standalone checks on branch pushes while the release workflow checks tags.",
+      "behaviors": []
+    },
+    {
+      "path": ".github/workflows/release.yml",
+      "reviewed": true,
+      "classification": "build",
+      "reason": "Create and update release drafts using the tag as the title.",
+      "behaviors": []
+    },
+    {
+      "path": "Cargo.lock",
+      "reviewed": true,
+      "classification": "build",
+      "reason": "Advance the locked workspace crates through v0.0.12.",
+      "behaviors": []
+    },
+    {
+      "path": "Cargo.toml",
+      "reviewed": true,
+      "classification": "build",
+      "reason": "Advance the workspace version through v0.0.12.",
+      "behaviors": []
+    },
+    {
+      "path": "README.md",
+      "reviewed": true,
+      "classification": "documentation",
+      "reason": "Describe drag-copy and Control-clicking terminal hyperlinks.",
+      "behaviors": []
+    },
+    {
+      "path": "apps/macos/Sources/CJam/include/jam.h",
+      "behaviors": [
+        "render-lifecycle",
+        "free-resets"
+      ],
+      "classification": "backend",
+      "reviewed": true,
+      "reason": "Expose the renderer's target size separately from the displayed viewport."
+    },
+    {
+      "path": "apps/macos/Sources/Jam/ActivityStatus.swift",
+      "reviewed": true,
+      "classification": "ui",
+      "reason": "Pane activity and progress presentation and reporting.",
+      "behaviors": [
+        "pane-progress"
+      ]
+    },
+    {
+      "path": "apps/macos/Sources/Jam/AppSettings.swift",
+      "reviewed": true,
+      "classification": "ui",
+      "reason": "Save or discard the theme selection, and display managed update and recovery actions.",
+      "behaviors": [
+        "update-settings",
+        "theme-and-selection",
+        "update-notices"
+      ]
+    },
+    {
+      "path": "apps/macos/Sources/Jam/AppUpgrade.swift",
+      "reviewed": true,
+      "classification": "ui",
+      "reason": "Present availability in a persistent toolbar chip and expire transient notices while keeping recovery reachable.",
+      "behaviors": [
+        "update-settings",
+        "update-notices",
+        "staged-upgrade"
+      ]
+    },
+    {
+      "path": "apps/macos/Sources/Jam/AppUpgradeState.swift",
+      "reviewed": true,
+      "classification": "ui",
+      "reason": "Shows and prepares managed updates in Settings and owns their nested sheet and error states.",
+      "behaviors": [
+        "update-settings"
+      ]
+    },
+    {
+      "path": "apps/macos/Sources/Jam/Commands.swift",
+      "reviewed": true,
+      "classification": "ui",
+      "reason": "Route layout commands and newly selected pane focus through projected state.",
+      "behaviors": [
+        "creation",
+        "focus-close",
+        "optimistic-layout",
+        "workspace-removal"
+      ]
+    },
+    {
+      "path": "apps/macos/Sources/Jam/Coordination.swift",
+      "behaviors": [
+        "agent-recovery"
+      ],
+      "classification": "ui",
+      "reviewed": true,
+      "reason": "Resolve managed and shell-owned resume targets and guard asynchronous restarts."
+    },
+    {
+      "path": "apps/macos/Sources/Jam/FilePreview.swift",
+      "reviewed": true,
+      "classification": "ui",
+      "reason": "File resolution, format handling, preview controls or machine capability checks.",
+      "behaviors": [
+        "file-previews"
+      ]
+    },
+    {
+      "path": "apps/macos/Sources/Jam/FilePreviewView.swift",
+      "reviewed": true,
+      "classification": "ui",
+      "reason": "File resolution, format handling, preview controls or machine capability checks.",
+      "behaviors": [
+        "file-previews"
+      ]
+    },
+    {
+      "path": "apps/macos/Sources/Jam/InlineRename.swift",
+      "reviewed": true,
+      "classification": "ui",
+      "reason": "Preserve native inline rename editing and focus while authoritative names update.",
+      "behaviors": [
+        "rendering",
+        "focus-close",
+        "optimistic-layout",
+        "theme-and-selection"
+      ]
+    },
+    {
+      "path": "apps/macos/Sources/Jam/InteractionTiming.swift",
+      "behaviors": [
+        "optimistic-layout",
+        "render-lifecycle"
+      ],
+      "classification": "test",
+      "reviewed": true,
+      "reason": "Instrument interaction latency for the off-screen native tests."
+    },
+    {
+      "path": "apps/macos/Sources/Jam/Jam.swift",
+      "reviewed": true,
+      "classification": "ui",
+      "reason": "Apply themes and input defaults, preview layout, restore agent sessions, and coordinate native focus, transient notices, and presentation.",
+      "behaviors": [
+        "creation",
+        "creation-recovery",
+        "diagnostics",
+        "rendering",
+        "images",
+        "identity",
+        "focus-close",
+        "theme-and-selection",
+        "optimistic-layout",
+        "render-lifecycle",
+        "agent-recovery",
+        "update-notices",
+        "file-previews",
+        "toolbar-tabs",
+        "pane-progress",
+        "workspace-removal"
+      ]
+    },
+    {
+      "path": "apps/macos/Sources/Jam/LayoutEdits.swift",
+      "behaviors": [
+        "optimistic-layout",
+        "focus-close",
+        "toolbar-tabs"
+      ],
+      "classification": "ui",
+      "reviewed": true,
+      "reason": "Serialize optimistic local and remote edits and reconcile their previews with committed layout."
+    },
+    {
+      "path": "apps/macos/Sources/Jam/MachineList.swift",
+      "reviewed": true,
+      "classification": "ui",
+      "reason": "Expose explicit takeover where an incompatible server is running.",
+      "behaviors": [
+        "takeover",
+        "diagnostics",
+        "rendering"
+      ]
+    },
+    {
+      "path": "apps/macos/Sources/Jam/MarkdownImages.swift",
+      "reviewed": true,
+      "classification": "ui",
+      "reason": "File resolution, format handling, preview controls or machine capability checks.",
+      "behaviors": [
+        "file-previews"
+      ]
+    },
+    {
+      "path": "apps/macos/Sources/Jam/Node.swift",
+      "behaviors": [
+        "optimistic-layout"
+      ],
+      "classification": "ui",
+      "reviewed": true,
+      "reason": "Project structural edits on the pane tree before authoritative replies."
+    },
+    {
+      "path": "apps/macos/Sources/Jam/PaneDragging.swift",
+      "behaviors": [
+        "optimistic-layout",
+        "toolbar-tabs"
+      ],
+      "classification": "ui",
+      "reviewed": true,
+      "reason": "Preview and commit remote or local pane movement without recreating unaffected panes."
+    },
+    {
+      "path": "apps/macos/Sources/Jam/PaneLayout.swift",
+      "behaviors": [
+        "optimistic-layout",
+        "render-lifecycle"
+      ],
+      "classification": "ui",
+      "reviewed": true,
+      "reason": "Select the nearest adjacent survivor on pane closure."
+    },
+    {
+      "path": "apps/macos/Sources/Jam/PaneProgress.swift",
+      "reviewed": true,
+      "classification": "ui",
+      "reason": "Pane activity and progress presentation and reporting.",
+      "behaviors": [
+        "pane-progress"
+      ]
+    },
+    {
+      "path": "apps/macos/Sources/Jam/PreviewCapture.swift",
+      "reviewed": true,
+      "classification": "ui",
+      "reason": "Applies the active theme to input, settings and sheets.",
+      "behaviors": [
+        "theme-and-selection"
+      ]
+    },
+    {
+      "path": "apps/macos/Sources/Jam/PreviewIntegrations.swift",
+      "reviewed": true,
+      "classification": "ui",
+      "reason": "File resolution, format handling, preview controls or machine capability checks.",
+      "behaviors": [
+        "file-previews"
+      ]
+    },
+    {
+      "path": "apps/macos/Sources/Jam/PreviewMarkdown.swift",
+      "reviewed": true,
+      "classification": "ui",
+      "reason": "File resolution, format handling, preview controls or machine capability checks.",
+      "behaviors": [
+        "file-previews"
+      ]
+    },
+    {
+      "path": "apps/macos/Sources/Jam/PreviewMovie.swift",
+      "reviewed": true,
+      "classification": "ui",
+      "reason": "File resolution, format handling, preview controls or machine capability checks.",
+      "behaviors": [
+        "file-previews"
+      ]
+    },
+    {
+      "path": "apps/macos/Sources/Jam/Remote.swift",
+      "reviewed": true,
+      "classification": "ui",
+      "reason": "Carry prior tunnel and server state through reconnect and explicit takeover.",
+      "behaviors": [
+        "creation",
+        "diagnostics",
+        "takeover",
+        "toolbar-tabs"
+      ]
+    },
+    {
+      "path": "apps/macos/Sources/Jam/ServerManagement.swift",
+      "reviewed": true,
+      "classification": "ui",
+      "reason": "Refresh remote status, gate recovery on daemon incarnation, and use consistent server actions.",
+      "behaviors": [
+        "takeover",
+        "diagnostics",
+        "rendering",
+        "agent-recovery",
+        "theme-and-selection"
+      ]
+    },
+    {
+      "path": "apps/macos/Sources/Jam/ServerStatus.swift",
+      "reviewed": true,
+      "classification": "ui",
+      "reason": "Distinguish a compatible transport failure from a server that requires takeover.",
+      "behaviors": [
+        "takeover",
+        "diagnostics",
+        "rendering"
+      ]
+    },
+    {
+      "path": "apps/macos/Sources/Jam/SidebarUpdates.swift",
+      "reviewed": true,
+      "classification": "ui",
+      "reason": "Exposes machine states, retryable errors and explicit server actions with consistent status labels.",
+      "behaviors": [
+        "takeover",
+        "diagnostics",
+        "rendering"
+      ]
+    },
+    {
+      "path": "apps/macos/Sources/Jam/TabDragging.swift",
+      "reviewed": true,
+      "classification": "ui",
+      "reason": "Preview drag order and submit one final edit while preserving selected tabs.",
+      "behaviors": [
+        "rendering",
+        "focus-close",
+        "optimistic-layout",
+        "toolbar-tabs"
+      ]
+    },
+    {
+      "path": "apps/macos/Sources/Jam/TerminalAppearance.swift",
+      "behaviors": [
+        "theme-and-selection"
+      ],
+      "classification": "ui",
+      "reviewed": true,
+      "reason": "Define adaptive Midnight and Warm colors for chrome, terminal, selection, and borders."
+    },
+    {
+      "path": "apps/macos/Sources/Jam/TerminalClipboard.swift",
+      "reviewed": true,
+      "classification": "ui",
+      "reason": "Interprets native image formats, uploads the image to the pane host and pastes the returned path.",
+      "behaviors": [
+        "images"
+      ]
+    },
+    {
+      "path": "apps/macos/Sources/Jam/TerminalHover.swift",
+      "reviewed": true,
+      "classification": "ui",
+      "reason": "File resolution, format handling, preview controls or machine capability checks.",
+      "behaviors": [
+        "file-previews"
+      ]
+    },
+    {
+      "path": "apps/macos/Sources/Jam/TerminalTarget.swift",
+      "reviewed": true,
+      "classification": "ui",
+      "reason": "File resolution, format handling, preview controls or machine capability checks.",
+      "behaviors": [
+        "file-previews"
+      ]
+    },
+    {
+      "path": "apps/macos/Sources/Jam/TerminalViewPool.swift",
+      "behaviors": [
+        "render-lifecycle",
+        "rendering"
+      ],
+      "classification": "ui",
+      "reviewed": true,
+      "reason": "Evict least-recently-used off-screen render resources and reclaim resources under memory pressure."
+    },
+    {
+      "path": "apps/macos/Sources/Jam/UsageDetails.swift",
+      "reviewed": true,
+      "classification": "ui",
+      "reason": "Verified reset reads and claims, provider transport, availability cache and account presentation.",
+      "behaviors": [
+        "free-resets"
+      ]
+    },
+    {
+      "path": "apps/macos/Sources/Jam/UsagePanel.swift",
+      "reviewed": true,
+      "classification": "ui",
+      "reason": "Show usage freshness and color quota indicators for the selected appearance.",
+      "behaviors": [
+        "accounts",
+        "rendering",
+        "persistent-usage",
+        "free-resets"
+      ]
+    },
+    {
+      "path": "apps/macos/Sources/Jam/UsageResetCache.swift",
+      "reviewed": true,
+      "classification": "ui",
+      "reason": "Verified reset reads and claims, provider transport, availability cache and account presentation.",
+      "behaviors": [
+        "free-resets"
+      ]
+    },
+    {
+      "path": "apps/macos/Sources/Jam/UsageState.swift",
+      "reviewed": true,
+      "classification": "ui",
+      "reason": "Interpret provider report freshness and account identity in the client.",
+      "behaviors": [
+        "accounts",
+        "rendering",
+        "persistent-usage",
+        "free-resets"
+      ]
+    },
+    {
+      "path": "apps/macos/Sources/Jam/WarningToast.swift",
+      "reviewed": true,
+      "classification": "ui",
+      "reason": "Auto-dismiss transient messages, reset timers for changed content, and keep keyboard-operable actions in focus.",
+      "behaviors": [
+        "takeover",
+        "diagnostics",
+        "rendering",
+        "update-notices",
+        "theme-and-selection"
+      ]
+    },
+    {
+      "path": "apps/macos/Sources/Jam/WorkspaceCell.swift",
+      "reviewed": true,
+      "classification": "ui",
+      "reason": "Renders sidebar layout, machine detail, worktree labels, pending rows and activity state.",
+      "behaviors": [
+        "creation",
+        "rendering",
+        "focus-close",
+        "identity",
+        "workspace-removal"
+      ]
+    },
+    {
+      "path": "apps/macos/Sources/Jam/WorkspaceCreation.swift",
+      "reviewed": true,
+      "classification": "ui",
+      "reason": "Creates, selects and reconciles pending workspace and worktree operations through visible controls.",
+      "behaviors": [
+        "creation",
+        "creation-recovery"
+      ]
+    },
+    {
+      "path": "apps/macos/Sources/Jam/WorkspaceCreationFlow.swift",
+      "reviewed": true,
+      "classification": "ui",
+      "reason": "Creates, selects and reconciles pending workspace and worktree operations through visible controls.",
+      "behaviors": [
+        "creation",
+        "creation-recovery"
+      ]
+    },
+    {
+      "path": "apps/macos/Sources/Jam/WorkspaceName.swift",
+      "reviewed": true,
+      "classification": "ui",
+      "reason": "Tracks pending removal and presents stable sidebar names, rows and activity.",
+      "behaviors": [
+        "workspace-removal"
+      ]
+    },
+    {
+      "path": "apps/macos/Sources/Jam/WorkspaceRemoval.swift",
+      "reviewed": true,
+      "classification": "ui",
+      "reason": "Tracks pending removal and presents stable sidebar names, rows and activity.",
+      "behaviors": [
+        "workspace-removal"
+      ]
+    },
+    {
+      "path": "apps/macos/Sources/Jam/WorkspaceSidebar.swift",
+      "reviewed": true,
+      "classification": "ui",
+      "reason": "Animate workspace layout, keep scrolling native, and apply theme colors to selection.",
+      "behaviors": [
+        "creation",
+        "rendering",
+        "focus-close",
+        "identity",
+        "theme-and-selection",
+        "optimistic-layout",
+        "workspace-removal"
+      ]
+    },
+    {
+      "path": "apps/macos/Sources/Jam/WorktreePicker.swift",
+      "reviewed": true,
+      "classification": "ui",
+      "reason": "Creates, selects and reconciles pending workspace and worktree operations through visible controls.",
+      "behaviors": [
+        "creation",
+        "creation-recovery",
+        "theme-and-selection"
+      ]
+    },
+    {
+      "path": "apps/macos/Tests/Fixtures/preview.mov",
+      "reviewed": true,
+      "classification": "test",
+      "reason": "Real video sample used by the native preview tests.",
+      "behaviors": [
+        "file-previews"
+      ]
+    },
+    {
+      "path": "apps/macos/Tests/Fixtures/preview.mp4",
+      "reviewed": true,
+      "classification": "test",
+      "reason": "Real video sample used by the native preview tests.",
+      "behaviors": [
+        "file-previews"
+      ]
+    },
+    {
+      "path": "apps/macos/Tests/JamTests/AgentUsageTests.swift",
+      "reviewed": true,
+      "classification": "test",
+      "reason": "Exercises existing native or daemon behavior. Keep as supporting coverage for the shared UI cases.",
+      "behaviors": [
+        "accounts",
+        "diagnostics",
+        "creation",
+        "takeover",
+        "rendering",
+        "identity",
+        "images",
+        "focus-close"
+      ]
+    },
+    {
+      "path": "apps/macos/Tests/JamTests/PaneLayoutTests.swift",
+      "behaviors": [
+        "optimistic-layout"
+      ],
+      "classification": "test",
+      "reviewed": true,
+      "reason": "Assert adjacent focus placement in deterministic pane layouts."
+    },
+    {
+      "path": "apps/macos/Tests/JamTests/ServerStatusTests.swift",
+      "reviewed": true,
+      "classification": "test",
+      "reason": "Exercise eligible actions when status reports a compatible-server timeout.",
+      "behaviors": [
+        "accounts",
+        "diagnostics",
+        "creation",
+        "takeover",
+        "rendering",
+        "identity",
+        "images",
+        "focus-close"
+      ]
+    },
+    {
+      "path": "apps/macos/Tests/JamTests/SidebarUpdatesTests.swift",
+      "reviewed": true,
+      "classification": "test",
+      "reason": "Exercises existing native or daemon behavior. Keep as supporting coverage for the shared UI cases.",
+      "behaviors": [
+        "accounts",
+        "diagnostics",
+        "creation",
+        "takeover",
+        "rendering",
+        "identity",
+        "images",
+        "focus-close"
+      ]
+    },
+    {
+      "path": "apps/macos/Tests/JamTests/WorkspaceCreationTests.swift",
+      "reviewed": true,
+      "classification": "test",
+      "reason": "Exercises existing native or daemon behavior. Keep as supporting coverage for the shared UI cases.",
+      "behaviors": [
+        "accounts",
+        "diagnostics",
+        "creation",
+        "takeover",
+        "rendering",
+        "identity",
+        "images",
+        "focus-close"
+      ]
+    },
+    {
+      "path": "apps/macos/Tests/JamUITests/TerminalSwitchTests.swift",
+      "reviewed": true,
+      "classification": "test",
+      "reason": "Cover native throughput, exact terminal sizing, scrolling, mouse gestures, recovery, toast timers, and toolbar placement.",
+      "behaviors": [
+        "accounts",
+        "diagnostics",
+        "creation",
+        "takeover",
+        "rendering",
+        "identity",
+        "images",
+        "focus-close",
+        "theme-and-selection",
+        "optimistic-layout",
+        "render-lifecycle",
+        "agent-recovery",
+        "update-notices"
+      ]
+    },
+    {
+      "path": "assets/file-preview/markdown-it-LICENSE.txt",
+      "reviewed": true,
+      "classification": "documentation",
+      "reason": "Records licenses and dependencies for the packaged offline preview renderer.",
+      "behaviors": [
+        "file-previews"
+      ]
+    },
+    {
+      "path": "assets/file-preview/markdown-it.min.js",
+      "reviewed": true,
+      "classification": "ui",
+      "reason": "File resolution, format handling, preview controls or machine capability checks.",
+      "behaviors": [
+        "file-previews"
+      ]
+    },
+    {
+      "path": "assets/file-preview/mermaid-LICENSE.txt",
+      "reviewed": true,
+      "classification": "documentation",
+      "reason": "Records licenses and dependencies for the packaged offline preview renderer.",
+      "behaviors": [
+        "file-previews"
+      ]
+    },
+    {
+      "path": "assets/file-preview/mermaid.min.js",
+      "reviewed": true,
+      "classification": "ui",
+      "reason": "File resolution, format handling, preview controls or machine capability checks.",
+      "behaviors": [
+        "file-previews"
+      ]
+    },
+    {
+      "path": "assets/file-preview/preview.css",
+      "reviewed": true,
+      "classification": "ui",
+      "reason": "File resolution, format handling, preview controls or machine capability checks.",
+      "behaviors": [
+        "file-previews"
+      ]
+    },
+    {
+      "path": "assets/file-preview/preview.html",
+      "reviewed": true,
+      "classification": "ui",
+      "reason": "File resolution, format handling, preview controls or machine capability checks.",
+      "behaviors": [
+        "file-previews"
+      ]
+    },
+    {
+      "path": "assets/file-preview/preview.js",
+      "reviewed": true,
+      "classification": "ui",
+      "reason": "File resolution, format handling, preview controls or machine capability checks.",
+      "behaviors": [
+        "file-previews"
+      ]
+    },
+    {
+      "path": "assets/jam.svg",
+      "behaviors": [],
+      "classification": "build",
+      "reviewed": true,
+      "reason": "Update the packaged Jam icon artwork to blue."
+    },
+    {
+      "path": "crates/jam-core/Cargo.toml",
+      "reviewed": true,
+      "classification": "build",
+      "reason": "Updates version, dependency resolution or packaging metadata used by the released artifacts.",
+      "behaviors": []
+    },
+    {
+      "path": "crates/jam-core/src/agents.rs",
+      "reviewed": true,
+      "classification": "backend",
+      "reason": "Resolves provider identity from registered agents or live OSC reports and separates identity from activity.",
+      "behaviors": [
+        "identity",
+        "focus-close",
+        "worker-permissions"
+      ]
+    },
+    {
+      "path": "crates/jam-core/src/client.rs",
+      "reviewed": true,
+      "classification": "backend",
+      "reason": "Register verified agent launches, reclaim the original shell after exit, and synchronize focus and edits.",
+      "behaviors": [
+        "rendering",
+        "agent-recovery",
+        "optimistic-layout",
+        "focus-close"
+      ]
+    },
+    {
+      "path": "crates/jam-core/src/clipboard.rs",
+      "reviewed": true,
+      "classification": "backend",
+      "reason": "Validates, stores and prunes private image files independently of the app clipboard.",
+      "behaviors": [
+        "images"
+      ]
+    },
+    {
+      "path": "crates/jam-core/src/codex_session.rs",
+      "reviewed": true,
+      "classification": "backend",
+      "reason": "Verified reset reads and claims, provider transport, availability cache and account presentation.",
+      "behaviors": [
+        "free-resets"
+      ]
+    },
+    {
+      "path": "crates/jam-core/src/config.rs",
+      "reviewed": true,
+      "classification": "backend",
+      "reason": "Enable copy on selection by default without changing the settings key.",
+      "behaviors": [
+        "update-settings",
+        "theme-and-selection"
+      ]
+    },
+    {
+      "path": "crates/jam-core/src/coordination.rs",
+      "reviewed": true,
+      "classification": "backend",
+      "reason": "Track verified conversations and distinguish manually started agents from dedicated managed panes.",
+      "behaviors": [
+        "diagnostics",
+        "agent-recovery",
+        "takeover",
+        "worker-permissions"
+      ]
+    },
+    {
+      "path": "crates/jam-core/src/file_preview.rs",
+      "reviewed": true,
+      "classification": "backend",
+      "reason": "File resolution, format handling, preview controls or machine capability checks.",
+      "behaviors": [
+        "file-previews"
+      ]
+    },
+    {
+      "path": "crates/jam-core/src/input.rs",
+      "reviewed": true,
+      "classification": "backend",
+      "reason": "Keeps board delivery and request timeouts separate from shell input and daemon responsiveness.",
+      "behaviors": [
+        "diagnostics"
+      ]
+    },
+    {
+      "path": "crates/jam-core/src/lib.rs",
+      "reviewed": true,
+      "classification": "backend",
+      "reason": "Defines protocol-v8 operations, routing, receipts, capabilities and public timeout errors.",
+      "behaviors": [
+        "creation",
+        "images",
+        "identity",
+        "diagnostics",
+        "free-resets",
+        "file-previews",
+        "worker-permissions"
+      ]
+    },
+    {
+      "path": "crates/jam-core/src/process_args.rs",
+      "reviewed": true,
+      "classification": "backend",
+      "reason": "Reads real launch arguments or applies worker permission and session policy.",
+      "behaviors": [
+        "worker-permissions"
+      ]
+    },
+    {
+      "path": "crates/jam-core/src/protocol.rs",
+      "reviewed": true,
+      "classification": "backend",
+      "reason": "Carry optional agent resume metadata and names for atomic layout changes while decoding earlier requests.",
+      "behaviors": [
+        "creation",
+        "images",
+        "identity",
+        "diagnostics",
+        "agent-recovery",
+        "optimistic-layout",
+        "free-resets",
+        "file-previews",
+        "pane-progress",
+        "worker-permissions"
+      ]
+    },
+    {
+      "path": "crates/jam-core/src/recovery.rs",
+      "reviewed": true,
+      "classification": "backend",
+      "reason": "Keeps board delivery and request timeouts separate from shell input and daemon responsiveness.",
+      "behaviors": [
+        "diagnostics",
+        "agent-recovery"
+      ]
+    },
+    {
+      "path": "crates/jam-core/src/release_version.rs",
+      "reviewed": true,
+      "classification": "backend",
+      "reason": "Checks live server identity and versions, verifies operations and protects upgrade state during recovery.",
+      "behaviors": [
+        "takeover",
+        "diagnostics",
+        "update-settings"
+      ]
+    },
+    {
+      "path": "crates/jam-core/src/remote.rs",
+      "reviewed": true,
+      "classification": "backend",
+      "reason": "Classify a known compatible running server accurately after transport timeouts.",
+      "behaviors": [
+        "takeover",
+        "diagnostics",
+        "update-settings"
+      ]
+    },
+    {
+      "path": "crates/jam-core/src/server.rs",
+      "reviewed": true,
+      "classification": "backend",
+      "reason": "Persist layout operations and select eligible agent recovery on startup or takeover.",
+      "behaviors": [
+        "creation",
+        "images",
+        "identity",
+        "diagnostics",
+        "optimistic-layout",
+        "agent-recovery",
+        "takeover",
+        "free-resets",
+        "file-previews",
+        "pane-progress",
+        "worker-permissions"
+      ]
+    },
+    {
+      "path": "crates/jam-core/src/server_control.rs",
+      "reviewed": true,
+      "classification": "backend",
+      "reason": "Checks live server identity and versions, verifies operations and protects upgrade state during recovery.",
+      "behaviors": [
+        "takeover",
+        "diagnostics",
+        "update-settings"
+      ]
+    },
+    {
+      "path": "crates/jam-core/src/server_control/takeover.rs",
+      "reviewed": true,
+      "classification": "backend",
+      "reason": "Hold older sessions during replacement and resume only selected agents on commit.",
+      "behaviors": [
+        "takeover",
+        "diagnostics",
+        "update-settings",
+        "agent-recovery"
+      ]
+    },
+    {
+      "path": "crates/jam-core/src/status.rs",
+      "reviewed": true,
+      "classification": "backend",
+      "reason": "Resolves provider identity from registered agents or live OSC reports and separates identity from activity.",
+      "behaviors": [
+        "identity",
+        "focus-close",
+        "pane-progress"
+      ]
+    },
+    {
+      "path": "crates/jam-core/src/upgrade.rs",
+      "reviewed": true,
+      "classification": "backend",
+      "reason": "Checks live server identity and versions, verifies operations and protects upgrade state during recovery.",
+      "behaviors": [
+        "takeover",
+        "diagnostics",
+        "update-settings",
+        "staged-upgrade"
+      ]
+    },
+    {
+      "path": "crates/jam-core/src/upgrade/crash_recovery.rs",
+      "reviewed": true,
+      "classification": "backend",
+      "reason": "Checks live server identity and versions, verifies operations and protects upgrade state during recovery.",
+      "behaviors": [
+        "takeover",
+        "diagnostics",
+        "update-settings"
+      ]
+    },
+    {
+      "path": "crates/jam-core/src/upgrade/remote_tests.rs",
+      "reviewed": true,
+      "classification": "test",
+      "reason": "Include the new optional takeover selection in the remote upgrade test fixture.",
+      "behaviors": [
+        "takeover"
+      ]
+    },
+    {
+      "path": "crates/jam-core/src/usage/cache.rs",
+      "behaviors": [
+        "persistent-usage",
+        "accounts"
+      ],
+      "classification": "backend",
+      "reviewed": true,
+      "reason": "Persist successful windows and request backoff keyed by account or credential."
+    },
+    {
+      "path": "crates/jam-core/src/usage/mod.rs",
+      "reviewed": true,
+      "classification": "backend",
+      "reason": "Feed provider reports from the credential-aware daemon cache.",
+      "behaviors": [
+        "accounts",
+        "persistent-usage",
+        "free-resets"
+      ]
+    },
+    {
+      "path": "crates/jam-core/src/usage/process.rs",
+      "reviewed": true,
+      "classification": "backend",
+      "reason": "Discovers configured profiles, retains available quota observations and reports the active-session count.",
+      "behaviors": [
+        "accounts",
+        "free-resets"
+      ]
+    },
+    {
+      "path": "crates/jam-core/src/usage/providers.rs",
+      "reviewed": true,
+      "classification": "backend",
+      "reason": "Retain fresh readings on errors, enforce rate-limit delays, and keep failure bodies private.",
+      "behaviors": [
+        "accounts",
+        "persistent-usage",
+        "free-resets"
+      ]
+    },
+    {
+      "path": "crates/jam-core/src/usage/resets.rs",
+      "reviewed": true,
+      "classification": "backend",
+      "reason": "Verified reset reads and claims, provider transport, availability cache and account presentation.",
+      "behaviors": [
+        "free-resets"
+      ]
+    },
+    {
+      "path": "crates/jam-core/src/vt.rs",
+      "reviewed": true,
+      "classification": "backend",
+      "reason": "Distinguish links, selection, and damage while retaining synchronized terminal frames.",
+      "behaviors": [
+        "rendering",
+        "theme-and-selection",
+        "render-lifecycle",
+        "file-previews"
+      ]
+    },
+    {
+      "path": "crates/jam-core/src/worktree.rs",
+      "reviewed": true,
+      "classification": "copy",
+      "reason": "Updates errors for invalid worktree arguments and path templates.",
+      "behaviors": [
+        "creation"
+      ]
+    },
+    {
+      "path": "crates/jam-core/src/worktree_template.rs",
+      "reviewed": true,
+      "classification": "copy",
+      "reason": "Updates errors for invalid worktree arguments and path templates.",
+      "behaviors": [
+        "creation"
+      ]
+    },
+    {
+      "path": "crates/jam-native/src/lib.rs",
+      "reviewed": true,
+      "classification": "backend",
+      "reason": "Prepare frames asynchronously at target geometry and publish compatible completed frames.",
+      "behaviors": [
+        "creation",
+        "images",
+        "identity",
+        "diagnostics",
+        "render-lifecycle",
+        "rendering",
+        "file-previews",
+        "free-resets",
+        "staged-upgrade"
+      ]
+    },
+    {
+      "path": "crates/jam-native/src/presentation.rs",
+      "behaviors": [
+        "render-lifecycle",
+        "rendering"
+      ],
+      "classification": "backend",
+      "reviewed": true,
+      "reason": "Use current or prepared complete surfaces during asynchronous presentation."
+    },
+    {
+      "path": "crates/jam-native/src/render_worker.rs",
+      "behaviors": [
+        "render-lifecycle",
+        "rendering"
+      ],
+      "classification": "backend",
+      "reviewed": true,
+      "reason": "Build terminal frames off the UI thread and discard superseded or released render jobs."
+    },
+    {
+      "path": "crates/jam-render/src/lib.rs",
+      "behaviors": [
+        "render-lifecycle",
+        "rendering",
+        "theme-and-selection"
+      ],
+      "classification": "backend",
+      "reviewed": true,
+      "reason": "Render with viewport and selection state appropriate for theme and presentation."
+    },
+    {
+      "path": "crates/jam/Cargo.toml",
+      "reviewed": true,
+      "classification": "build",
+      "reason": "Updates version, dependency resolution or packaging metadata used by the released artifacts.",
+      "behaviors": []
+    },
+    {
+      "path": "crates/jam/src/bin/jam.rs",
+      "reviewed": true,
+      "classification": "backend",
+      "reason": "Expose optional layout names and distinguish safe and verified agent launch requests.",
+      "behaviors": [
+        "creation",
+        "images",
+        "identity",
+        "diagnostics",
+        "agent-recovery",
+        "optimistic-layout",
+        "pane-progress",
+        "worker-permissions"
+      ]
+    },
+    {
+      "path": "crates/jam/tests/coordination.rs",
+      "behaviors": [
+        "agent-recovery",
+        "takeover",
+        "worker-permissions"
+      ],
+      "classification": "test",
+      "reviewed": true,
+      "reason": "Check saved shell-agent recovery and takeover with public daemon requests, including legacy closure persistence."
+    },
+    {
+      "path": "crates/jam/tests/persistence.rs",
+      "reviewed": true,
+      "classification": "test",
+      "reason": "Maintain layout revision and pane ownership checks for speculative clients.",
+      "behaviors": [
+        "accounts",
+        "diagnostics",
+        "creation",
+        "takeover",
+        "rendering",
+        "identity",
+        "images",
+        "focus-close",
+        "optimistic-layout"
+      ]
+    },
+    {
+      "path": "docs/dependencies.md",
+      "reviewed": true,
+      "classification": "documentation",
+      "reason": "Records licenses and dependencies for the packaged offline preview renderer.",
+      "behaviors": []
+    },
+    {
+      "path": "docs/interaction-performance.md",
+      "behaviors": [
+        "render-lifecycle",
+        "optimistic-layout"
+      ],
+      "classification": "documentation",
+      "reviewed": true,
+      "reason": "Describe latency instrumentation and split geometry measurement."
+    },
+    {
+      "path": "docs/protocol.md",
+      "reviewed": true,
+      "classification": "documentation",
+      "reason": "Document revised agent launch and layout request fields.",
+      "behaviors": [
+        "agent-recovery",
+        "optimistic-layout"
+      ]
+    },
+    {
+      "path": "docs/tab-performance.md",
+      "behaviors": [
+        "render-lifecycle"
+      ],
+      "classification": "documentation",
+      "reviewed": true,
+      "reason": "Describe renderer eviction and frame reuse when switching tabs."
+    },
+    {
+      "path": "docs/upgrading.md",
+      "behaviors": [
+        "update-notices"
+      ],
+      "classification": "documentation",
+      "reviewed": true,
+      "reason": "Describe the upgrade chip and separate recovery entry point."
+    },
+    {
+      "path": "justfile",
+      "reviewed": true,
+      "classification": "test",
+      "reason": "Defines the supported build or recovery check entry point and test fixtures.",
+      "behaviors": []
+    },
+    {
+      "path": "scripts/daemon.py",
+      "reviewed": true,
+      "classification": "backend",
+      "reason": "Checks live server identity and versions, verifies operations and protects upgrade state during recovery.",
+      "behaviors": [
+        "takeover",
+        "diagnostics",
+        "update-settings"
+      ]
+    },
+    {
+      "path": "scripts/macos-toolchain.json",
+      "reviewed": true,
+      "classification": "build",
+      "reason": "Pins the compiler and SDK used to package and validate desktop builds.",
+      "behaviors": []
+    },
+    {
+      "path": "scripts/macos_toolchain.py",
+      "reviewed": true,
+      "classification": "build",
+      "reason": "Pins the compiler and SDK used to package and validate desktop builds.",
+      "behaviors": []
+    },
+    {
+      "path": "scripts/package-macos.py",
+      "reviewed": true,
+      "classification": "build",
+      "reason": "Pins the compiler and SDK used to package and validate desktop builds.",
+      "behaviors": [
+        "file-previews"
+      ]
+    },
+    {
+      "path": "scripts/release/build-macos.sh",
+      "reviewed": true,
+      "classification": "build",
+      "reason": "Pins the compiler and SDK used to package and validate desktop builds.",
+      "behaviors": []
+    },
+    {
+      "path": "scripts/release/notices.py",
+      "reviewed": true,
+      "classification": "build",
+      "reason": "Updates version, dependency resolution or packaging metadata used by the released artifacts.",
+      "behaviors": []
+    },
+    {
+      "path": "scripts/remote-build.py",
+      "reviewed": true,
+      "classification": "build",
+      "reason": "Updates version, dependency resolution or packaging metadata used by the released artifacts.",
+      "behaviors": []
+    },
+    {
+      "path": "scripts/remote-install.py",
+      "reviewed": true,
+      "classification": "backend",
+      "reason": "Record eligible predecessor panes before replacing the remote daemon.",
+      "behaviors": [
+        "takeover",
+        "diagnostics",
+        "update-settings",
+        "agent-recovery"
+      ]
+    },
+    {
+      "path": "scripts/remote-smoke.py",
+      "reviewed": true,
+      "classification": "backend",
+      "reason": "Checks live server identity and versions, verifies operations and protects upgrade state during recovery.",
+      "behaviors": [
+        "takeover",
+        "diagnostics",
+        "update-settings"
+      ]
+    },
+    {
+      "path": "scripts/server-inspect.py",
+      "reviewed": true,
+      "classification": "backend",
+      "reason": "Checks live server identity and versions, verifies operations and protects upgrade state during recovery.",
+      "behaviors": [
+        "takeover",
+        "diagnostics",
+        "update-settings"
+      ]
+    },
+    {
+      "path": "scripts/test.py",
+      "reviewed": true,
+      "classification": "test",
+      "reason": "Run native mouse gestures, optimistic layout, and related regression checks.",
+      "behaviors": [
+        "theme-and-selection",
+        "optimistic-layout"
+      ]
+    },
+    {
+      "path": "scripts/tests/test_macos_packaging.py",
+      "reviewed": true,
+      "classification": "test",
+      "reason": "Defines the supported build or recovery check entry point and test fixtures.",
+      "behaviors": []
+    },
+    {
+      "path": "scripts/tests/test_macos_toolchain.py",
+      "reviewed": true,
+      "classification": "test",
+      "reason": "Defines the supported build or recovery check entry point and test fixtures.",
+      "behaviors": []
+    },
+    {
+      "path": "scripts/tests/test_remote_install.py",
+      "reviewed": true,
+      "classification": "test",
+      "reason": "Defines the supported build or recovery check entry point and test fixtures.",
+      "behaviors": []
+    },
+    {
+      "path": "scripts/tests/test_server_inspect.py",
+      "reviewed": true,
+      "classification": "test",
+      "reason": "Defines the supported build or recovery check entry point and test fixtures.",
+      "behaviors": []
+    },
+    {
+      "path": "scripts/tests/upgrade_transaction.py",
+      "reviewed": true,
+      "classification": "test",
+      "reason": "Defines the supported build or recovery check entry point and test fixtures.",
+      "behaviors": []
+    },
+    {
+      "path": "skills/jam/SKILL.md",
+      "reviewed": true,
+      "classification": "documentation",
+      "reason": "Describe coordination status for installed agent hooks.",
+      "behaviors": [
+        "agent-recovery"
+      ]
+    }
+  ],
+  "changed_paths_sha256": "3336630de6f44fc57bfd8863dab439834e54ed0bc8b6bf03a40ca56d22040131"
+}

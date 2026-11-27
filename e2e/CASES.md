@@ -1,0 +1,4746 @@
+# Desktop acceptance cases
+
+349 cases; identical collection on macOS and Linux. No skips or expected failures.
+
+Each numbered step is performed externally. Fixture names identify required setup recipes, not alternate assertions.
+
+## TERM-001: Shell executes a command
+
+Fixture: `isolated local installation`.
+
+1. `('run', "printf 'shell-result'")`
+2. `('output', 'shell-result')`
+
+## TERM-002: Shell starts in the opened directory
+
+Fixture: `isolated local installation`.
+
+1. `('run', 'pwd')`
+2. `('output_repo',)`
+
+## TERM-003: Unicode and combining text survives the terminal
+
+Fixture: `isolated local installation`.
+
+1. `('run', "printf '\\346\\227\\245\\346\\234\\254\\350\\252\\236\\040\\143\\141\\146\\303\\251\\040\\145\\314\\201\\040\\360\\237\\232\\200'")`
+2. `('output', '日本語 café é 🚀')`
+
+## TERM-004: ANSI colors do not corrupt captured text
+
+Fixture: `isolated local installation`.
+
+1. `('run', "printf '\\033[31mred-text\\033[0m'")`
+2. `('output', 'red-text')`
+
+## TERM-005: Large output reaches its final line
+
+Fixture: `isolated local installation`.
+
+1. `('run', 'seq 1 10000')`
+2. `('output', '10000')`
+
+## TERM-009: Accessible terminal text updates after a shell command
+
+Fixture: `isolated local installation`.
+
+1. `('run', "printf '\\naccessible-output\\n'")`
+2. `('visible', 'accessible-output')`
+
+## TERM-006: Terminal geometry reaches the PTY
+
+Fixture: `isolated local installation`.
+
+1. `('run', 'stty size')`
+2. `('output_regex', '\\b[1-9]\\d* [1-9]\\d*\\b')`
+
+## TERM-007: Control-C interrupts a running program
+
+Fixture: `isolated local installation`.
+
+1. `('interrupt_probe',)`
+2. `('chord', 'ctrl+c')`
+3. `('interrupted',)`
+4. `('run', "printf 'after-interrupt'")`
+5. `('output', 'after-interrupt')`
+
+## TERM-008: Alternate screen exits without losing history
+
+Fixture: `isolated local installation`.
+
+1. `('run', "printf 'before-alt\\n\\033[?1049halternate\\033[?1049lafter-alt'")`
+2. `('output', 'after-alt')`
+3. `('output', 'before-alt')`
+
+## LAYOUT-001: Native French input preserves text, punctuation and shortcuts
+
+Fixture: `isolated local installation`.
+
+1. `('input_source', 'French')`
+2. `('run', "printf '%s' '[azerty] {123}: y-z'")`
+3. `('output', '[azerty] {123}: y-z')`
+4. `('chord', 'ctrl+shift+t')`
+5. `('count', 'tabs', 2)`
+6. `('run', 'printf layout-after-shortcut')`
+7. `('output', 'layout-after-shortcut')`
+8. `('restore_input_source',)`
+
+## LAYOUT-002: Native German input preserves text, punctuation and shortcuts
+
+Fixture: `isolated local installation`.
+
+1. `('input_source', 'German')`
+2. `('run', "printf '%s' '[azerty] {123}: y-z'")`
+3. `('output', '[azerty] {123}: y-z')`
+4. `('chord', 'ctrl+shift+t')`
+5. `('count', 'tabs', 2)`
+6. `('run', 'printf layout-after-shortcut')`
+7. `('output', 'layout-after-shortcut')`
+8. `('restore_input_source',)`
+
+## SCALE-001: Native high-density output preserves pixels, hit testing and PTY geometry
+
+Fixture: `isolated local installation`.
+
+1. `('resize', 1000, 660)`
+2. `('remember_layout',)`
+3. `('remember_pids',)`
+4. `('run', "printf '\\116\\101\\124\\111\\126\\105 SCALE 7429'")`
+5. `('visual_text', 'NATIVE SCALE 7429')`
+6. `('display_scale', 'high')`
+7. `('native_scale', 'high')`
+8. `('visual_text', 'NATIVE SCALE 7429')`
+9. `('geometry_probe',)`
+10. `('resize', 900, 580)`
+11. `('geometry_changed',)`
+12. `('run', "printf '\\123\\103\\101\\114\\105\\104 INPUT 1954'")`
+13. `('visual_text', 'SCALED INPUT 1954')`
+14. `('same_pids',)`
+15. `('same_layout',)`
+16. `('display_scale', 'normal')`
+17. `('native_scale', 'normal')`
+18. `('run', "printf '\\122\\105\\123\\124\\117\\122\\105\\104 SCALE 8263'")`
+19. `('visual_text', 'RESTORED SCALE 8263')`
+
+## MOTION-001: Native reduced motion preserves navigation, modal focus and terminal input
+
+Fixture: `native-reduced-motion`.
+
+1. `('native_reduced_motion',)`
+2. `('count', 'workspaces', 1)`
+3. `('remember_layout',)`
+4. `('remember_pids',)`
+5. `('chord', 'ctrl+shift+p')`
+6. `('target_visible', 'Search commands, workspaces, tabs, and panes', 'field')`
+7. `('key', 'ESCAPE')`
+8. `('settings', 'Appearance')`
+9. `('click', 'Cancel', 'button')`
+10. `('run', "printf '\\115\\117\\124\\111\\117\\116 READY 4638'")`
+11. `('visual_text', 'MOTION READY 4638')`
+12. `('same_layout',)`
+13. `('same_pids',)`
+
+## CLIP-001: Clipboard paste preserves 'ascii paste'
+
+Fixture: `isolated local installation`.
+
+1. `('clipboard', 'ascii paste')`
+2. `('begin_input', 'cat > pasted.txt')`
+3. `('paste',)`
+4. `('key', 'ENTER')`
+5. `('chord', 'ctrl+d')`
+6. `('chord', 'ctrl+d')`
+7. `('file_text', 'pasted.txt', 'ascii paste\n')`
+
+## CLIP-002: Clipboard paste preserves '日本語 café'
+
+Fixture: `isolated local installation`.
+
+1. `('clipboard', '日本語 café')`
+2. `('begin_input', 'cat > pasted.txt')`
+3. `('paste',)`
+4. `('key', 'ENTER')`
+5. `('chord', 'ctrl+d')`
+6. `('chord', 'ctrl+d')`
+7. `('file_text', 'pasted.txt', '日本語 café\n')`
+
+## CLIP-003: Clipboard paste preserves 'spaces  and\ttabs'
+
+Fixture: `isolated local installation`.
+
+1. `('clipboard', 'spaces  and\ttabs')`
+2. `('begin_input', 'cat > pasted.txt')`
+3. `('paste',)`
+4. `('key', 'ENTER')`
+5. `('chord', 'ctrl+d')`
+6. `('chord', 'ctrl+d')`
+7. `('file_text', 'pasted.txt', 'spaces  and\ttabs\n')`
+
+## CLIP-004: Clipboard paste preserves 'first\nsecond'
+
+Fixture: `isolated local installation`.
+
+1. `('clipboard', 'first\nsecond')`
+2. `('begin_input', 'cat > pasted.txt')`
+3. `('paste',)`
+4. `('key', 'ENTER')`
+5. `('chord', 'ctrl+d')`
+6. `('chord', 'ctrl+d')`
+7. `('file_text', 'pasted.txt', 'first\nsecond\n')`
+
+## CLIP-005: Clipboard paste preserves 'é 🚀 👨\u200d👩\u200d👧\u200d👦'
+
+Fixture: `isolated local installation`.
+
+1. `('clipboard', 'é 🚀 👨\u200d👩\u200d👧\u200d👦')`
+2. `('begin_input', 'cat > pasted.txt')`
+3. `('paste',)`
+4. `('key', 'ENTER')`
+5. `('chord', 'ctrl+d')`
+6. `('chord', 'ctrl+d')`
+7. `('file_text', 'pasted.txt', 'é 🚀 👨\u200d👩\u200d👧\u200d👦\n')`
+
+## NAV-001: New Tab creates exactly one object
+
+Fixture: `isolated local installation`.
+
+1. `('command', 'New Tab')`
+2. `('key', 'ESCAPE')`
+3. `('count', 'tabs', 2)`
+
+## NAV-002: Split Right creates exactly one object
+
+Fixture: `isolated local installation`.
+
+1. `('command', 'Split Right')`
+2. `('key', 'ESCAPE')`
+3. `('count', 'panes', 2)`
+
+## NAV-003: Split Down creates exactly one object
+
+Fixture: `isolated local installation`.
+
+1. `('command', 'Split Down')`
+2. `('key', 'ESCAPE')`
+3. `('count', 'panes', 2)`
+
+## NAV-004: New Workspace creates exactly one object
+
+Fixture: `isolated local installation`.
+
+1. `('command', 'New Workspace')`
+2. `('key', 'ESCAPE')`
+3. `('count', 'workspaces', 2)`
+
+## TAB-001: Closing a tab terminates its pane
+
+Fixture: `isolated local installation`.
+
+1. `('command', 'New Tab')`
+2. `('key', 'ESCAPE')`
+3. `('context', 'Tab 2', 'button')`
+4. `('click', 'Close Tab', 'menu')`
+5. `('count', 'tabs', 1)`
+6. `('count', 'panes', 1)`
+
+## TAB-002: Middle click closes a background tab
+
+Fixture: `isolated local installation`.
+
+1. `('command', 'New Tab')`
+2. `('key', 'ESCAPE')`
+3. `('middle', 'Tab 1')`
+4. `('count', 'tabs', 1)`
+
+## TAB-003: Renamed tab persists after reopening
+
+Fixture: `isolated local installation`.
+
+1. `('clipboard', 'Review 日本語')`
+2. `('context', 'Tab 1')`
+3. `('click', 'Rename')`
+4. `('fill', 'Tab name', 'Review 日本語')`
+5. `('field_value', 'Tab name', 'Review 日本語')`
+6. `('key', 'ENTER')`
+7. `('tab_name', 'Review 日本語')`
+8. `('relaunch',)`
+9. `('visible', 'Review 日本語')`
+
+## TAB-004: Escape cancels inline rename
+
+Fixture: `isolated local installation`.
+
+1. `('context', 'Tab 1')`
+2. `('click', 'Rename')`
+3. `('type', 'must-not-save')`
+4. `('key', 'ESCAPE')`
+5. `('visible', 'Tab 1')`
+6. `('absent', 'must-not-save')`
+
+## LIFE-001: Closing and reopening the app retains the shell process
+
+Fixture: `isolated local installation`.
+
+1. `('remember_pids',)`
+2. `('relaunch',)`
+3. `('same_pids',)`
+
+## LIFE-002: Settings dialogs do not consume terminal input
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'Appearance')`
+2. `('type', 'do-not-send-to-shell')`
+3. `('click', 'Cancel')`
+4. `('no_output', 'do-not-send-to-shell')`
+
+## LIFE-003: Daemon restart does not replay a command
+
+Fixture: `isolated local installation`.
+
+1. `('run', 'printf x >> executions')`
+2. `('restart_server',)`
+3. `('file_text', 'executions', 'x', 2)`
+
+## LIFE-004: Cancelled server restart leaves the shell alive
+
+Fixture: `isolated local installation`.
+
+1. `('remember_pids',)`
+2. `('context', 'Local')`
+3. `('click', 'Restart Server…')`
+4. `('click', 'Cancel')`
+5. `('same_pids',)`
+
+## CFG-001: Close workspace after its last tab closes: save
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'General')`
+2. `('click', 'Close workspace after its last tab closes', 'toggle')`
+3. `('save',)`
+4. `('config', 'close_empty_workspaces', True)`
+
+## CFG-002: Close workspace after its last tab closes: cancel
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'General')`
+2. `('click', 'Close workspace after its last tab closes', 'toggle')`
+3. `('click', 'Cancel')`
+4. `('config_default', 'close_empty_workspaces', False)`
+
+## CFG-003: Close workspace after its last tab closes: reopen
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'General')`
+2. `('click', 'Close workspace after its last tab closes', 'toggle')`
+3. `('save',)`
+4. `('relaunch',)`
+5. `('config', 'close_empty_workspaces', True)`
+
+## CFG-004: Close tab after its last pane closes: save
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'General')`
+2. `('click', 'Close tab after its last pane closes', 'toggle')`
+3. `('save',)`
+4. `('config', 'close_empty_tabs', False)`
+
+## CFG-005: Close tab after its last pane closes: cancel
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'General')`
+2. `('click', 'Close tab after its last pane closes', 'toggle')`
+3. `('click', 'Cancel')`
+4. `('config_default', 'close_empty_tabs', True)`
+
+## CFG-006: Close tab after its last pane closes: reopen
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'General')`
+2. `('click', 'Close tab after its last pane closes', 'toggle')`
+3. `('save',)`
+4. `('relaunch',)`
+5. `('config', 'close_empty_tabs', False)`
+
+## CFG-007: Allow deleting checkout files: save
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'General')`
+2. `('click', 'Allow deleting checkout files', 'toggle')`
+3. `('save',)`
+4. `('config', 'allow_workspace_deletion', False)`
+
+## CFG-008: Allow deleting checkout files: cancel
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'General')`
+2. `('click', 'Allow deleting checkout files', 'toggle')`
+3. `('click', 'Cancel')`
+4. `('config_default', 'allow_workspace_deletion', True)`
+
+## CFG-009: Allow deleting checkout files: reopen
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'General')`
+2. `('click', 'Allow deleting checkout files', 'toggle')`
+3. `('save',)`
+4. `('relaunch',)`
+5. `('config', 'allow_workspace_deletion', False)`
+
+## CFG-010: Copy text on selection: save
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'General')`
+2. `('click', 'Copy text on selection', 'toggle')`
+3. `('save',)`
+4. `('config', 'copy_on_select', False)`
+
+## CFG-011: Copy text on selection: cancel
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'General')`
+2. `('click', 'Copy text on selection', 'toggle')`
+3. `('click', 'Cancel')`
+4. `('config_default', 'copy_on_select', True)`
+
+## CFG-012: Copy text on selection: reopen
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'General')`
+2. `('click', 'Copy text on selection', 'toggle')`
+3. `('save',)`
+4. `('relaunch',)`
+5. `('config', 'copy_on_select', False)`
+
+## CFG-013: Automatically check for updates: save
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'General')`
+2. `('click', 'Automatically check for updates', 'toggle')`
+3. `('save',)`
+4. `('config', 'automatic_check_updates', False)`
+
+## CFG-014: Automatically check for updates: cancel
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'General')`
+2. `('click', 'Automatically check for updates', 'toggle')`
+3. `('click', 'Cancel')`
+4. `('config_default', 'automatic_check_updates', True)`
+
+## CFG-015: Automatically check for updates: reopen
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'General')`
+2. `('click', 'Automatically check for updates', 'toggle')`
+3. `('save',)`
+4. `('relaunch',)`
+5. `('config', 'automatic_check_updates', False)`
+
+## CFG-016: Automatically resume interrupted work: save
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'Coordination')`
+2. `('click', 'Automatically resume interrupted work', 'toggle')`
+3. `('save',)`
+4. `('config', 'resume_interrupted_work', False)`
+
+## CFG-017: Automatically resume interrupted work: cancel
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'Coordination')`
+2. `('click', 'Automatically resume interrupted work', 'toggle')`
+3. `('click', 'Cancel')`
+4. `('config_default', 'resume_interrupted_work', True)`
+
+## CFG-018: Automatically resume interrupted work: reopen
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'Coordination')`
+2. `('click', 'Automatically resume interrupted work', 'toggle')`
+3. `('save',)`
+4. `('relaunch',)`
+5. `('config', 'resume_interrupted_work', False)`
+
+## CFG-019: Persist Light appearance
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'Appearance')`
+2. `('click', 'Light')`
+3. `('save',)`
+4. `('config', 'appearance', 'light')`
+5. `('relaunch',)`
+6. `('config', 'appearance', 'light')`
+
+## CFG-020: Persist Dark appearance
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'Appearance')`
+2. `('click', 'Dark')`
+3. `('save',)`
+4. `('config', 'appearance', 'dark')`
+5. `('relaunch',)`
+6. `('config', 'appearance', 'dark')`
+
+## CFG-021: Persist System appearance
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'Appearance')`
+2. `('click', 'System')`
+3. `('save',)`
+4. `('config', 'appearance', 'system')`
+5. `('relaunch',)`
+6. `('config', 'appearance', 'system')`
+
+## CFG-022: External edits invalidate an open draft
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'General')`
+2. `('write_config', 'max_agents_per_coordinator = 3\n')`
+3. `('visible', 'Settings changed outside this window')`
+4. `('disabled', 'Save')`
+5. `('click', 'Cancel')`
+6. `('config', 'max_agents_per_coordinator', 3)`
+
+## CFG-023: Reopening after a conflict loads the new settings
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'General')`
+2. `('write_config', 'appearance = "dark"\n')`
+3. `('visible', 'Settings changed outside this window')`
+4. `('click', 'Cancel')`
+5. `('settings', 'Appearance')`
+6. `('save',)`
+7. `('config', 'appearance', 'dark')`
+
+## CFG-024: Malformed configuration produces a visible error (24)
+
+Fixture: `isolated local installation`.
+
+1. `('write_config', 'appearance = "invalid"\n')`
+2. `('visible', 'Could not load settings')`
+3. `('run', 'printf still-running')`
+
+## CFG-025: Malformed configuration produces a visible error (25)
+
+Fixture: `isolated local installation`.
+
+1. `('write_config', 'unknown_setting = true\n')`
+2. `('visible', 'Could not load settings')`
+3. `('run', 'printf still-running')`
+
+## CFG-026: Malformed configuration produces a visible error (26)
+
+Fixture: `isolated local installation`.
+
+1. `('write_config', 'max_agents_per_coordinator = 0\n')`
+2. `('visible', 'Could not load settings')`
+3. `('run', 'printf still-running')`
+
+## CFG-027: Malformed configuration produces a visible error (27)
+
+Fixture: `isolated local installation`.
+
+1. `('write_config', 'enabled_agents = ["unknown"]\n')`
+2. `('visible', 'Could not load settings')`
+3. `('run', 'printf still-running')`
+
+## CFG-028: Malformed configuration produces a visible error (28)
+
+Fixture: `isolated local installation`.
+
+1. `('write_config', '[bindings]\nunknown_action = ["ctrl+j"]\n')`
+2. `('visible', 'Could not load settings')`
+3. `('run', 'printf still-running')`
+
+## CFG-029: Malformed configuration produces a visible error (29)
+
+Fixture: `isolated local installation`.
+
+1. `('write_config', '[bindings]\nfind = ["f"]\n')`
+2. `('visible', 'Could not load settings')`
+3. `('run', 'printf still-running')`
+
+## CFG-030: Malformed configuration produces a visible error (30)
+
+Fixture: `isolated local installation`.
+
+1. `('write_config', '[bindings]\nfind = ["ctrl+j"]\npalette = ["ctrl+j"]\n')`
+2. `('visible', 'Could not load settings')`
+3. `('run', 'printf still-running')`
+
+## CFG-031: Malformed configuration produces a visible error (31)
+
+Fixture: `isolated local installation`.
+
+1. `('write_config', 'broken = [\n')`
+2. `('visible', 'Could not load settings')`
+3. `('run', 'printf still-running')`
+
+## CFG-032: Saving through a symlink preserves it
+
+Fixture: `isolated local installation`.
+
+1. `('config_symlink',)`
+2. `('settings', 'Appearance')`
+3. `('click', 'Dark')`
+4. `('save',)`
+5. `('config', 'appearance', 'dark')`
+6. `('symlink_preserved',)`
+
+## KEY-001: New Tab via configured keyboard chord
+
+Fixture: `isolated local installation`.
+
+1. `('chord', 'ctrl+shift+t')`
+2. `('key', 'ESCAPE')`
+3. `('count', 'tabs', 2)`
+
+## KEY-002: Split Right via configured keyboard chord
+
+Fixture: `isolated local installation`.
+
+1. `('chord', 'ctrl+shift+e')`
+2. `('key', 'ESCAPE')`
+3. `('count', 'panes', 2)`
+
+## KEY-003: Split Down via configured keyboard chord
+
+Fixture: `isolated local installation`.
+
+1. `('chord', 'ctrl+shift+o')`
+2. `('key', 'ESCAPE')`
+3. `('count', 'panes', 2)`
+
+## KEY-004: New Workspace via configured keyboard chord
+
+Fixture: `isolated local installation`.
+
+1. `('chord', 'ctrl+shift+n')`
+2. `('key', 'ESCAPE')`
+3. `('count', 'workspaces', 2)`
+
+## KEY-005: A custom binding executes its command
+
+Fixture: `isolated local installation`.
+
+1. `('write_config', '[bindings]\nnew_tab = ["ctrl+alt+j"]\n')`
+2. `('relaunch',)`
+3. `('chord', 'ctrl+alt+j')`
+4. `('target_visible', 'Tab name', 'field')`
+5. `('key', 'ESCAPE')`
+6. `('count', 'tabs', 2)`
+
+## KEY-006: An explicitly unbound command stays disabled after restart
+
+Fixture: `isolated local installation`.
+
+1. `('write_config', '[bindings]\nnew_tab = []\n')`
+2. `('relaunch',)`
+3. `('chord', 'ctrl+shift+t')`
+4. `('settle_count', 'tabs', 1)`
+
+## KEY-007: Every configured binding is effective
+
+Fixture: `isolated local installation`.
+
+1. `('write_config', '[bindings]\nnew_tab = ["ctrl+alt+j", "ctrl+alt+k"]\n')`
+2. `('relaunch',)`
+3. `('chord', 'ctrl+alt+j')`
+4. `('target_visible', 'Tab name', 'field')`
+5. `('key', 'ESCAPE')`
+6. `('count', 'tabs', 2)`
+7. `('chord', 'ctrl+alt+k')`
+8. `('target_visible', 'Tab name', 'field')`
+9. `('key', 'ESCAPE')`
+10. `('count', 'tabs', 3)`
+
+## FIND-001: History search finds needle
+
+Fixture: `isolated local installation`.
+
+1. `('run', "printf 'needle\\n'")`
+2. `('command', 'Find in Tab History')`
+3. `('fill', 'Find in tab history', 'needle')`
+4. `('visible', '1/1')`
+
+## FIND-002: History search finds 日本語
+
+Fixture: `isolated local installation`.
+
+1. `('run', "printf '日本語\\n'")`
+2. `('command', 'Find in Tab History')`
+3. `('fill', 'Find in tab history', '日本語')`
+4. `('visible', '1/1')`
+
+## FIND-003: History search finds wrapped
+
+Fixture: `isolated local installation`.
+
+1. `('run', "printf 'wrapped\\n'")`
+2. `('command', 'Find in Tab History')`
+3. `('fill', 'Find in tab history', 'wrapped')`
+4. `('visible', '1/1')`
+
+## FIND-004: History search finds case
+
+Fixture: `isolated local installation`.
+
+1. `('run', "printf 'case\\n'")`
+2. `('command', 'Find in Tab History')`
+3. `('fill', 'Find in tab history', 'case')`
+4. `('visible', '1/1')`
+
+## FIND-005: A search with no matches reports zero
+
+Fixture: `isolated local installation`.
+
+1. `('command', 'Find in Tab History')`
+2. `('fill', 'Find in tab history', 'never-produced-59104')`
+3. `('visible', '0/0')`
+
+## FIND-006: Escape returns keyboard focus to the terminal
+
+Fixture: `isolated local installation`.
+
+1. `('command', 'Find in Tab History')`
+2. `('target_visible', 'Find in tab history', 'field')`
+3. `('key', 'ESCAPE')`
+4. `('absent', 'Find in tab history')`
+5. `('run_focused', 'printf after-find')`
+6. `('output', 'after-find')`
+
+## FIND-007: Find follows a query across a soft-wrapped terminal line
+
+Fixture: `isolated local installation`.
+
+1. `('run', 'cols=$(stty size); cols=${cols##* }; printf \'%*s%s\\n\' "$((cols-4))" \'\' \'boundary-search\'')`
+2. `('command', 'Find in Tab History')`
+3. `('fill', 'Find in tab history', 'boundary-search')`
+4. `('visible', '1/1')`
+
+## RACE-001: Rapid history queries settle on the final query without later stale counts
+
+Fixture: `isolated local installation`.
+
+1. `('run', "seq 1 6000 | sed 's/^/racealpha-/'; printf '\\nfinal-racebeta\\n'")`
+2. `('remember_layout',)`
+3. `('remember_pids',)`
+4. `('command', 'Find in Tab History')`
+5. `('query_burst', 'Find in tab history', ('racealpha', 'no-match-1973', 'racealpha', 'final-racebeta'))`
+6. `('field_value', 'Find in tab history', 'final-racebeta')`
+7. `('stable_visible', '1/1', 2)`
+8. `('key', 'ESCAPE')`
+9. `('absent', 'Find in tab history')`
+10. `('run_focused', 'printf search-final-query-focus')`
+11. `('output', 'search-final-query-focus')`
+12. `('same_layout',)`
+13. `('same_pids',)`
+
+## RACE-002: Dismissing rapidly replaced history queries keeps search closed and restores terminal focus
+
+Fixture: `isolated local installation`.
+
+1. `('run', "seq 1 6000 | sed 's/^/cancel-races-/'")`
+2. `('remember_layout',)`
+3. `('remember_pids',)`
+4. `('command', 'Find in Tab History')`
+5. `('query_burst', 'Find in tab history', ('cancel-races', 'never-matches-8249', 'cancel-races'))`
+6. `('key', 'ESCAPE')`
+7. `('absent', 'Find in tab history')`
+8. `('run_focused', 'printf cancelled-search-focus')`
+9. `('output', 'cancelled-search-focus')`
+10. `('absent', 'Find in tab history')`
+11. `('same_layout',)`
+12. `('same_pids',)`
+
+## RACE-003: History results follow the selected tab after rapid query replacement
+
+Fixture: `isolated local installation`.
+
+1. `('run', 'printf scope-first-tab')`
+2. `('command', 'New Tab')`
+3. `('key', 'ESCAPE')`
+4. `('count', 'tabs', 2)`
+5. `('run', 'printf scope-second-tab')`
+6. `('remember_layout',)`
+7. `('remember_pids',)`
+8. `('command', 'Find in Tab History')`
+9. `('query_burst', 'Find in tab history', ('scope-first-tab', 'no-match-5917', 'scope-second-tab'))`
+10. `('click', 'Tab 1', 'button')`
+11. `('field_value', 'Find in tab history', 'scope-second-tab')`
+12. `('stable_visible', '0/0', 2)`
+13. `('click', 'Tab 2', 'button')`
+14. `('stable_visible', '1/1', 2)`
+15. `('key', 'ESCAPE')`
+16. `('absent', 'Find in tab history')`
+17. `('run_focused', 'printf search-scope-focus')`
+18. `('output', 'search-scope-focus')`
+19. `('same_layout',)`
+20. `('same_pids',)`
+
+## WT-001: Create worktree feature/one through the UI
+
+Fixture: `isolated local installation`.
+
+1. `('command', 'New Worktree')`
+2. `('fill', 'Branch name', 'feature/one')`
+3. `('fill', 'Base revision', 'HEAD')`
+4. `('click', 'Create')`
+5. `('count', 'workspaces', 2)`
+6. `('git_branch', 'feature/one')`
+
+## WT-002: Create worktree 日本語 through the UI
+
+Fixture: `isolated local installation`.
+
+1. `('command', 'New Worktree')`
+2. `('fill', 'Branch name', '日本語')`
+3. `('fill', 'Base revision', 'HEAD')`
+4. `('click', 'Create')`
+5. `('count', 'workspaces', 2)`
+6. `('git_branch', '日本語')`
+
+## WT-003: Create worktree with-dashes through the UI
+
+Fixture: `isolated local installation`.
+
+1. `('command', 'New Worktree')`
+2. `('fill', 'Branch name', 'with-dashes')`
+3. `('fill', 'Base revision', 'main')`
+4. `('click', 'Create')`
+5. `('count', 'workspaces', 2)`
+6. `('git_branch', 'with-dashes')`
+
+## WT-004: Cancelling worktree creation preserves the repository
+
+Fixture: `isolated local installation`.
+
+1. `('command', 'New Worktree')`
+2. `('fill', 'Branch name', 'cancelled')`
+3. `('click', 'Cancel')`
+4. `('settle_count', 'workspaces', 1)`
+5. `('git_no_branch', 'cancelled')`
+
+## WT-005: Invalid base revision produces a recoverable error
+
+Fixture: `isolated local installation`.
+
+1. `('remember_layout',)`
+2. `('remember_pids',)`
+3. `('command', 'New Worktree')`
+4. `('fill', 'Branch name', 'bad-base')`
+5. `('fill', 'Base revision', 'no-such-ref')`
+6. `('click', 'Create')`
+7. `('visible', 'invalid reference: no-such-ref')`
+8. `('enabled', 'Retry', 'button')`
+9. `('count', 'workspaces', 1)`
+10. `('same_layout',)`
+11. `('same_pids',)`
+12. `('git_no_branch', 'bad-base')`
+
+## AGENT-001: provider missing
+
+Fixture: `provider-missing`.
+
+1. `('command', 'Agent Integrations')`
+2. `('visible', 'Not detected')`
+
+## AGENT-002: provider detected
+
+Fixture: `provider-detected`.
+
+1. `('command', 'Agent Integrations')`
+2. `('visible', 'Install')`
+
+## AGENT-003: provider installed
+
+Fixture: `provider-installed`.
+
+1. `('command', 'Agent Integrations')`
+2. `('visible', 'Installed')`
+
+## AGENT-004: provider foreign
+
+Fixture: `provider-foreign`.
+
+1. `('command', 'Agent Integrations')`
+2. `('visible', 'will be preserved')`
+
+## AGENT-005: provider outdated
+
+Fixture: `provider-outdated`.
+
+1. `('command', 'Agent Integrations')`
+2. `('visible', 'Update')`
+
+## COORD-001: queued task
+
+Fixture: `queued-task`.
+
+1. `('command', 'Settings')`
+2. `('click', 'Tasks and Agents')`
+3. `('visible', 'Queued for delivery')`
+
+## COORD-002: waiting agent
+
+Fixture: `waiting-agent`.
+
+1. `('command', 'Settings')`
+2. `('click', 'Tasks and Agents')`
+3. `('visible', 'Waiting for agent readiness')`
+
+## COORD-003: accepted task
+
+Fixture: `accepted-task`.
+
+1. `('command', 'Settings')`
+2. `('click', 'Tasks and Agents')`
+3. `('visible', 'awaiting acknowledgement')`
+
+## COORD-004: acknowledged task
+
+Fixture: `acknowledged-task`.
+
+1. `('command', 'Settings')`
+2. `('click', 'Tasks and Agents')`
+3. `('visible', 'Acknowledged by agent')`
+
+## COORD-005: failed task
+
+Fixture: `failed-task`.
+
+1. `('command', 'Settings')`
+2. `('click', 'Tasks and Agents')`
+3. `('visible', 'Delivery failed')`
+
+## COORD-006: completed task
+
+Fixture: `completed-task`.
+
+1. `('command', 'Settings')`
+2. `('click', 'Tasks and Agents')`
+3. `('visible', 'fixture-result')`
+
+## REMOTE-001: remote connected
+
+Fixture: `remote-connected`.
+
+1. `('remote_shell',)`
+2. `('remote_workspace_preserved',)`
+
+## REMOTE-002: remote offline
+
+Fixture: `remote-offline`.
+
+Behaviors: `diagnostics`.
+
+1. `('visible', 'Server unavailable')`
+
+## REMOTE-003: remote auth rejected
+
+Fixture: `remote-auth-rejected`.
+
+Behaviors: `diagnostics`.
+
+1. `('visible', 'Server unavailable')`
+2. `('absent', 'SSH Authentication')`
+3. `('remote_rejected', 'Permission denied')`
+4. `('context', 'Fixture', 'machine')`
+5. `('enabled', 'Reconnect', 'menu')`
+6. `('key', 'ESCAPE')`
+7. `('remote_workspace_preserved',)`
+
+## REMOTE-004: remote persistence disabled
+
+Fixture: `remote-persistence-disabled`.
+
+1. `('visible', 'Session persistence warning for Fixture', 60)`
+
+## REMOTE-005: remote incompatible
+
+Fixture: `remote-incompatible`.
+
+1. `('visible', 'Takeover required')`
+
+## UPDATE-001: update available
+
+Fixture: `update-available`.
+
+1. `('visible', 'Upgrade available')`
+
+## UPDATE-002: update required
+
+Fixture: `update-required`.
+
+1. `('visible', 'Upgrade available')`
+2. `('click', 'Upgrade available')`
+3. `('visible', 'Upgrade Jam')`
+4. `('visible', 'Jam 0.0.5')`
+5. `('visible', 'Fixture')`
+6. `('visible', '1 running terminal')`
+7. `('click', 'Cancel', 'button')`
+8. `('remote_workspace_preserved',)`
+
+## UPDATE-003: update interrupted
+
+Fixture: `update-interrupted`.
+
+1. `('visible', 'Recover…')`
+
+## REMOTE-010: Cancel real SSH continue
+
+Fixture: `remote-password-required`.
+
+1. `('visible', 'Server unavailable', 90)`
+2. `('context', 'Fixture', 'machine')`
+3. `('click', 'Reconnect', 'menu')`
+4. `('dialog', 'SSH Authentication')`
+5. `('dialog_button', 'Cancel')`
+6. `('finish_dialogs',)`
+7. `('absent', 'SSH Authentication')`
+8. `('visible', 'Server unavailable', 60)`
+9. `('remote_rejected', 'Permission denied')`
+10. `('remote_workspace_preserved',)`
+
+## REMOTE-011: Accept real SSH continue
+
+Fixture: `remote-password-required`.
+
+1. `('visible', 'Server unavailable', 90)`
+2. `('context', 'Fixture', 'machine')`
+3. `('click', 'Reconnect', 'menu')`
+4. `('dialog', 'SSH Authentication')`
+5. `('type', 'fixture-local-only')`
+6. `('dialog_button', 'Continue')`
+7. `('dialog', 'SSH Authentication')`
+8. `('type', 'fixture-local-only')`
+9. `('dialog_button', 'Continue')`
+10. `('dialog', 'SSH Authentication')`
+11. `('type', 'fixture-local-only')`
+12. `('dialog_button', 'Continue')`
+13. `('finish_dialogs',)`
+14. `('remote_shell',)`
+15. `('remote_workspace_preserved',)`
+
+## REMOTE-012: Cancel real SSH trust host
+
+Fixture: `remote-host-untrusted`.
+
+1. `('visible', 'Server unavailable', 90)`
+2. `('context', 'Fixture', 'machine')`
+3. `('click', 'Reconnect', 'menu')`
+4. `('dialog', 'SSH Authentication')`
+5. `('dialog_button', 'Cancel')`
+6. `('finish_dialogs',)`
+7. `('absent', 'SSH Authentication')`
+8. `('visible', 'Server unavailable', 60)`
+9. `('remote_rejected', 'Host key verification failed')`
+10. `('remote_workspace_preserved',)`
+
+## REMOTE-013: Accept real SSH trust host
+
+Fixture: `remote-host-untrusted`.
+
+1. `('visible', 'Server unavailable', 90)`
+2. `('context', 'Fixture', 'machine')`
+3. `('click', 'Reconnect', 'menu')`
+4. `('dialog', 'SSH Authentication')`
+5. `('dialog_button', 'Trust Host')`
+6. `('finish_dialogs',)`
+7. `('remote_shell',)`
+8. `('remote_workspace_preserved',)`
+
+## DEFAULT-001: Fresh profile uses documented worktrees_directory
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'General')`
+2. `('save',)`
+3. `('config', 'worktrees_directory', '~/wt/{{repo}}/{{worktree}}')`
+
+## DEFAULT-002: Fresh profile uses documented copy_on_select
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'General')`
+2. `('save',)`
+3. `('config', 'copy_on_select', True)`
+
+## DEFAULT-003: Fresh profile uses documented automatic_check_updates
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'General')`
+2. `('save',)`
+3. `('config', 'automatic_check_updates', True)`
+
+## DEFAULT-004: Fresh profile uses documented enabled_agents
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'General')`
+2. `('save',)`
+3. `('config', 'enabled_agents', ['claude', 'codex'])`
+
+## DEFAULT-005: Fresh profile uses documented agent_models
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'General')`
+2. `('save',)`
+3. `('config', 'agent_models', {})`
+
+## DEFAULT-006: Fresh profile uses documented max_agents_per_coordinator
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'General')`
+2. `('save',)`
+3. `('config', 'max_agents_per_coordinator', 8)`
+
+## DEFAULT-007: Fresh profile uses documented resume_interrupted_work
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'General')`
+2. `('save',)`
+3. `('config', 'resume_interrupted_work', True)`
+
+## DEFAULT-008: Fresh profile uses documented appearance
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'General')`
+2. `('save',)`
+3. `('config', 'appearance', 'system')`
+
+## DEFAULT-009: Fresh profile uses documented close_empty_workspaces
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'General')`
+2. `('save',)`
+3. `('config', 'close_empty_workspaces', False)`
+
+## DEFAULT-010: Fresh profile uses documented close_empty_tabs
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'General')`
+2. `('save',)`
+3. `('config', 'close_empty_tabs', True)`
+
+## DEFAULT-011: Fresh profile uses documented allow_workspace_deletion
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'General')`
+2. `('save',)`
+3. `('config', 'allow_workspace_deletion', True)`
+
+## BIND-001: assign shortcut for Find in Tab History in settings
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'Keyboard')`
+2. `('fill', 'Find in Tab History', 'ctrl+alt+j')`
+3. `('field_value', 'Find in Tab History', 'ctrl+alt+j')`
+4. `('save',)`
+5. `('config', 'bindings.find', ['ctrl+alt+j'])`
+6. `('relaunch',)`
+7. `('settings', 'Keyboard')`
+8. `('field_value', 'Find in Tab History', 'ctrl+alt+j')`
+
+## BIND-002: unbind shortcut for Find in Tab History in settings
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'Keyboard')`
+2. `('fill', 'Find in Tab History', '')`
+3. `('field_value', 'Find in Tab History', '')`
+4. `('save',)`
+5. `('config', 'bindings.find', [])`
+6. `('relaunch',)`
+7. `('settings', 'Keyboard')`
+8. `('field_value', 'Find in Tab History', '')`
+
+## BIND-003: assign shortcut for Find Next in settings
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'Keyboard')`
+2. `('fill', 'Find Next', 'ctrl+alt+j')`
+3. `('field_value', 'Find Next', 'ctrl+alt+j')`
+4. `('save',)`
+5. `('config', 'bindings.find_next', ['ctrl+alt+j'])`
+6. `('relaunch',)`
+7. `('settings', 'Keyboard')`
+8. `('field_value', 'Find Next', 'ctrl+alt+j')`
+
+## BIND-004: unbind shortcut for Find Next in settings
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'Keyboard')`
+2. `('fill', 'Find Next', '')`
+3. `('field_value', 'Find Next', '')`
+4. `('save',)`
+5. `('config', 'bindings.find_next', [])`
+6. `('relaunch',)`
+7. `('settings', 'Keyboard')`
+8. `('field_value', 'Find Next', '')`
+
+## BIND-005: assign shortcut for Find Previous in settings
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'Keyboard')`
+2. `('fill', 'Find Previous', 'ctrl+alt+j')`
+3. `('field_value', 'Find Previous', 'ctrl+alt+j')`
+4. `('save',)`
+5. `('config', 'bindings.find_previous', ['ctrl+alt+j'])`
+6. `('relaunch',)`
+7. `('settings', 'Keyboard')`
+8. `('field_value', 'Find Previous', 'ctrl+alt+j')`
+
+## BIND-006: unbind shortcut for Find Previous in settings
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'Keyboard')`
+2. `('fill', 'Find Previous', '')`
+3. `('field_value', 'Find Previous', '')`
+4. `('save',)`
+5. `('config', 'bindings.find_previous', [])`
+6. `('relaunch',)`
+7. `('settings', 'Keyboard')`
+8. `('field_value', 'Find Previous', '')`
+
+## BIND-007: assign shortcut for Command Palette in settings
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'Keyboard')`
+2. `('fill', 'Command Palette', 'ctrl+alt+j')`
+3. `('field_value', 'Command Palette', 'ctrl+alt+j')`
+4. `('save',)`
+5. `('config', 'bindings.palette', ['ctrl+alt+j'])`
+6. `('relaunch',)`
+7. `('settings', 'Keyboard')`
+8. `('field_value', 'Command Palette', 'ctrl+alt+j')`
+
+## BIND-008: unbind shortcut for Command Palette in settings
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'Keyboard')`
+2. `('fill', 'Command Palette', '')`
+3. `('field_value', 'Command Palette', '')`
+4. `('save',)`
+5. `('config', 'bindings.palette', [])`
+6. `('relaunch',)`
+7. `('settings', 'Keyboard')`
+8. `('field_value', 'Command Palette', '')`
+
+## BIND-009: assign shortcut for New Workspace in settings
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'Keyboard')`
+2. `('fill', 'New Workspace', 'ctrl+alt+j')`
+3. `('field_value', 'New Workspace', 'ctrl+alt+j')`
+4. `('save',)`
+5. `('config', 'bindings.new_workspace', ['ctrl+alt+j'])`
+6. `('relaunch',)`
+7. `('settings', 'Keyboard')`
+8. `('field_value', 'New Workspace', 'ctrl+alt+j')`
+
+## BIND-010: unbind shortcut for New Workspace in settings
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'Keyboard')`
+2. `('fill', 'New Workspace', '')`
+3. `('field_value', 'New Workspace', '')`
+4. `('save',)`
+5. `('config', 'bindings.new_workspace', [])`
+6. `('relaunch',)`
+7. `('settings', 'Keyboard')`
+8. `('field_value', 'New Workspace', '')`
+
+## BIND-011: assign shortcut for Open Workspace in settings
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'Keyboard')`
+2. `('fill', 'Open Workspace', 'ctrl+alt+j')`
+3. `('field_value', 'Open Workspace', 'ctrl+alt+j')`
+4. `('save',)`
+5. `('config', 'bindings.open_workspace', ['ctrl+alt+j'])`
+6. `('relaunch',)`
+7. `('settings', 'Keyboard')`
+8. `('field_value', 'Open Workspace', 'ctrl+alt+j')`
+
+## BIND-012: unbind shortcut for Open Workspace in settings
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'Keyboard')`
+2. `('fill', 'Open Workspace', '')`
+3. `('field_value', 'Open Workspace', '')`
+4. `('save',)`
+5. `('config', 'bindings.open_workspace', [])`
+6. `('relaunch',)`
+7. `('settings', 'Keyboard')`
+8. `('field_value', 'Open Workspace', '')`
+
+## BIND-013: assign shortcut for New Tab in settings
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'Keyboard')`
+2. `('fill', 'New Tab', 'ctrl+alt+j')`
+3. `('field_value', 'New Tab', 'ctrl+alt+j')`
+4. `('save',)`
+5. `('config', 'bindings.new_tab', ['ctrl+alt+j'])`
+6. `('relaunch',)`
+7. `('settings', 'Keyboard')`
+8. `('field_value', 'New Tab', 'ctrl+alt+j')`
+
+## BIND-014: unbind shortcut for New Tab in settings
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'Keyboard')`
+2. `('fill', 'New Tab', '')`
+3. `('field_value', 'New Tab', '')`
+4. `('save',)`
+5. `('config', 'bindings.new_tab', [])`
+6. `('relaunch',)`
+7. `('settings', 'Keyboard')`
+8. `('field_value', 'New Tab', '')`
+
+## BIND-015: assign shortcut for Split Right in settings
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'Keyboard')`
+2. `('fill', 'Split Right', 'ctrl+alt+j')`
+3. `('field_value', 'Split Right', 'ctrl+alt+j')`
+4. `('save',)`
+5. `('config', 'bindings.split_right', ['ctrl+alt+j'])`
+6. `('relaunch',)`
+7. `('settings', 'Keyboard')`
+8. `('field_value', 'Split Right', 'ctrl+alt+j')`
+
+## BIND-016: unbind shortcut for Split Right in settings
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'Keyboard')`
+2. `('fill', 'Split Right', '')`
+3. `('field_value', 'Split Right', '')`
+4. `('save',)`
+5. `('config', 'bindings.split_right', [])`
+6. `('relaunch',)`
+7. `('settings', 'Keyboard')`
+8. `('field_value', 'Split Right', '')`
+
+## BIND-017: assign shortcut for Split Down in settings
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'Keyboard')`
+2. `('fill', 'Split Down', 'ctrl+alt+j')`
+3. `('field_value', 'Split Down', 'ctrl+alt+j')`
+4. `('save',)`
+5. `('config', 'bindings.split_down', ['ctrl+alt+j'])`
+6. `('relaunch',)`
+7. `('settings', 'Keyboard')`
+8. `('field_value', 'Split Down', 'ctrl+alt+j')`
+
+## BIND-018: unbind shortcut for Split Down in settings
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'Keyboard')`
+2. `('fill', 'Split Down', '')`
+3. `('field_value', 'Split Down', '')`
+4. `('save',)`
+5. `('config', 'bindings.split_down', [])`
+6. `('relaunch',)`
+7. `('settings', 'Keyboard')`
+8. `('field_value', 'Split Down', '')`
+
+## BIND-019: assign shortcut for New Worktree in settings
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'Keyboard')`
+2. `('fill', 'New Worktree', 'ctrl+alt+j')`
+3. `('field_value', 'New Worktree', 'ctrl+alt+j')`
+4. `('save',)`
+5. `('config', 'bindings.new_worktree', ['ctrl+alt+j'])`
+6. `('relaunch',)`
+7. `('settings', 'Keyboard')`
+8. `('field_value', 'New Worktree', 'ctrl+alt+j')`
+
+## BIND-020: unbind shortcut for New Worktree in settings
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'Keyboard')`
+2. `('fill', 'New Worktree', '')`
+3. `('field_value', 'New Worktree', '')`
+4. `('save',)`
+5. `('config', 'bindings.new_worktree', [])`
+6. `('relaunch',)`
+7. `('settings', 'Keyboard')`
+8. `('field_value', 'New Worktree', '')`
+
+## BIND-021: assign shortcut for Open Worktree in settings
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'Keyboard')`
+2. `('fill', 'Open Worktree', 'ctrl+alt+j')`
+3. `('field_value', 'Open Worktree', 'ctrl+alt+j')`
+4. `('save',)`
+5. `('config', 'bindings.open_worktree', ['ctrl+alt+j'])`
+6. `('relaunch',)`
+7. `('settings', 'Keyboard')`
+8. `('field_value', 'Open Worktree', 'ctrl+alt+j')`
+
+## BIND-022: unbind shortcut for Open Worktree in settings
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'Keyboard')`
+2. `('fill', 'Open Worktree', '')`
+3. `('field_value', 'Open Worktree', '')`
+4. `('save',)`
+5. `('config', 'bindings.open_worktree', [])`
+6. `('relaunch',)`
+7. `('settings', 'Keyboard')`
+8. `('field_value', 'Open Worktree', '')`
+
+## BIND-023: assign shortcut for Close Pane in settings
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'Keyboard')`
+2. `('fill', 'Close Pane', 'ctrl+alt+j')`
+3. `('field_value', 'Close Pane', 'ctrl+alt+j')`
+4. `('save',)`
+5. `('config', 'bindings.close_pane', ['ctrl+alt+j'])`
+6. `('relaunch',)`
+7. `('settings', 'Keyboard')`
+8. `('field_value', 'Close Pane', 'ctrl+alt+j')`
+
+## BIND-024: unbind shortcut for Close Pane in settings
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'Keyboard')`
+2. `('fill', 'Close Pane', '')`
+3. `('field_value', 'Close Pane', '')`
+4. `('save',)`
+5. `('config', 'bindings.close_pane', [])`
+6. `('relaunch',)`
+7. `('settings', 'Keyboard')`
+8. `('field_value', 'Close Pane', '')`
+
+## BIND-025: assign shortcut for Close Workspace in settings
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'Keyboard')`
+2. `('fill', 'Close Workspace', 'ctrl+alt+j')`
+3. `('field_value', 'Close Workspace', 'ctrl+alt+j')`
+4. `('save',)`
+5. `('config', 'bindings.close_workspace', ['ctrl+alt+j'])`
+6. `('relaunch',)`
+7. `('settings', 'Keyboard')`
+8. `('field_value', 'Close Workspace', 'ctrl+alt+j')`
+
+## BIND-026: unbind shortcut for Close Workspace in settings
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'Keyboard')`
+2. `('fill', 'Close Workspace', '')`
+3. `('field_value', 'Close Workspace', '')`
+4. `('save',)`
+5. `('config', 'bindings.close_workspace', [])`
+6. `('relaunch',)`
+7. `('settings', 'Keyboard')`
+8. `('field_value', 'Close Workspace', '')`
+
+## BIND-027: assign shortcut for Settings in settings
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'Keyboard')`
+2. `('fill', 'Settings', 'ctrl+alt+j')`
+3. `('field_value', 'Settings', 'ctrl+alt+j')`
+4. `('save',)`
+5. `('config', 'bindings.settings', ['ctrl+alt+j'])`
+6. `('relaunch',)`
+7. `('settings', 'Keyboard')`
+8. `('field_value', 'Settings', 'ctrl+alt+j')`
+
+## BIND-028: unbind shortcut for Settings in settings
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'Keyboard')`
+2. `('fill', 'Settings', '')`
+3. `('field_value', 'Settings', '')`
+4. `('save',)`
+5. `('config', 'bindings.settings', [])`
+6. `('relaunch',)`
+7. `('settings', 'Keyboard')`
+8. `('field_value', 'Settings', '')`
+
+## BIND-029: assign shortcut for Agent Integrations in settings
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'Keyboard')`
+2. `('fill', 'Agent Integrations', 'ctrl+alt+j')`
+3. `('field_value', 'Agent Integrations', 'ctrl+alt+j')`
+4. `('save',)`
+5. `('config', 'bindings.agent_integrations', ['ctrl+alt+j'])`
+6. `('relaunch',)`
+7. `('settings', 'Keyboard')`
+8. `('field_value', 'Agent Integrations', 'ctrl+alt+j')`
+
+## BIND-030: unbind shortcut for Agent Integrations in settings
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'Keyboard')`
+2. `('fill', 'Agent Integrations', '')`
+3. `('field_value', 'Agent Integrations', '')`
+4. `('save',)`
+5. `('config', 'bindings.agent_integrations', [])`
+6. `('relaunch',)`
+7. `('settings', 'Keyboard')`
+8. `('field_value', 'Agent Integrations', '')`
+
+## MODEL-001: Manual claude Coordinator model is persisted
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'Coordination')`
+2. `('click', 'Claude')`
+3. `('fill', 'Coordinator model', 'fixture-model-id')`
+4. `('save',)`
+5. `('config', 'agent_models.claude.coordinator', 'fixture-model-id')`
+
+## MODEL-002: Manual claude Worker model is persisted
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'Coordination')`
+2. `('click', 'Claude')`
+3. `('fill', 'Worker model', 'fixture-model-id')`
+4. `('save',)`
+5. `('config', 'agent_models.claude.worker', 'fixture-model-id')`
+
+## MODEL-003: Manual claude Reviewer model is persisted
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'Coordination')`
+2. `('click', 'Claude')`
+3. `('fill', 'Reviewer model', 'fixture-model-id')`
+4. `('save',)`
+5. `('config', 'agent_models.claude.reviewer', 'fixture-model-id')`
+
+## MODEL-004: Manual claude Complex work model is persisted
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'Coordination')`
+2. `('click', 'Claude')`
+3. `('fill', 'Complex work model', 'fixture-model-id')`
+4. `('save',)`
+5. `('config', 'agent_models.claude.complex_work', 'fixture-model-id')`
+
+## MODEL-005: Manual codex Coordinator model is persisted
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'Coordination')`
+2. `('click', 'Codex')`
+3. `('fill', 'Coordinator model', 'fixture-model-id')`
+4. `('save',)`
+5. `('config', 'agent_models.codex.coordinator', 'fixture-model-id')`
+
+## MODEL-006: Manual codex Worker model is persisted
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'Coordination')`
+2. `('click', 'Codex')`
+3. `('fill', 'Worker model', 'fixture-model-id')`
+4. `('save',)`
+5. `('config', 'agent_models.codex.worker', 'fixture-model-id')`
+
+## MODEL-007: Manual codex Reviewer model is persisted
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'Coordination')`
+2. `('click', 'Codex')`
+3. `('fill', 'Reviewer model', 'fixture-model-id')`
+4. `('save',)`
+5. `('config', 'agent_models.codex.reviewer', 'fixture-model-id')`
+
+## MODEL-008: Manual codex Complex work model is persisted
+
+Fixture: `isolated local installation`.
+
+1. `('settings', 'Coordination')`
+2. `('click', 'Codex')`
+3. `('fill', 'Complex work model', 'fixture-model-id')`
+4. `('save',)`
+5. `('config', 'agent_models.codex.complex_work', 'fixture-model-id')`
+
+## INPUT-001: Physical input letter reaches a raw PTY
+
+Fixture: `isolated local installation`.
+
+1. `('probe',)`
+2. `('probe_key', 'x')`
+3. `('probe_hex', '78')`
+
+## INPUT-002: Physical input tab reaches a raw PTY
+
+Fixture: `isolated local installation`.
+
+1. `('probe',)`
+2. `('probe_key', 'TAB')`
+3. `('probe_hex', '09')`
+
+## INPUT-003: Physical input enter reaches a raw PTY
+
+Fixture: `isolated local installation`.
+
+1. `('probe',)`
+2. `('probe_key', 'ENTER')`
+3. `('probe_hex', '0d')`
+
+## INPUT-004: Physical input escape reaches a raw PTY
+
+Fixture: `isolated local installation`.
+
+1. `('probe',)`
+2. `('probe_key', 'ESCAPE')`
+3. `('probe_hex', '1b')`
+
+## INPUT-005: Physical input control-a reaches a raw PTY
+
+Fixture: `isolated local installation`.
+
+1. `('probe',)`
+2. `('probe_key', 'ctrl+a')`
+3. `('probe_hex', '01')`
+
+## INPUT-006: Physical input control-e reaches a raw PTY
+
+Fixture: `isolated local installation`.
+
+1. `('probe',)`
+2. `('probe_key', 'ctrl+e')`
+3. `('probe_hex', '05')`
+
+## INPUT-007: Physical input control-z reaches a raw PTY
+
+Fixture: `isolated local installation`.
+
+1. `('probe',)`
+2. `('probe_key', 'ctrl+z')`
+3. `('probe_hex', '1a')`
+
+## INPUT-008: Physical input unicode reaches a raw PTY
+
+Fixture: `isolated local installation`.
+
+1. `('probe',)`
+2. `('probe_key', '日本語')`
+3. `('probe_hex', 'e697a5e69cace8aa9e')`
+
+## IME-001: Native preedit stays out of the PTY until its exact Unicode commit
+
+Fixture: `isolated local installation`.
+
+1. `('probe',)`
+2. `('begin_composition',)`
+3. `('probe_no_input',)`
+4. `('finish_composition', True)`
+5. `('probe_hex', 'c3a9')`
+
+## IME-002: Cancelling native preedit leaks no input and ordinary typing resumes
+
+Fixture: `isolated local installation`.
+
+1. `('probe',)`
+2. `('begin_composition',)`
+3. `('probe_no_input',)`
+4. `('finish_composition', False)`
+5. `('probe_no_input',)`
+6. `('probe_key', 'x')`
+7. `('probe_hex', '78')`
+
+## IME-003: Real Japanese input keeps preedit out of the PTY and commits exact Hiragana
+
+Fixture: `native-japanese-input`.
+
+1. `('probe', 'raw', '60')`
+2. `('input_source', 'Japanese')`
+3. `('click', 'Terminal', 'terminal', 0)`
+4. `('type', 'kana')`
+5. `('key', 'F6')`
+6. `('probe_no_input',)`
+7. `('preedit_pixels',)`
+8. `('key', 'ENTER')`
+9. `('probe_hex', 'e3818be381aa')`
+10. `('restore_input_source',)`
+
+## IME-004: Cancelling real Japanese preedit leaks no PTY bytes and ordinary input resumes
+
+Fixture: `native-japanese-input`.
+
+1. `('probe', 'raw', '60')`
+2. `('input_source', 'Japanese')`
+3. `('click', 'Terminal', 'terminal', 0)`
+4. `('type', 'kana')`
+5. `('probe_no_input',)`
+6. `('preedit_pixels',)`
+7. `('key', 'ESCAPE')`
+8. `('probe_no_input',)`
+9. `('restore_input_source',)`
+10. `('click', 'Terminal', 'terminal', 0)`
+11. `('probe_key', 'x')`
+12. `('probe_hex', '78')`
+
+## GEOM-001: Native resize updates PTY geometry and preserves the shell
+
+Fixture: `isolated local installation`.
+
+1. `('resize', 1000, 660)`
+2. `('remember_pids',)`
+3. `('remember_layout',)`
+4. `('geometry_probe',)`
+5. `('resize', 900, 580)`
+6. `('geometry_changed',)`
+7. `('same_layout',)`
+8. `('same_pids',)`
+
+## GEOM-002: Native resize updates PTY geometry and preserves split panes
+
+Fixture: `isolated local installation`.
+
+1. `('resize', 1000, 660)`
+2. `('command', 'Split Right')`
+3. `('count', 'panes', 2)`
+4. `('remember_pids',)`
+5. `('remember_layout',)`
+6. `('geometry_probe',)`
+7. `('resize', 900, 580)`
+8. `('geometry_changed',)`
+9. `('same_layout',)`
+10. `('same_pids',)`
+
+## LONG-001: A long Unicode tab title stays accessible and survives client relaunch
+
+Fixture: `isolated local installation`.
+
+Behaviors: `rendering`.
+
+1. `('resize', 900, 580)`
+2. `('remember_layout',)`
+3. `('remember_pids',)`
+4. `('clipboard', 'Review 日本語 long workspace notes long workspace notes long workspace notes long workspace notes long workspace notes long workspace notes long workspace notes long workspace notes')`
+5. `('context', 'Tab 1')`
+6. `('click', 'Rename')`
+7. `('fill', 'Tab name', 'Review 日本語 long workspace notes long workspace notes long workspace notes long workspace notes long workspace notes long workspace notes long workspace notes long workspace notes')`
+8. `('field_value', 'Tab name', 'Review 日本語 long workspace notes long workspace notes long workspace notes long workspace notes long workspace notes long workspace notes long workspace notes long workspace notes')`
+9. `('key', 'ENTER')`
+10. `('tab_name', 'Review 日本語 long workspace notes long workspace notes long workspace notes long workspace notes long workspace notes long workspace notes long workspace notes long workspace notes')`
+11. `('target_visible', 'Review 日本語 long workspace notes long workspace notes long workspace notes long workspace notes long workspace notes long workspace notes long workspace notes long workspace notes', 'button')`
+12. `('run_focused', 'printf long-title-focus')`
+13. `('output', 'long-title-focus')`
+14. `('relaunch',)`
+15. `('target_visible', 'Review 日本語 long workspace notes long workspace notes long workspace notes long workspace notes long workspace notes long workspace notes long workspace notes long workspace notes', 'button')`
+16. `('same_layout',)`
+17. `('same_pids',)`
+
+## DRAG-001: Drag Tab 1 over Tab 2 preserves processes
+
+Fixture: `isolated local installation`.
+
+1. `('command', 'New Tab')`
+2. `('key', 'ESCAPE')`
+3. `('count', 'tabs', 2)`
+4. `('count', 'panes', 2)`
+5. `('remember_tab_order',)`
+6. `('remember_pids',)`
+7. `('drag', 'Tab 1', 'Tab 2', 0.75)`
+8. `('count', 'tabs', 2)`
+9. `('tab_order_reversed',)`
+10. `('same_pids',)`
+
+## DRAG-002: Drag Tab 2 over Tab 1 preserves processes
+
+Fixture: `isolated local installation`.
+
+1. `('command', 'New Tab')`
+2. `('key', 'ESCAPE')`
+3. `('count', 'tabs', 2)`
+4. `('count', 'panes', 2)`
+5. `('remember_tab_order',)`
+6. `('remember_pids',)`
+7. `('drag', 'Tab 2', 'Tab 1', 0.25)`
+8. `('count', 'tabs', 2)`
+9. `('tab_order_reversed',)`
+10. `('same_pids',)`
+
+## INPUT-009: A physical key press and release reach the PTY keyboard protocol
+
+Fixture: `isolated local installation`.
+
+1. `('probe', 'keyboard')`
+2. `('probe_key', 'x')`
+3. `('probe_key_events',)`
+
+## MOUSE-001: A physical click sends mouse press and release to the PTY
+
+Fixture: `isolated local installation`.
+
+1. `('probe', 'mouse')`
+2. `('click', 'Terminal', 'terminal')`
+3. `('probe_mouse_events',)`
+
+## LIFECFG-001: close_empty_tabs=False controls the last pane lifecycle
+
+Fixture: `isolated local installation`.
+
+1. `('write_config', 'close_empty_tabs = false\n')`
+2. `('relaunch',)`
+3. `('command', 'Close Pane')`
+4. `('count', 'panes', 0)`
+5. `('count', 'tabs', 1)`
+6. `('count', 'workspaces', 1)`
+
+## LIFECFG-002: close_empty_tabs=True controls the last pane lifecycle
+
+Fixture: `isolated local installation`.
+
+1. `('write_config', 'close_empty_tabs = true\n')`
+2. `('relaunch',)`
+3. `('command', 'Close Pane')`
+4. `('count', 'panes', 0)`
+5. `('count', 'tabs', 0)`
+6. `('count', 'workspaces', 1)`
+
+## LIFECFG-003: close_empty_workspaces=True controls the last pane lifecycle
+
+Fixture: `isolated local installation`.
+
+1. `('write_config', 'close_empty_workspaces = true\n')`
+2. `('relaunch',)`
+3. `('command', 'Close Pane')`
+4. `('count', 'panes', 0)`
+5. `('count', 'tabs', 0)`
+6. `('count', 'workspaces', 0)`
+
+## PALETTE-001: Palette can be cancelled after searching nothing
+
+Fixture: `isolated local installation`.
+
+1. `('chord', 'ctrl+shift+p')`
+2. `('fill', 'Search commands, workspaces, tabs, and panes', 'nothing')`
+3. `('key', 'ESCAPE')`
+4. `('run_focused', 'printf palette-returned-focus')`
+5. `('output', 'palette-returned-focus')`
+
+## PALETTE-002: Palette can be cancelled after searching Tab 1
+
+Fixture: `isolated local installation`.
+
+1. `('chord', 'ctrl+shift+p')`
+2. `('fill', 'Search commands, workspaces, tabs, and panes', 'Tab 1')`
+3. `('key', 'ESCAPE')`
+4. `('run_focused', 'printf palette-returned-focus')`
+5. `('output', 'palette-returned-focus')`
+
+## PALETTE-003: Palette can be cancelled after searching Split Right
+
+Fixture: `isolated local installation`.
+
+1. `('chord', 'ctrl+shift+p')`
+2. `('fill', 'Search commands, workspaces, tabs, and panes', 'Split Right')`
+3. `('key', 'ESCAPE')`
+4. `('run_focused', 'printf palette-returned-focus')`
+5. `('output', 'palette-returned-focus')`
+
+## PALETTE-004: Palette can be cancelled after searching Settings
+
+Fixture: `isolated local installation`.
+
+1. `('chord', 'ctrl+shift+p')`
+2. `('fill', 'Search commands, workspaces, tabs, and panes', 'Settings')`
+3. `('key', 'ESCAPE')`
+4. `('run_focused', 'printf palette-returned-focus')`
+5. `('output', 'palette-returned-focus')`
+
+## PALETTE-005: Palette can be cancelled after searching Coordinator
+
+Fixture: `isolated local installation`.
+
+1. `('chord', 'ctrl+shift+p')`
+2. `('fill', 'Search commands, workspaces, tabs, and panes', 'Coordinator')`
+3. `('key', 'ESCAPE')`
+4. `('run_focused', 'printf palette-returned-focus')`
+5. `('output', 'palette-returned-focus')`
+
+## RECOVERY-001: stopped coordinator external user workflow
+
+Fixture: `stopped-coordinator`.
+
+1. `('click', 'Coordinator', 'row')`
+2. `('click', 'Recover Conversation…')`
+3. `('visible', 'Recover Coordinator')`
+
+## RECOVERY-002: codex conversations external user workflow
+
+Fixture: `codex-conversations`.
+
+1. `('click', 'Coordinator', 'row')`
+2. `('click', 'Recover Conversation…')`
+3. `('visible', 'Jam coordinator')`
+
+## RECOVERY-003: codex conversations external user workflow
+
+Fixture: `codex-conversations`.
+
+1. `('click', 'Coordinator', 'row')`
+2. `('click', 'Recover Conversation…')`
+3. `('click', 'Cancel')`
+4. `('visible', 'Coordinator stopped')`
+
+## RECOVERY-004: stopped coordinator external user workflow
+
+Fixture: `stopped-coordinator`.
+
+1. `('click', 'Coordinator', 'row')`
+2. `('click', 'Resume')`
+3. `('visible', 'fixture-agent-resumed')`
+
+## RECOVERY-005: provider launch failed external user workflow
+
+Fixture: `provider-launch-failed`.
+
+1. `('click', 'Coordinator', 'row')`
+2. `('visible', 'Resume')`
+3. `('visible', 'fixture-launch-error')`
+
+## USAGE-001: usage two providers external user workflow
+
+Fixture: `usage-two-providers`.
+
+Behaviors: `accounts`.
+
+1. `('visible', 'Codex')`
+2. `('visible', 'Claude')`
+3. `('visible', '5h')`
+
+## USAGE-002: usage weekly external user workflow
+
+Fixture: `usage-weekly`.
+
+Behaviors: `accounts`.
+
+1. `('visible', '7d')`
+
+## USAGE-003: usage unknown account external user workflow
+
+Fixture: `usage-unknown-account`.
+
+Behaviors: `accounts`.
+
+1. `('click', 'Show Codex usage details', 'button')`
+2. `('visible', 'Codex usage')`
+3. `('visible', 'Account identity unavailable. Refresh usage after signing in.')`
+4. `('absent', 'Use free reset')`
+
+## USAGE-004: usage no sessions external user workflow
+
+Fixture: `usage-no-sessions`.
+
+Behaviors: `accounts`.
+
+1. `('absent', 'Show usage details')`
+
+## USAGE-005: usage auth error external user workflow
+
+Fixture: `usage-auth-error`.
+
+Behaviors: `accounts`.
+
+1. `('visible', 'Sign in again to read usage')`
+2. `('click', 'Show Codex usage details', 'button')`
+3. `('visible', 'Codex usage')`
+4. `('visible', 'Sign in again to read usage')`
+5. `('key', 'ESCAPE')`
+6. `('run', 'printf usage-auth-shell-alive')`
+7. `('output', 'usage-auth-shell-alive')`
+
+## USAGE-006: usage rate limited external user workflow
+
+Fixture: `usage-rate-limited`.
+
+Behaviors: `accounts`.
+
+1. `('visible', 'Usage service rate limited. Retrying later')`
+2. `('click', 'Show Codex usage details', 'button')`
+3. `('visible', 'Codex usage')`
+4. `('visible', 'Usage service rate limited. Retrying later')`
+5. `('key', 'ESCAPE')`
+6. `('run', 'printf usage-rate-shell-alive')`
+7. `('output', 'usage-rate-shell-alive')`
+
+## REMOTE-006: remote connected external user workflow
+
+Fixture: `remote-connected`.
+
+1. `('remote_shell',)`
+2. `('context', 'Fixture', 'machine')`
+3. `('click', 'Disconnect', 'menu')`
+4. `('context', 'Fixture', 'machine')`
+5. `('disabled', 'Disconnect')`
+6. `('enabled', 'Reconnect', 'menu')`
+7. `('key', 'ESCAPE')`
+8. `('remote_workspace_preserved',)`
+
+## REMOTE-007: remote connected external user workflow
+
+Fixture: `remote-connected`.
+
+1. `('remote_shell',)`
+2. `('context', 'Fixture', 'machine')`
+3. `('click', 'Edit Remote…', 'menu')`
+4. `('visible', 'Save')`
+5. `('click', 'Cancel')`
+
+## REMOTE-008: remote connected external user workflow
+
+Fixture: `remote-connected`.
+
+1. `('context', 'Fixture', 'machine')`
+2. `('click', 'Remove Remote', 'menu')`
+3. `('machine_absent', 'Fixture')`
+4. `('remote_workspace_preserved',)`
+
+## REMOTE-009: remote persistence disabled external user workflow
+
+Fixture: `remote-persistence-disabled`.
+
+1. `('click', 'Session persistence warning for Fixture')`
+2. `('visible', 'Enable Persistence')`
+
+## SERVER-001: remote update available external user workflow
+
+Fixture: `remote-update-available`.
+
+1. `('remote_shell',)`
+2. `('context', 'Fixture', 'machine')`
+3. `('click', 'Update Server…', 'menu')`
+4. `('visible', 'Update When Sessions End')`
+
+## SERVER-002: remote update available external user workflow
+
+Fixture: `remote-update-available`.
+
+1. `('remote_shell',)`
+2. `('context', 'Fixture', 'machine')`
+3. `('click', 'Update Server…', 'menu')`
+4. `('click', 'Update When Sessions End', 'button')`
+5. `('context', 'Fixture', 'machine')`
+6. `('visible', 'Cancel Scheduled Update')`
+
+## SERVER-003: remote update available external user workflow
+
+Fixture: `remote-update-available`.
+
+1. `('remote_shell',)`
+2. `('context', 'Fixture', 'machine')`
+3. `('click', 'Update Server…', 'menu')`
+4. `('click', 'Update When Sessions End', 'button')`
+5. `('context', 'Fixture', 'machine')`
+6. `('click', 'Cancel Scheduled Update', 'menu')`
+7. `('context', 'Fixture', 'machine')`
+8. `('absent', 'Cancel Scheduled Update')`
+
+## SERVER-004: remote connected external user workflow
+
+Fixture: `remote-connected`.
+
+1. `('remote_shell',)`
+2. `('context', 'Fixture', 'machine')`
+3. `('click', 'Restart Server…', 'menu')`
+4. `('visible', 'Restart Server — Fixture')`
+5. `('visible', '1 running terminal')`
+6. `('click', 'Cancel', 'button')`
+
+## UPDATE-004: update available external user workflow
+
+Fixture: `update-available`.
+
+Behaviors: `update-settings`, `update-notices`.
+
+1. `('click', 'Upgrade options')`
+2. `('click', 'Skip This Version', 'menu')`
+3. `('absent', 'Upgrade available')`
+4. `('relaunch',)`
+5. `('absent', 'Upgrade available')`
+
+## UPDATE-005: update available external user workflow
+
+Fixture: `update-available`.
+
+Behaviors: `update-settings`.
+
+1. `('click', 'Upgrade available')`
+2. `('visible', 'Upgrade and Restart')`
+3. `('click', 'Cancel')`
+
+## UPDATE-006: update interrupted external user workflow
+
+Fixture: `update-interrupted`.
+
+Behaviors: `update-settings`.
+
+1. `('click', 'Recover…')`
+2. `('visible', 'Recover')`
+3. `('click', 'Cancel')`
+
+## UPDATE-007: update bad signature external user workflow
+
+Fixture: `update-bad-signature`.
+
+Behaviors: `update-settings`.
+
+1. `('settings', 'General')`
+2. `('click', 'Check for Updates…', 'button')`
+3. `('click', 'Details', 'disclosure')`
+4. `('visible', 'signature')`
+
+## UPDATE-008: update bad checksum external user workflow
+
+Fixture: `update-bad-checksum`.
+
+Behaviors: `update-settings`.
+
+1. `('click', 'Upgrade available')`
+2. `('click', 'Details', 'disclosure')`
+3. `('visible', 'checksum')`
+
+## UPDATE-009: update download failed external user workflow
+
+Fixture: `update-download-failed`.
+
+Behaviors: `update-settings`.
+
+1. `('remember_pids',)`
+2. `('remember_layout',)`
+3. `('click', 'Upgrade available')`
+4. `('click', 'Details', 'disclosure')`
+5. `('visible', 'http status: 503')`
+6. `('click', 'Cancel')`
+7. `('installed_version', '0.0.4')`
+8. `('same_layout',)`
+9. `('same_pids',)`
+
+## UPDATE-010: update available external user workflow
+
+Fixture: `update-available`.
+
+Behaviors: `update-settings`.
+
+1. `('run', 'printf x >> update-executions')`
+2. `('remember_layout',)`
+3. `('remember_client',)`
+4. `('click', 'Upgrade available')`
+5. `('enabled', 'Upgrade and Restart', 'button')`
+6. `('click', 'Upgrade and Restart', 'button')`
+7. `('installed_version', '0.0.5')`
+8. `('client_restarted',)`
+9. `('visible', 'Open Release Notes')`
+10. `('same_layout',)`
+11. `('file_text', 'update-executions', 'x')`
+
+## UPDATE-011: update interrupted external user workflow
+
+Fixture: `update-interrupted`.
+
+Behaviors: `update-settings`.
+
+1. `('remember_layout',)`
+2. `('remember_pids',)`
+3. `('click', 'Recover…')`
+4. `('click', 'Recover', 'button')`
+5. `('absent', 'Recover Interrupted Upgrade')`
+6. `('installed_version', '0.0.4')`
+7. `('same_layout',)`
+8. `('same_pids',)`
+
+## UPDATE-012: update rollback external user workflow
+
+Fixture: `update-rollback`.
+
+Behaviors: `update-settings`.
+
+1. `('run', 'printf x >> rollback-executions')`
+2. `('remember_layout',)`
+3. `('click', 'Upgrade available')`
+4. `('enabled', 'Upgrade and Restart', 'button')`
+5. `('click', 'Upgrade and Restart', 'button')`
+6. `('upgrade_rolled_back',)`
+7. `('installed_version', '0.0.4')`
+8. `('relaunch',)`
+9. `('same_layout',)`
+10. `('file_text', 'rollback-executions', 'x')`
+11. `('run', 'printf y >> rollback-executions')`
+12. `('file_text', 'rollback-executions', 'xy')`
+
+## WT-006: dirty checkout external user workflow
+
+Fixture: `dirty-checkout`.
+
+1. `('context', 'Fixture checkout')`
+2. `('click', 'Delete Checkout…')`
+3. `('visible', 'Delete')`
+4. `('click', 'Cancel')`
+5. `('file_exists', '../Fixture checkout/dirty.txt')`
+
+## WT-007: checkout deletion disabled external user workflow
+
+Fixture: `checkout-deletion-disabled`.
+
+1. `('context', 'Fixture checkout')`
+2. `('absent', 'Delete Checkout…')`
+
+## WT-008: existing checkouts external user workflow
+
+Fixture: `existing-checkouts`.
+
+Behaviors: `creation`.
+
+1. `('command', 'Open Worktree')`
+2. `('fill', 'Filter by branch or path', 'feature/existing')`
+3. `('visible', 'feature/existing')`
+
+## WT-009: existing checkouts external user workflow
+
+Fixture: `existing-checkouts`.
+
+Behaviors: `creation`.
+
+1. `('command', 'Open Worktree')`
+2. `('fill', 'Filter by branch or path', 'feature/existing')`
+3. `('enabled', 'Open', 'button')`
+4. `('key', 'ENTER')`
+5. `('count', 'workspaces', 2)`
+
+## GIT-001: git diff external user workflow
+
+Fixture: `git-diff`.
+
+1. `('visible', '+3')`
+2. `('visible', '−2')`
+
+## GIT-002: github review external user workflow
+
+Fixture: `github-review`.
+
+1. `('visible', '#42')`
+
+## GIT-003: gitlab review external user workflow
+
+Fixture: `gitlab-review`.
+
+1. `('visible', '!42')`
+
+## AGENT-006: provider detected external user workflow
+
+Fixture: `provider-detected`.
+
+1. `('command', 'Agent Integrations')`
+2. `('click', 'integration.claude.install')`
+3. `('visible', 'Installed')`
+
+## AGENT-007: provider installed external user workflow
+
+Fixture: `provider-installed`.
+
+1. `('command', 'Agent Integrations')`
+2. `('click', 'integration.claude.remove')`
+3. `('target_visible', 'integration.claude.install')`
+
+## AGENT-008: provider foreign external user workflow
+
+Fixture: `provider-foreign`.
+
+1. `('command', 'Agent Integrations')`
+2. `('visible', 'will be preserved')`
+3. `('disabled', 'integration.claude.install')`
+4. `('home_file_text', '.claude/skills/jam/SKILL.md', 'User-owned foreign skill. Preserve these bytes.\n')`
+
+## REMOTE-014: Enabling persistence changes the remote OS setting without restarting its sessions
+
+Fixture: `remote-persistence-disabled`.
+
+1. `('remote_shell',)`
+2. `('remote_linger', 'no')`
+3. `('remember_remote_workspace',)`
+4. `('click', 'Session persistence warning for Fixture', 'button')`
+5. `('enabled', 'Enable Persistence', 'button')`
+6. `('click', 'Enable Persistence', 'button')`
+7. `('remote_linger', 'yes')`
+8. `('absent', 'Session persistence warning for Fixture')`
+9. `('remote_workspace_preserved',)`
+10. `('remote_shell',)`
+
+## MULTI-001: Two independent clients share live terminals; closing one preserves the other
+
+Fixture: `isolated local installation`.
+
+1. `('remember_layout',)`
+2. `('remember_pids',)`
+3. `('open_client', 'second')`
+4. `('count', 'workspaces', 1)`
+5. `('count', 'tabs', 1)`
+6. `('count', 'panes', 1)`
+7. `('same_layout',)`
+8. `('same_pids',)`
+9. `('run', 'printf second-client-alive; printf x >> shared-client-executions')`
+10. `('use_client', 'primary')`
+11. `('visible', 'second-client-alive')`
+12. `('close_client', 'second')`
+13. `('run', 'printf primary-client-alive; printf y >> shared-client-executions')`
+14. `('output', 'primary-client-alive')`
+15. `('file_text', 'shared-client-executions', 'xy')`
+16. `('same_layout',)`
+17. `('same_pids',)`
+
+## MULTI-002: Saving settings in another client invalidates the first client's open draft
+
+Fixture: `isolated local installation`.
+
+1. `('remember_pids',)`
+2. `('config_default', 'copy_on_select', True)`
+3. `('settings', 'General')`
+4. `('open_client', 'second')`
+5. `('settings', 'General')`
+6. `('click', 'Copy text on selection', 'toggle')`
+7. `('save',)`
+8. `('config', 'copy_on_select', False)`
+9. `('use_client', 'primary')`
+10. `('visible', 'Settings changed outside this window')`
+11. `('disabled', 'Save')`
+12. `('click', 'Cancel', 'button')`
+13. `('settings', 'General')`
+14. `('save',)`
+15. `('config', 'copy_on_select', False)`
+16. `('close_client', 'second')`
+17. `('same_pids',)`
+
+## MULTI-003: Tabs created and renamed in separate clients converge without replacing their shells
+
+Fixture: `isolated local installation`.
+
+1. `('open_client', 'second')`
+2. `('command', 'New Tab')`
+3. `('count', 'tabs', 2)`
+4. `('remember_layout',)`
+5. `('remember_pids',)`
+6. `('use_client', 'primary')`
+7. `('target_visible', 'Tab 2', 'button')`
+8. `('context', 'Tab 2', 'button')`
+9. `('click', 'Rename', 'menu')`
+10. `('fill', 'Tab name', 'Shared client tab')`
+11. `('key', 'ENTER')`
+12. `('tab_name', 'Shared client tab')`
+13. `('use_client', 'second')`
+14. `('target_visible', 'Shared client tab', 'button')`
+15. `('same_layout',)`
+16. `('same_pids',)`
+17. `('close_client', 'second')`
+18. `('same_layout',)`
+19. `('same_pids',)`
+
+## MULTI-004: The focused client owns shared PTY geometry without inactive window resize churn
+
+Fixture: `isolated local installation`.
+
+1. `('resize', 1000, 660)`
+2. `('remember_layout',)`
+3. `('remember_pids',)`
+4. `('geometry_probe', 120)`
+5. `('geometry_record', 'primary')`
+6. `('open_client', 'second')`
+7. `('resize', 900, 580)`
+8. `('geometry_differs', 'primary')`
+9. `('geometry_record', 'second')`
+10. `('use_client', 'primary')`
+11. `('geometry_matches', 'primary')`
+12. `('use_client', 'second')`
+13. `('geometry_matches', 'second')`
+14. `('close_client', 'second')`
+15. `('geometry_matches', 'primary')`
+16. `('geometry_stop',)`
+17. `('same_layout',)`
+18. `('same_pids',)`
+19. `('run', 'printf geometry-owner-restored')`
+20. `('output', 'geometry-owner-restored')`
+
+## SERVER-005: A forced server update restores layout without replaying shell commands
+
+Fixture: `remote-update-available`.
+
+1. `('remote_run', 'printf x >> /home/fixture/project/server-executions')`
+2. `('context', 'Fixture', 'machine')`
+3. `('enabled', 'Update Server…', 'menu')`
+4. `('click', 'Update Server…', 'menu')`
+5. `('enabled', 'Update and Restart', 'button', 90)`
+6. `('click', 'Update and Restart', 'button')`
+7. `('remote_server_changed', 'update')`
+8. `('remote_file_text', 'server-executions', 'x')`
+9. `('remote_run', 'printf y >> /home/fixture/project/server-executions')`
+10. `('remote_file_text', 'server-executions', 'xy')`
+
+## SERVER-006: A scheduled update runs after the last remote shell exits
+
+Fixture: `remote-update-available`.
+
+1. `('remote_run', 'printf x >> /home/fixture/project/server-executions')`
+2. `('context', 'Fixture', 'machine')`
+3. `('enabled', 'Update Server…', 'menu')`
+4. `('click', 'Update Server…', 'menu')`
+5. `('enabled', 'Update When Sessions End', 'button', 90)`
+6. `('click', 'Update When Sessions End', 'button')`
+7. `('remote_exit',)`
+8. `('remote_server_changed', 'update')`
+9. `('remote_file_text', 'server-executions', 'x')`
+10. `('remote_run', 'printf y >> /home/fixture/project/server-executions')`
+11. `('remote_file_text', 'server-executions', 'xy')`
+
+## SERVER-007: Restarting a remote server preserves layout and starts fresh working shells
+
+Fixture: `remote-connected`.
+
+1. `('remote_run', 'printf x >> /home/fixture/project/restart-executions')`
+2. `('context', 'Fixture', 'machine')`
+3. `('enabled', 'Restart Server…', 'menu')`
+4. `('click', 'Restart Server…', 'menu')`
+5. `('enabled', 'Restart Server', 'button')`
+6. `('click', 'Restart Server', 'button')`
+7. `('remote_server_changed', 'restart')`
+8. `('remote_file_text', 'restart-executions', 'x')`
+9. `('remote_run', 'printf y >> /home/fixture/project/restart-executions')`
+10. `('remote_file_text', 'restart-executions', 'xy')`
+
+## SERVER-008: Cancelling a scheduled server update prevents replacement after sessions end
+
+Fixture: `remote-update-available`.
+
+1. `('remote_run', 'printf x >> /home/fixture/project/cancelled-update-executions')`
+2. `('context', 'Fixture', 'machine')`
+3. `('enabled', 'Update Server…', 'menu')`
+4. `('click', 'Update Server…', 'menu')`
+5. `('enabled', 'Update When Sessions End', 'button')`
+6. `('click', 'Update When Sessions End', 'button')`
+7. `('context', 'Fixture', 'machine')`
+8. `('click', 'Cancel Scheduled Update', 'menu')`
+9. `('remote_exit',)`
+10. `('remote_server_stable', 10)`
+11. `('remote_workspace_preserved',)`
+12. `('remote_file_text', 'cancelled-update-executions', 'x')`
+
+## VISUAL-001: Actual light terminal pixels remain legible after reopening the client
+
+Fixture: `isolated local installation`.
+
+Behaviors: `rendering`.
+
+1. `('resize', 900, 580)`
+2. `('remember_pids',)`
+3. `('remember_layout',)`
+4. `('settings', 'Appearance')`
+5. `('click', 'Light')`
+6. `('save',)`
+7. `('config', 'appearance', 'light')`
+8. `('run', "printf '\\033[2J\\033[H\\116\\101\\124\\111\\126\\105\\040\\124\\105\\122\\115\\111\\116\\101\\114\\040\\067\\064\\062\\071\\n'")`
+9. `('visible', 'NATIVE TERMINAL 7429')`
+10. `('visual_text', 'NATIVE TERMINAL 7429', 'light')`
+11. `('relaunch',)`
+12. `('visual_text', 'NATIVE TERMINAL 7429', 'light')`
+13. `('same_layout',)`
+14. `('same_pids',)`
+
+## VISUAL-002: Actual dark terminal pixels remain legible after reopening the client
+
+Fixture: `isolated local installation`.
+
+Behaviors: `rendering`.
+
+1. `('resize', 900, 580)`
+2. `('remember_pids',)`
+3. `('remember_layout',)`
+4. `('settings', 'Appearance')`
+5. `('click', 'Dark')`
+6. `('save',)`
+7. `('config', 'appearance', 'dark')`
+8. `('run', "printf '\\033[2J\\033[H\\116\\101\\124\\111\\126\\105\\040\\124\\105\\122\\115\\111\\116\\101\\114\\040\\067\\064\\062\\071\\n'")`
+9. `('visible', 'NATIVE TERMINAL 7429')`
+10. `('visual_text', 'NATIVE TERMINAL 7429', 'dark')`
+11. `('relaunch',)`
+12. `('visual_text', 'NATIVE TERMINAL 7429', 'dark')`
+13. `('same_layout',)`
+14. `('same_pids',)`
+
+## VISUAL-003: Resizing preserves actual rendered terminal text and its live shell
+
+Fixture: `isolated local installation`.
+
+Behaviors: `rendering`.
+
+1. `('resize', 1000, 660)`
+2. `('remember_layout',)`
+3. `('remember_pids',)`
+4. `('run', "printf '\\033[2J\\033[H\\122\\105\\116\\104\\105\\122\\040\\101\\106\\124\\105\\122\\040\\122\\105\\123\\111\\132\\105\\040\\065\\070\\063\\067\\n'")`
+5. `('visual_text', 'RENDER AFTER RESIZE 5837')`
+6. `('resize', 900, 580)`
+7. `('visual_text', 'RENDER AFTER RESIZE 5837')`
+8. `('same_layout',)`
+9. `('same_pids',)`
+
+## UPDATE-013: A new terminal in another client invalidates the prepared upgrade confirmation
+
+Fixture: `update-available`.
+
+1. `('click', 'Upgrade available')`
+2. `('enabled', 'Upgrade and Restart', 'button')`
+3. `('open_client', 'second')`
+4. `('command', 'New Tab')`
+5. `('count', 'tabs', 2)`
+6. `('remember_layout',)`
+7. `('remember_pids',)`
+8. `('use_client', 'primary')`
+9. `('click', 'Upgrade and Restart', 'button')`
+10. `('visible', 'Sessions changed after confirmation')`
+11. `('installed_version', '0.0.4')`
+12. `('same_layout',)`
+13. `('same_pids',)`
+14. `('close_client', 'second')`
+15. `('same_layout',)`
+16. `('same_pids',)`
+
+## TERM-010: Opening the requested directory does not show a spurious launch error
+
+Fixture: `isolated local installation`.
+
+1. `('count', 'workspaces', 1)`
+2. `('run', 'pwd; printf launch-directory-ready')`
+3. `('output', 'launch-directory-ready')`
+4. `('output_repo',)`
+5. `('absent', 'Could not open the launch directory')`
+
+## SELECT-001: copy_on_select=False controls physical drag selection and explicit Copy
+
+Fixture: `isolated local installation`.
+
+1. `('resize', 900, 580)`
+2. `('remember_layout',)`
+3. `('remember_pids',)`
+4. `('settings', 'General')`
+5. `('click', 'Copy text on selection', 'toggle')`
+6. `('save',)`
+7. `('config', 'copy_on_select', False)`
+8. `('run', "printf '\\033[2J\\033[H\\123\\105\\114\\105\\103\\124\\111\\117\\116\\n'")`
+9. `('clipboard', 'selection clipboard sentinel')`
+10. `('select_word', 'SELECTION')`
+11. `('clipboard_stable', 'selection clipboard sentinel')`
+12. `('copy',)`
+13. `('clipboard_equals', 'SELECTION')`
+14. `('same_layout',)`
+15. `('same_pids',)`
+
+## SELECT-002: copy_on_select=True controls physical drag selection and explicit Copy
+
+Fixture: `isolated local installation`.
+
+1. `('resize', 900, 580)`
+2. `('remember_layout',)`
+3. `('remember_pids',)`
+4. `('settings', 'General')`
+5. `('save',)`
+6. `('config', 'copy_on_select', True)`
+7. `('run', "printf '\\033[2J\\033[H\\123\\105\\114\\105\\103\\124\\111\\117\\116\\n'")`
+8. `('clipboard', 'selection clipboard sentinel')`
+9. `('select_word', 'SELECTION')`
+10. `('clipboard_equals', 'SELECTION')`
+11. `('copy',)`
+12. `('clipboard_equals', 'SELECTION')`
+13. `('same_layout',)`
+14. `('same_pids',)`
+
+## WT-010: Cancelling checkout closure preserves files, layout and running terminals
+
+Fixture: `dirty-checkout`.
+
+1. `('remember_layout',)`
+2. `('remember_pids',)`
+3. `('context', 'Fixture checkout')`
+4. `('click', 'Close Workspace', 'menu')`
+5. `('visible', 'Close workspace?')`
+6. `('click', 'Cancel', 'button')`
+7. `('same_layout',)`
+8. `('same_pids',)`
+9. `('file_text', '../Fixture checkout/dirty.txt', 'Keep this uncommitted work\n')`
+10. `('git_branch', 'feature/existing')`
+
+## WT-011: Closing a checkout preserves its dirty files and branch
+
+Fixture: `dirty-checkout`.
+
+1. `('remember_pids',)`
+2. `('context', 'Fixture checkout')`
+3. `('click', 'Close Workspace', 'menu')`
+4. `('visible', 'Close workspace?')`
+5. `('click', 'Close', 'button')`
+6. `('count', 'workspaces', 1)`
+7. `('count', 'panes', 1)`
+8. `('remaining_pids',)`
+9. `('file_text', '../Fixture checkout/dirty.txt', 'Keep this uncommitted work\n')`
+10. `('git_branch', 'feature/existing')`
+11. `('run', 'pwd')`
+12. `('output_repo',)`
+
+## WT-014: Disabling checkout deletion removes its action across client relaunch
+
+Fixture: `dirty-checkout`.
+
+1. `('remember_layout',)`
+2. `('remember_pids',)`
+3. `('settings', 'General')`
+4. `('click', 'Allow deleting checkout files', 'toggle')`
+5. `('save',)`
+6. `('config', 'allow_workspace_deletion', False)`
+7. `('context', 'Fixture checkout')`
+8. `('target_visible', 'Close Workspace', 'menu')`
+9. `('absent', 'Delete Checkout…')`
+10. `('key', 'ESCAPE')`
+11. `('relaunch',)`
+12. `('config', 'allow_workspace_deletion', False)`
+13. `('context', 'Fixture checkout')`
+14. `('target_visible', 'Close Workspace', 'menu')`
+15. `('absent', 'Delete Checkout…')`
+16. `('key', 'ESCAPE')`
+17. `('same_layout',)`
+18. `('same_pids',)`
+19. `('file_text', '../Fixture checkout/dirty.txt', 'Keep this uncommitted work\n')`
+20. `('git_branch', 'feature/existing')`
+
+## WT-015: Re-enabling checkout deletion restores its action without deleting on cancellation
+
+Fixture: `dirty-checkout`.
+
+1. `('remember_layout',)`
+2. `('remember_pids',)`
+3. `('settings', 'General')`
+4. `('click', 'Allow deleting checkout files', 'toggle')`
+5. `('save',)`
+6. `('config', 'allow_workspace_deletion', False)`
+7. `('context', 'Fixture checkout')`
+8. `('target_visible', 'Close Workspace', 'menu')`
+9. `('absent', 'Delete Checkout…')`
+10. `('key', 'ESCAPE')`
+11. `('relaunch',)`
+12. `('config', 'allow_workspace_deletion', False)`
+13. `('context', 'Fixture checkout')`
+14. `('target_visible', 'Close Workspace', 'menu')`
+15. `('absent', 'Delete Checkout…')`
+16. `('key', 'ESCAPE')`
+17. `('settings', 'General')`
+18. `('click', 'Allow deleting checkout files', 'toggle')`
+19. `('save',)`
+20. `('config', 'allow_workspace_deletion', True)`
+21. `('context', 'Fixture checkout')`
+22. `('click', 'Delete Checkout…', 'menu')`
+23. `('visible', 'Delete checkout?')`
+24. `('click', 'Cancel', 'button')`
+25. `('same_layout',)`
+26. `('same_pids',)`
+27. `('file_text', '../Fixture checkout/dirty.txt', 'Keep this uncommitted work\n')`
+28. `('git_branch', 'feature/existing')`
+
+## WT-012: Cancelling force deletion preserves dirty files, layout and running terminals
+
+Fixture: `dirty-checkout`.
+
+1. `('remember_layout',)`
+2. `('remember_pids',)`
+3. `('context', 'Fixture checkout')`
+4. `('click', 'Delete Checkout…', 'menu')`
+5. `('visible', 'Delete checkout?')`
+6. `('click', 'Delete', 'button')`
+7. `('visible', 'Force delete checkout?')`
+8. `('visible', 'Uncommitted and untracked files will be permanently lost.')`
+9. `('click', 'Cancel', 'button')`
+10. `('same_layout',)`
+11. `('same_pids',)`
+12. `('file_text', '../Fixture checkout/dirty.txt', 'Keep this uncommitted work\n')`
+13. `('git_branch', 'feature/existing')`
+
+## WT-013: Force deletion removes only the checkout and preserves its branch
+
+Fixture: `dirty-checkout`.
+
+1. `('remember_layout',)`
+2. `('remember_pids',)`
+3. `('context', 'Fixture checkout')`
+4. `('click', 'Delete Checkout…', 'menu')`
+5. `('visible', 'Delete checkout?')`
+6. `('click', 'Delete', 'button')`
+7. `('visible', 'Force delete checkout?')`
+8. `('visible', 'Uncommitted and untracked files will be permanently lost.')`
+9. `('click', 'Force Delete', 'button')`
+10. `('count', 'workspaces', 1)`
+11. `('count', 'panes', 1)`
+12. `('remaining_pids',)`
+13. `('path_absent', '../Fixture checkout')`
+14. `('file_text', 'tracked.txt', 'first\nsecond\n')`
+15. `('run', 'pwd')`
+16. `('output_repo',)`
+17. `('git_branch', 'feature/existing')`
+
+## COORD-007: Start a Claude coordinator through its workspace menu
+
+Fixture: `provider-detected`.
+
+1. `('context', 'Fixture')`
+2. `('click', 'Add Coordinator')`
+3. `('click', 'Claude')`
+4. `('visible', 'fixture-agent-resumed')`
+5. `('agent_field', 'provider', 'claude')`
+
+## COORD-008: Start a Codex coordinator through its workspace menu
+
+Fixture: `provider-detected`.
+
+1. `('context', 'Fixture')`
+2. `('click', 'Add Coordinator')`
+3. `('click', 'Codex')`
+4. `('visible', 'fixture-agent-resumed')`
+5. `('agent_field', 'provider', 'codex')`
+
+## COORD-009: Pause a coordinator through Tasks and Agents
+
+Fixture: `single-coordinator`.
+
+1. `('settings', 'Tasks and Agents')`
+2. `('click', 'Pause')`
+3. `('visible', 'Resume')`
+4. `('agent_field', 'paused', True)`
+
+## COORD-010: Resume retains the conversation without submitting input
+
+Fixture: `single-coordinator`.
+
+1. `('remember_agent_session',)`
+2. `('remember_provider_inputs',)`
+3. `('settings', 'Tasks and Agents')`
+4. `('click', 'Pause')`
+5. `('visible', 'Resume')`
+6. `('click', 'Resume')`
+7. `('agent_field', 'paused', False)`
+8. `('agent_field', 'ready', True)`
+9. `('same_agent_session',)`
+10. `('provider_inputs_unchanged',)`
+
+## COORD-011: Instructions include the workspace's actual instruction file
+
+Fixture: `single-coordinator`.
+
+1. `('settings', 'Tasks and Agents')`
+2. `('click', 'Instructions')`
+3. `('visible', 'Fixture instruction: preserve user work.')`
+
+## COORD-012: Finished reviewed work is hidden until archived history is requested
+
+Fixture: `archived-task`.
+
+1. `('settings', 'Tasks and Agents')`
+2. `('absent', 'Fixture task objective')`
+3. `('click', 'Include archived')`
+4. `('visible', 'Fixture task objective')`
+5. `('visible', 'Archived · done')`
+
+## AGENT-009: Installing and removing claude integration preserves the user's hooks and settings
+
+Fixture: `provider-custom-hooks`.
+
+1. `('command', 'Agent Integrations')`
+2. `('click', 'integration.claude.install')`
+3. `('target_visible', 'integration.claude.remove')`
+4. `('home_json_contains', '.claude/settings.json', {'fixture_user_setting': {'keep': True}, 'hooks': {'SessionStart': [{'matcher': '', 'hooks': [{'type': 'command', 'command': 'printf fixture-user-hook'}]}]}})`
+5. `('click', 'integration.claude.remove')`
+6. `('target_visible', 'integration.claude.install')`
+7. `('home_json_equals', '.claude/settings.json', {'fixture_user_setting': {'keep': True}, 'hooks': {'SessionStart': [{'matcher': '', 'hooks': [{'type': 'command', 'command': 'printf fixture-user-hook'}]}]}})`
+
+## AGENT-010: Installing and removing codex integration preserves the user's hooks and settings
+
+Fixture: `provider-custom-hooks`.
+
+1. `('command', 'Agent Integrations')`
+2. `('click', 'integration.codex.install')`
+3. `('target_visible', 'integration.codex.remove')`
+4. `('home_json_contains', '.codex/hooks.json', {'fixture_user_setting': {'keep': True}, 'hooks': {'SessionStart': [{'matcher': '', 'hooks': [{'type': 'command', 'command': 'printf fixture-user-hook'}]}]}})`
+5. `('click', 'integration.codex.remove')`
+6. `('target_visible', 'integration.codex.install')`
+7. `('home_json_equals', '.codex/hooks.json', {'fixture_user_setting': {'keep': True}, 'hooks': {'SessionStart': [{'matcher': '', 'hooks': [{'type': 'command', 'command': 'printf fixture-user-hook'}]}]}})`
+
+## IDENTITY-001: Reported Codex identity survives activity acknowledgement and clear
+
+Fixture: `isolated local installation`.
+
+Behaviors: `identity`.
+
+1. `('program_identity', 'codex')`
+2. `('pane_field', 'agent_provider', 'codex')`
+3. `('pane_field', 'agent_source', 'reported')`
+4. `('pane_field', 'agent_role', None)`
+5. `('visible', 'Codex')`
+6. `('program_phase', 'done')`
+7. `('pane_field', 'status', 'done')`
+8. `('click', 'Terminal', 'terminal')`
+9. `('pane_field', 'status', 'unknown')`
+10. `('pane_field', 'agent_provider', 'codex')`
+11. `('visible', 'Codex')`
+12. `('program_phase', 'clear')`
+13. `('pane_field', 'agent_provider', 'codex')`
+14. `('program_phase', 'exit')`
+15. `('pane_field', 'agent_provider', None)`
+16. `('pane_field', 'agent_source', None)`
+17. `('run', 'printf identity-returned-to-shell')`
+18. `('output', 'identity-returned-to-shell')`
+
+## IDENTITY-002: Reported Claude identity survives activity acknowledgement and clear
+
+Fixture: `isolated local installation`.
+
+Behaviors: `identity`.
+
+1. `('program_identity', 'claude-code')`
+2. `('pane_field', 'agent_provider', 'claude')`
+3. `('pane_field', 'agent_source', 'reported')`
+4. `('pane_field', 'agent_role', None)`
+5. `('visible', 'Claude')`
+6. `('program_phase', 'done')`
+7. `('pane_field', 'status', 'done')`
+8. `('click', 'Terminal', 'terminal')`
+9. `('pane_field', 'status', 'unknown')`
+10. `('pane_field', 'agent_provider', 'claude')`
+11. `('visible', 'Claude')`
+12. `('program_phase', 'clear')`
+13. `('pane_field', 'agent_provider', 'claude')`
+14. `('program_phase', 'exit')`
+15. `('pane_field', 'agent_provider', None)`
+16. `('pane_field', 'agent_source', None)`
+17. `('run', 'printf identity-returned-to-shell')`
+18. `('output', 'identity-returned-to-shell')`
+
+## IDENTITY-003: A terminal title mentioning a provider does not register an agent
+
+Fixture: `isolated local installation`.
+
+Behaviors: `identity`.
+
+1. `('run', "printf '\\033]0;codex build report\\007'")`
+2. `('pane_field', 'agent_provider', None)`
+3. `('pane_field', 'agent_source', None)`
+4. `('pane_field', 'agent_role', None)`
+5. `('run', 'printf title-is-not-an-agent')`
+6. `('output', 'title-is-not-an-agent')`
+
+## IDENTITY-004: A client relaunch retains reported identity while a server restart clears it
+
+Fixture: `isolated local installation`.
+
+Behaviors: `identity`.
+
+1. `('remember_layout',)`
+2. `('remember_pids',)`
+3. `('program_identity', 'codex')`
+4. `('pane_field', 'agent_provider', 'codex')`
+5. `('pane_field', 'agent_source', 'reported')`
+6. `('relaunch',)`
+7. `('same_pids',)`
+8. `('pane_field', 'agent_provider', 'codex')`
+9. `('pane_field', 'agent_source', 'reported')`
+10. `('restart_server',)`
+11. `('same_layout',)`
+12. `('pane_field', 'agent_provider', None)`
+13. `('pane_field', 'agent_source', None)`
+14. `('run', 'printf restarted-plain-shell')`
+15. `('output', 'restarted-plain-shell')`
+
+## IDENTITY-005: A registered coordinator shows its provider and role in the terminal header
+
+Fixture: `single-coordinator`.
+
+Behaviors: `identity`.
+
+1. `('click', 'Coordinator', 'row')`
+2. `('visible', 'fixture-agent-resumed')`
+3. `('visible', 'Codex · Coordinator')`
+4. `('agent_field', 'provider', 'codex')`
+5. `('registered_pane_fields', {'agent_provider': 'codex', 'agent_source': 'registered', 'agent_role': 'coordinator'})`
+
+## IMAGE-001: PNG paste writes a private image on the local host
+
+Fixture: `isolated local installation`.
+
+Behaviors: `images`.
+
+1. `('run', 'true')`
+2. `('clipboard_image', 'png', True, False)`
+3. `('type_terminal', "printf '%s\\n' ")`
+4. `('paste',)`
+5. `('type_terminal', 'queued-after-image > image-path.txt')`
+6. `('key', 'ENTER')`
+7. `('image_paste_result', 'png', False)`
+
+## IMAGE-002: TIFF paste writes a private image on the local host
+
+Fixture: `isolated local installation`.
+
+Behaviors: `images`.
+
+1. `('run', 'true')`
+2. `('clipboard_image', 'tiff', True, False)`
+3. `('type_shell_command', "printf '%s\\n' ")`
+4. `('paste',)`
+5. `('type_shell_command', 'queued-after-image > image-path.txt')`
+6. `('key', 'ENTER')`
+7. `('image_paste_result', 'tiff', False)`
+
+## IMAGE-003: PNG paste writes a private image on the remote host
+
+Fixture: `remote-connected`.
+
+Behaviors: `images`.
+
+1. `('remote_shell',)`
+2. `('clipboard_image', 'png', True, False)`
+3. `('type_terminal', "printf '%s\\n' ")`
+4. `('paste',)`
+5. `('type_terminal', 'queued-after-image > image-path.txt')`
+6. `('key', 'ENTER')`
+7. `('image_paste_result', 'png', True)`
+
+## IMAGE-004: Control-V in a reported agent pane pastes the image before queued input
+
+Fixture: `isolated local installation`.
+
+Behaviors: `images`, `identity`.
+
+1. `('program_identity', 'codex', 'image-arguments')`
+2. `('pane_field', 'agent_source', 'reported')`
+3. `('clipboard_image', 'png', True, False)`
+4. `('chord', 'ctrl+v')`
+5. `('type_terminal', 'queued-after-image')`
+6. `('key', 'ENTER')`
+7. `('image_paste_result', 'png', False)`
+
+## IMAGE-005: Oversized clipboard image is rejected without typing into the terminal
+
+Fixture: `isolated local installation`.
+
+Behaviors: `images`.
+
+1. `('probe',)`
+2. `('clipboard_image', 'png', True, True)`
+3. `('paste',)`
+4. `('visible', 'Clipboard image is too large')`
+5. `('probe_no_input',)`
+6. `('probe_key', 'x')`
+7. `('probe_hex', '78')`
+
+## IMAGE-006: A server without image capability leaves its terminal usable
+
+Fixture: `remote-limited`.
+
+Behaviors: `images`.
+
+1. `('remote_shell',)`
+2. `('clipboard_image', 'png', True, False)`
+3. `('paste',)`
+4. `('visible', 'Image pasting needs an updated Jam server on this machine')`
+5. `('remote_shell', 'printf image-error-shell-usable')`
+6. `('remote_workspace_preserved',)`
+
+## CREATE-001: Failed worktree creation can be retried once after its base ref is repaired
+
+Fixture: `isolated local installation`.
+
+Behaviors: `creation`.
+
+1. `('command', 'New Worktree')`
+2. `('fill', 'Branch name', 'creation-retry')`
+3. `('fill', 'Base revision', 'repairable-base')`
+4. `('click', 'Create', 'button')`
+5. `('enabled', 'Retry', 'button')`
+6. `('enabled', 'Dismiss', 'button')`
+7. `('settle_count', 'workspaces', 1)`
+8. `('git_no_branch', 'creation-retry')`
+9. `('git_update_ref', 'repairable-base')`
+10. `('click', 'Retry', 'button')`
+11. `('created_workspace', 'wt/Project ü with spaces/creation-retry', False)`
+12. `('run', 'printf new-worktree-ready > creation-result.txt')`
+13. `('home_file_text', 'wt/Project ü with spaces/creation-retry/creation-result.txt', 'new-worktree-ready')`
+14. `('settle_count', 'workspaces', 2)`
+15. `('git_branch', 'creation-retry')`
+
+## CREATE-002: Dismissing a failed worktree restores the previous usable terminal
+
+Fixture: `isolated local installation`.
+
+Behaviors: `creation`.
+
+1. `('remember_layout',)`
+2. `('remember_pids',)`
+3. `('command', 'New Worktree')`
+4. `('fill', 'Branch name', 'creation-dismiss')`
+5. `('fill', 'Base revision', 'invalid-creation-base')`
+6. `('click', 'Create', 'button')`
+7. `('enabled', 'Retry', 'button')`
+8. `('click', 'Dismiss', 'button')`
+9. `('absent', 'Retry')`
+10. `('same_layout',)`
+11. `('same_pids',)`
+12. `('git_no_branch', 'creation-dismiss')`
+13. `('run', 'printf creation-dismissed')`
+14. `('output', 'creation-dismissed')`
+
+## CREATE-003: A capability-limited remote creates one workspace in the remote home
+
+Fixture: `remote-limited`.
+
+Behaviors: `creation`, `creation-recovery`.
+
+1. `('remote_shell',)`
+2. `('command', 'New Workspace')`
+3. `('created_workspace', '/home/fixture', True)`
+4. `('type_terminal', 'printf remote-creation-ready > /home/fixture/project/creation-result.txt')`
+5. `('key', 'ENTER')`
+6. `('remote_file_text', 'creation-result.txt', 'remote-creation-ready')`
+
+## TAKEOVER-001: Cancelling a legacy server takeover preserves its running sessions
+
+Fixture: `remote-legacy`.
+
+Behaviors: `takeover`.
+
+1. `('visible', 'Takeover required', 60)`
+2. `('context', 'Fixture', 'machine')`
+3. `('click', 'Take Over Server…', 'menu')`
+4. `('visible', 'Take over the server on Fixture?')`
+5. `('visible', 'Running terminals will stop')`
+6. `('enabled', 'Take Over and Reconnect', 'button')`
+7. `('click', 'Cancel', 'button')`
+8. `('remote_workspace_preserved',)`
+9. `('remote_server_stable', 2)`
+
+## TAKEOVER-002: An explicit legacy takeover restores the saved layout and starts fresh shells
+
+Fixture: `remote-legacy`.
+
+Behaviors: `takeover`.
+
+1. `('visible', 'Takeover required', 60)`
+2. `('context', 'Fixture', 'machine')`
+3. `('click', 'Take Over Server…', 'menu')`
+4. `('enabled', 'Take Over and Reconnect', 'button')`
+5. `('click', 'Take Over and Reconnect', 'button')`
+6. `('visible', 'Remote project', 120)`
+7. `('click', 'Remote project', 'row')`
+8. `('remote_server_changed', 'takeover')`
+9. `('remote_file_text', 'takeover-executions', 'x')`
+10. `('remote_shell', 'printf y >> takeover-executions')`
+11. `('remote_file_text', 'takeover-executions', 'xy')`
+
+## DIAG-001: Inspecting an unresponsive local server preserves its daemon and live shell
+
+Fixture: `isolated local installation`.
+
+Behaviors: `diagnostics`.
+
+1. `('remember_layout',)`
+2. `('remember_pids',)`
+3. `('suspend_daemon',)`
+4. `('server_unresponsive',)`
+5. `('context', 'Local', 'machine')`
+6. `('absent', 'Take Over Server…')`
+7. `('absent', 'Server update required')`
+8. `('disabled', 'Restart Server…', 'menu')`
+9. `('click', 'Server Details…', 'menu')`
+10. `('visible', 'Server — Local')`
+11. `('visible', 'without stopping running sessions')`
+12. `('visible', 'Local server is not responding')`
+13. `('enabled', 'Retry', 'button')`
+14. `('click', 'Retry', 'button')`
+15. `('enabled', 'Retry', 'button')`
+16. `('visible', 'without stopping running sessions')`
+17. `('resume_daemon',)`
+18. `('absent', 'Server — Local')`
+19. `('same_layout',)`
+20. `('same_pids',)`
+21. `('run', 'printf daemon-recovered-without-restart')`
+22. `('output', 'daemon-recovered-without-restart')`
+
+## DIAG-002: A broken SSH path exposes inspection and Retry without enabling destructive actions
+
+Fixture: `remote-creation-transport`.
+
+Behaviors: `diagnostics`.
+
+1. `('remote_shell',)`
+2. `('peer_transport', True)`
+3. `('visible', 'Server unavailable', 60)`
+4. `('context', 'Fixture', 'machine')`
+5. `('disabled', 'Update Server…', 'menu')`
+6. `('disabled', 'Restart Server…', 'menu')`
+7. `('absent', 'Take Over Server…')`
+8. `('click', 'Server Details…', 'menu')`
+9. `('visible', 'Server — Fixture')`
+10. `('visible', 'without stopping running sessions')`
+11. `('enabled', 'Retry', 'button')`
+12. `('click', 'Retry', 'button')`
+13. `('enabled', 'Retry', 'button')`
+14. `('remote_workspace_preserved',)`
+15. `('remote_server_stable', 2)`
+16. `('peer_transport', False)`
+17. `('absent', 'Server — Fixture', 90)`
+18. `('remote_shell',)`
+19. `('remote_workspace_preserved',)`
+
+## UPDATE-SETTINGS-001: Settings prepares and cancels one managed upgrade sheet
+
+Fixture: `update-available`.
+
+Behaviors: `update-settings`.
+
+1. `('remember_layout',)`
+2. `('remember_pids',)`
+3. `('settings', 'General')`
+4. `('click', 'Check for Updates…', 'button')`
+5. `('visible', 'Jam 0.0.5 is available')`
+6. `('enabled', 'Upgrade…', 'button')`
+7. `('click', 'Upgrade…', 'button')`
+8. `('visible', 'Upgrade Jam')`
+9. `('single_sheet', 'Upgrade Jam')`
+10. `('enabled', 'Upgrade and Restart', 'button')`
+11. `('click', 'Cancel', 'button')`
+12. `('absent', 'Upgrade Jam')`
+13. `('installed_version', '0.0.4')`
+14. `('same_layout',)`
+15. `('same_pids',)`
+
+## ACCOUNT-001: A configured login appears without any active agent session
+
+Fixture: `usage-configured-login`.
+
+Behaviors: `accounts`.
+
+1. `('target_visible', 'Show usage details', 'button')`
+2. `('click', 'Show Codex usage details', 'button')`
+3. `('visible', 'Codex usage')`
+4. `('visible', 'fixture@example.invalid')`
+5. `('visible', 'Free resets')`
+6. `('key', 'ESCAPE')`
+7. `('pane_field', 'agent_provider', None)`
+8. `('run', 'printf configured-account-shell-usable')`
+9. `('output', 'configured-account-shell-usable')`
+
+## RENDER-001: Synchronized output hides partial redraws
+
+Fixture: `isolated local installation`.
+
+Behaviors: `rendering`.
+
+1. `('remember_pids',)`
+2. `('synchronized_frames', 'complete')`
+3. `('run', 'printf input-after-synchronized-output')`
+4. `('output', 'input-after-synchronized-output')`
+5. `('same_pids',)`
+
+## RENDER-002: An unterminated synchronized redraw releases its frame after the deadline
+
+Fixture: `isolated local installation`.
+
+Behaviors: `rendering`.
+
+1. `('remember_pids',)`
+2. `('synchronized_frames', 'timeout')`
+3. `('run', 'printf input-after-synchronized-output')`
+4. `('output', 'input-after-synchronized-output')`
+5. `('same_pids',)`
+
+## RENDER-003: A focused terminal renders steady, blinking and concealed cursor states
+
+Fixture: `isolated local installation`.
+
+Behaviors: `rendering`.
+
+1. `('remember_pids',)`
+2. `('cursor_frames',)`
+3. `('run', 'printf input-after-cursor-changes')`
+4. `('output', 'input-after-cursor-changes')`
+5. `('same_pids',)`
+
+## SIDEBAR-001: A narrow inset sidebar keeps the status legible beside a long machine name
+
+Fixture: `remote-long-sidebar`.
+
+Behaviors: `rendering`, `diagnostics`.
+
+1. `('remote_shell',)`
+2. `('resize', 840, 560)`
+3. `('peer_transport', True)`
+4. `('visible', 'Server unavailable', 60)`
+5. `('sidebar_status_pixels', 'Fixture diagnostics with a name that exceeds the narrow sidebar', 'Server unavailable')`
+6. `('peer_transport', False)`
+7. `('remote_shell',)`
+8. `('absent', 'Server unavailable')`
+9. `('remote_workspace_preserved',)`
+
+## CREATE-004: A pending worktree becomes one selected workspace with a usable terminal
+
+Fixture: `isolated local installation`.
+
+Behaviors: `creation`.
+
+1. `('hold_worktree_checkout',)`
+2. `('command', 'New Worktree')`
+3. `('fill', 'Branch name', 'pending-creation')`
+4. `('fill', 'Base revision', 'HEAD')`
+5. `('click', 'Create', 'button')`
+6. `('checkout_pending',)`
+7. `('visible', 'Opening workspace')`
+8. `('release_worktree_checkout',)`
+9. `('created_workspace', 'wt/Project ü with spaces/pending-creation', False)`
+10. `('absent', 'Opening workspace')`
+11. `('run', 'printf pending-worktree-ready > creation-result.txt')`
+12. `('home_file_text', 'wt/Project ü with spaces/pending-creation/creation-result.txt', 'pending-worktree-ready')`
+13. `('settle_count', 'workspaces', 2)`
+
+## CREATE-005: An interrupted creation resumes its existing operation after Retry
+
+Fixture: `isolated local installation`.
+
+Behaviors: `creation`, `creation-recovery`.
+
+1. `('hold_worktree_checkout',)`
+2. `('command', 'New Worktree')`
+3. `('fill', 'Branch name', 'pending-creation')`
+4. `('fill', 'Base revision', 'HEAD')`
+5. `('click', 'Create', 'button')`
+6. `('checkout_pending',)`
+7. `('visible', 'Opening workspace')`
+8. `('suspend_daemon',)`
+9. `('visible', 'Retry', 35)`
+10. `('resume_daemon',)`
+11. `('release_worktree_checkout',)`
+12. `('click', 'Retry', 'button')`
+13. `('created_workspace', 'wt/Project ü with spaces/pending-creation', False)`
+14. `('absent', 'Opening workspace')`
+15. `('run', 'printf pending-worktree-ready > creation-result.txt')`
+16. `('home_file_text', 'wt/Project ü with spaces/pending-creation/creation-result.txt', 'pending-worktree-ready')`
+17. `('settle_count', 'workspaces', 2)`
+
+## CLOSE-001: A workspace with no live terminals closes without a confirmation
+
+Fixture: `isolated local installation`.
+
+Behaviors: `focus-close`.
+
+1. `('write_config', 'close_empty_tabs = false\nclose_empty_workspaces = false\n')`
+2. `('relaunch',)`
+3. `('type_terminal', 'exit')`
+4. `('key', 'ENTER')`
+5. `('live_panes', 0)`
+6. `('visible', 'Start Shell')`
+7. `('count', 'workspaces', 1)`
+8. `('command', 'Close Workspace')`
+9. `('count', 'workspaces', 0)`
+10. `('absent', 'Close project and its open worktrees?')`
+11. `('settle_count', 'workspaces', 0)`
+12. `('file_text', 'tracked.txt', 'first\nsecond\n')`
+
+## CLOSE-002: A live worktree requires confirmation before closing an empty project
+
+Fixture: `dirty-checkout`.
+
+Behaviors: `focus-close`.
+
+1. `('write_config', 'close_empty_tabs = false\nclose_empty_workspaces = false\n')`
+2. `('relaunch',)`
+3. `('click', 'Fixture', 'row')`
+4. `('type_terminal', 'exit')`
+5. `('key', 'ENTER')`
+6. `('visible', 'Start Shell')`
+7. `('remember_pids',)`
+8. `('live_panes', 1)`
+9. `('context', 'Fixture', 'row')`
+10. `('click', 'Close Workspace', 'menu')`
+11. `('visible', 'Close project and its open worktrees?')`
+12. `('click', 'Cancel', 'button')`
+13. `('same_pids',)`
+14. `('context', 'Fixture', 'row')`
+15. `('click', 'Close Workspace', 'menu')`
+16. `('visible', 'Close project and its open worktrees?')`
+17. `('click', 'Close', 'button')`
+18. `('count', 'workspaces', 0)`
+19. `('settle_count', 'workspaces', 0)`
+20. `('settle_count', 'panes', 0)`
+21. `('file_text', 'tracked.txt', 'first\nsecond\n')`
+22. `('file_text', '../Fixture checkout/dirty.txt', 'Keep this uncommitted work\n')`
+23. `('git_branch', 'feature/existing')`
+
+## CLOSE-003: A live coordinator requires confirmation before closing its otherwise empty project
+
+Fixture: `single-coordinator`.
+
+Behaviors: `focus-close`.
+
+1. `('write_config', 'close_empty_tabs = false\nclose_empty_workspaces = false\n')`
+2. `('relaunch',)`
+3. `('click', 'Fixture', 'row')`
+4. `('type_terminal', 'exit')`
+5. `('key', 'ENTER')`
+6. `('visible', 'Start Shell')`
+7. `('remember_pids',)`
+8. `('live_panes', 1)`
+9. `('context', 'Fixture', 'row')`
+10. `('click', 'Close Workspace', 'menu')`
+11. `('visible', 'Close project and its open worktrees?')`
+12. `('click', 'Cancel', 'button')`
+13. `('same_pids',)`
+14. `('context', 'Fixture', 'row')`
+15. `('click', 'Close Workspace', 'menu')`
+16. `('visible', 'Close project and its open worktrees?')`
+17. `('click', 'Close', 'button')`
+18. `('count', 'workspaces', 0)`
+19. `('settle_count', 'workspaces', 0)`
+20. `('settle_count', 'panes', 0)`
+21. `('file_text', 'tracked.txt', 'first\nsecond\n')`
+
+## CLOSE-004: A project and worktree with no live terminals close together without confirmation
+
+Fixture: `dirty-checkout`.
+
+Behaviors: `focus-close`.
+
+1. `('write_config', 'close_empty_tabs = false\nclose_empty_workspaces = false\n')`
+2. `('relaunch',)`
+3. `('click', 'Fixture checkout', 'row')`
+4. `('type_terminal', 'exit')`
+5. `('key', 'ENTER')`
+6. `('live_panes', 1)`
+7. `('click', 'Fixture', 'row')`
+8. `('type_terminal', 'exit')`
+9. `('key', 'ENTER')`
+10. `('live_panes', 0)`
+11. `('count', 'workspaces', 2)`
+12. `('context', 'Fixture', 'row')`
+13. `('click', 'Close Workspace', 'menu')`
+14. `('count', 'workspaces', 0)`
+15. `('absent', 'Close project and its open worktrees?')`
+16. `('settle_count', 'workspaces', 0)`
+17. `('file_text', '../Fixture checkout/dirty.txt', 'Keep this uncommitted work\n')`
+18. `('git_branch', 'feature/existing')`
+
+## IMAGE-007: Control-V is delivered as ordinary terminal input outside an agent pane
+
+Fixture: `isolated local installation`.
+
+Behaviors: `images`.
+
+1. `('probe',)`
+2. `('clipboard_image', 'png', True, False)`
+3. `('chord', 'ctrl+v')`
+4. `('probe_hex', '16')`
+
+## IMAGE-008: A failed upload keeps prior files and leaves the terminal usable
+
+Fixture: `isolated local installation`.
+
+Behaviors: `images`.
+
+1. `('block_clipboard_storage',)`
+2. `('probe',)`
+3. `('clipboard_image', 'png', True, False)`
+4. `('paste',)`
+5. `('visible', 'state/runtime directory must be an owned private directory')`
+6. `('probe_no_input',)`
+7. `('clipboard_storage_unchanged',)`
+8. `('probe_key', 'x')`
+9. `('probe_hex', '78')`
+
+## CREATE-006: Opening a local directory twice selects its one existing workspace
+
+Fixture: `isolated local installation`.
+
+Behaviors: `creation`.
+
+1. `('open_directory', 'Opened folder ü')`
+2. `('created_workspace', 'Opened folder ü', False)`
+3. `('run', 'printf preserved > open-result.txt')`
+4. `('home_file_text', 'Opened folder ü/open-result.txt', 'preserved')`
+5. `('remember_layout',)`
+6. `('remember_pids',)`
+7. `('open_directory', 'Opened folder ü')`
+8. `('same_layout',)`
+9. `('same_pids',)`
+10. `('settle_count', 'workspaces', 2)`
+
+## CREATE-007: Opening a remote directory twice keeps one remote workspace
+
+Fixture: `remote-connected`.
+
+Behaviors: `creation`.
+
+1. `('remote_shell', 'mkdir -p /home/fixture/opened-directory')`
+2. `('open_workspace',)`
+3. `('visible', 'Open Remote Workspace')`
+4. `('fill', 'Path', '/home/fixture/opened-directory')`
+5. `('click', 'Go', 'button')`
+6. `('enabled', 'Open', 'button')`
+7. `('click', 'Open', 'button')`
+8. `('created_workspace', '/home/fixture/opened-directory', True)`
+9. `('open_workspace',)`
+10. `('fill', 'Path', '/home/fixture/opened-directory')`
+11. `('click', 'Go', 'button')`
+12. `('enabled', 'Open', 'button')`
+13. `('click', 'Open', 'button')`
+14. `('created_workspace', '/home/fixture/opened-directory', True)`
+
+## TAKEOVER-003: A newer server offers a client upgrade and preserves its live sessions
+
+Fixture: `update-required`.
+
+Behaviors: `takeover`, `update-settings`.
+
+1. `('visible', 'Update Jam required', 60)`
+2. `('context', 'Fixture', 'machine')`
+3. `('enabled', 'Update Jam…', 'menu')`
+4. `('absent', 'Take Over Server…')`
+5. `('disabled', 'Update Server…', 'menu')`
+6. `('key', 'ESCAPE')`
+7. `('remote_workspace_preserved',)`
+8. `('remote_server_stable', 2)`
+
+## FOCUS-001: A background agent's completion is acknowledged only when its tab gains focus
+
+Fixture: `isolated local installation`.
+
+Behaviors: `focus-close`, `identity`.
+
+1. `('remember_pane',)`
+2. `('program_identity', 'codex', 'done-on-file')`
+3. `('pane_field', 'agent_source', 'reported')`
+4. `('command', 'New Tab')`
+5. `('target_visible', 'Tab 2', 'button')`
+6. `('release_program_completion',)`
+7. `('remembered_pane_field', 'status', 'done')`
+8. `('run', 'printf foreground-other-tab')`
+9. `('output', 'foreground-other-tab')`
+10. `('remembered_pane_field', 'status', 'done')`
+11. `('click', 'Tab 1', 'button')`
+12. `('remembered_pane_field', 'status', 'unknown')`
+13. `('remembered_pane_field', 'agent_provider', 'codex')`
+14. `('program_phase', 'exit')`
+15. `('remembered_pane_field', 'agent_provider', None)`
+
+## FOCUS-002: An inactive window keeps completion unread and repeating workspace selection acknowledges it
+
+Fixture: `isolated local installation`.
+
+Behaviors: `focus-close`, `identity`.
+
+1. `('remember_pane',)`
+2. `('program_identity', 'codex', 'done-on-file')`
+3. `('remembered_pane_field', 'agent_source', 'reported')`
+4. `('open_client', 'second')`
+5. `('command', 'New Tab')`
+6. `('target_visible', 'Tab 2', 'button')`
+7. `('remember_pids',)`
+8. `('release_program_completion',)`
+9. `('remembered_pane_field', 'status', 'done')`
+10. `('run', 'printf second-window-keeps-focus')`
+11. `('output', 'second-window-keeps-focus')`
+12. `('remembered_pane_field', 'status', 'done')`
+13. `('use_client', 'primary')`
+14. `('click', 'Tab 1', 'button')`
+15. `('remembered_pane_field', 'status', 'unknown')`
+16. `('program_phase', 'done')`
+17. `('remembered_pane_field', 'status', 'done')`
+18. `('click', 'Project ü with spaces', 'row')`
+19. `('remembered_pane_field', 'status', 'unknown')`
+20. `('remembered_pane_field', 'agent_provider', 'codex')`
+21. `('program_phase', 'exit')`
+22. `('close_client', 'second')`
+23. `('same_pids',)`
+
+## ACCOUNT-002: The same configured login on two machines shares one account page
+
+Fixture: `usage-remote-account`.
+
+Behaviors: `accounts`.
+
+1. `('remote_shell',)`
+2. `('usage_requests_from_both_hosts',)`
+3. `('visible', 'fixture@example.invalid')`
+4. `('visible', 'Claude')`
+5. `('absent', 'Next usage account')`
+6. `('click', 'Show Codex usage details', 'button')`
+7. `('visible', 'Free resets')`
+8. `('key', 'ESCAPE')`
+9. `('context', 'Fixture', 'machine')`
+10. `('click', 'Disconnect', 'menu')`
+11. `('click', 'Show Codex usage details', 'button')`
+12. `('visible', 'Free resets')`
+13. `('absent', 'Showing last known usage from Fixture.')`
+14. `('key', 'ESCAPE')`
+15. `('remote_workspace_preserved',)`
+
+## ACCOUNT-003: Distinct accounts retain separate selectable pages across hosts
+
+Fixture: `usage-remote-other-account`.
+
+Behaviors: `accounts`.
+
+1. `('remote_shell',)`
+2. `('usage_requests_from_both_hosts',)`
+3. `('visible', 'second@example.invalid')`
+4. `('click', 'Next usage account', 'button')`
+5. `('visible', 'fixture@example.invalid')`
+6. `('visible', 'Claude')`
+7. `('click', 'Previous usage account', 'button')`
+8. `('visible', 'second@example.invalid')`
+9. `('click', 'Show Codex usage details', 'button')`
+10. `('visible', 'Free resets')`
+11. `('key', 'ESCAPE')`
+12. `('context', 'Fixture', 'machine')`
+13. `('click', 'Disconnect', 'menu')`
+14. `('click', 'Show Codex usage details', 'button')`
+15. `('visible', 'Showing last known usage from Fixture.')`
+16. `('visible', '25%')`
+17. `('key', 'ESCAPE')`
+18. `('context', 'Fixture', 'machine')`
+19. `('click', 'Reconnect', 'menu')`
+20. `('remote_shell',)`
+21. `('click', 'Show Codex usage details', 'button')`
+22. `('absent', 'Showing last known usage from Fixture.')`
+23. `('key', 'ESCAPE')`
+24. `('remote_workspace_preserved',)`
+
+## ACCOUNT-004: One email shared by different organizations does not combine provider accounts
+
+Fixture: `usage-remote-other-organization`.
+
+Behaviors: `accounts`.
+
+1. `('remote_shell',)`
+2. `('usage_requests_from_both_hosts',)`
+3. `('visible', '67%')`
+4. `('usage_page_cycle', ('67%', '25%', '38%'))`
+5. `('remote_workspace_preserved',)`
+
+## ACCOUNT-005: Disabling a provider hides its usage and leaves the other provider available
+
+Fixture: `usage-configured-login`.
+
+Behaviors: `accounts`.
+
+1. `('visible', 'Claude')`
+2. `('visible', 'Codex')`
+3. `('settings', 'Agents')`
+4. `('click', 'Claude', 'toggle')`
+5. `('save',)`
+6. `('config', 'enabled_agents', ['codex'])`
+7. `('absent', 'Claude')`
+8. `('click', 'Show Codex usage details', 'button')`
+9. `('visible', 'Codex usage')`
+10. `('key', 'ESCAPE')`
+11. `('run', 'printf terminal-available-with-integration-disabled')`
+12. `('output', 'terminal-available-with-integration-disabled')`
+
+## ACCOUNT-006: Agents running under the same account on two machines share one usage details page
+
+Fixture: `usage-remote-account`.
+
+Behaviors: `accounts`.
+
+1. `('run', "bash -c 'exec -a codex /bin/sleep 180' & :")`
+2. `('remote_shell', "bash -c 'exec -a codex /bin/sleep 180' & :")`
+3. `('usage_requests_from_both_hosts',)`
+4. `('click', 'Show Codex usage details', 'button')`
+5. `('visible', 'Codex usage')`
+6. `('visible', 'fixture@example.invalid')`
+7. `('key', 'ESCAPE')`
+8. `('absent', 'Next usage account')`
+9. `('remote_workspace_preserved',)`
+
+## ACCOUNT-007: A rejected remote login shows its own error with no local authorization action
+
+Fixture: `usage-remote-auth-error`.
+
+Behaviors: `accounts`.
+
+1. `('remote_shell',)`
+2. `('usage_requests_from_both_hosts',)`
+3. `('visible', 'Sign in again to read usage')`
+4. `('click', 'Show Codex usage details', 'button')`
+5. `('visible', 'Sign in again to read usage')`
+6. `('absent', 'Allow Keychain Access')`
+7. `('click', 'Done', 'button')`
+8. `('absent', 'Codex usage')`
+9. `('click', 'Next usage account', 'button')`
+10. `('click', 'Show Codex usage details', 'button')`
+11. `('visible', '25%')`
+12. `('absent', 'Sign in again to read usage')`
+13. `('key', 'ESCAPE')`
+14. `('remote_workspace_preserved',)`
+
+## TAKEOVER-004: A replacement refused by the remote service rolls back to the previous server
+
+Fixture: `remote-takeover-failure`.
+
+Behaviors: `takeover`.
+
+1. `('visible', 'Takeover required', 60)`
+2. `('context', 'Fixture', 'machine')`
+3. `('click', 'Take Over Server…', 'menu')`
+4. `('enabled', 'Take Over and Reconnect', 'button')`
+5. `('click', 'Take Over and Reconnect', 'button')`
+6. `('visible', 'Try Again', 150)`
+7. `('takeover_rolled_back',)`
+8. `('remote_file_text', 'takeover-executions', 'x')`
+9. `('enabled', 'Try Again', 'button')`
+10. `('click', 'Cancel', 'button')`
+
+## TAKEOVER-005: An interrupted remote installation requires explicit recovery before replacing its sessions
+
+Fixture: `remote-update-available`.
+
+Behaviors: `takeover`.
+
+1. `('remote_run', 'printf x >> recovery-executions')`
+2. `('interrupt_remote_install',)`
+3. `('context', 'Fixture', 'machine')`
+4. `('click', 'Update Server…', 'menu')`
+5. `('enabled', 'Update and Restart', 'button', 90)`
+6. `('click', 'Update and Restart', 'button')`
+7. `('visible', 'Could not complete the server action.', 95)`
+8. `('observed_interrupted_install',)`
+9. `('remote_file_text', 'recovery-executions', 'x')`
+10. `('click', 'Cancel', 'button')`
+11. `('context', 'Fixture', 'machine')`
+12. `('click', 'Take Over Server…', 'menu')`
+13. `('enabled', 'Recover and Reconnect', 'button', 90)`
+14. `('visible', 'Finish the interrupted server operation and reconnect')`
+15. `('absent', 'Could not complete the server action.')`
+16. `('remote_file_text', 'recovery-executions', 'x')`
+17. `('click', 'Recover and Reconnect', 'button')`
+18. `('remote_server_changed', 'restart')`
+19. `('observed_recovered_install',)`
+20. `('remote_file_text', 'recovery-executions', 'x')`
+21. `('remote_run', 'printf y >> recovery-executions')`
+22. `('remote_file_text', 'recovery-executions', 'xy')`
+
+## TAKEOVER-006: A takeover confirmation expires when the inspected peer process changes
+
+Fixture: `remote-legacy`.
+
+Behaviors: `takeover`.
+
+1. `('visible', 'Takeover required', 60)`
+2. `('context', 'Fixture', 'machine')`
+3. `('click', 'Take Over Server…', 'menu')`
+4. `('enabled', 'Take Over and Reconnect', 'button')`
+5. `('restart_peer_outside_client',)`
+6. `('click', 'Take Over and Reconnect', 'button')`
+7. `('visible', 'Could not complete the server action.', 60)`
+8. `('click', 'Details', 'disclosure')`
+9. `('visible', 'The server changed. Inspect it again before taking over', 60)`
+10. `('restarted_peer_preserved',)`
+11. `('click', 'Try Again', 'button')`
+12. `('enabled', 'Take Over and Reconnect', 'button')`
+13. `('click', 'Take Over and Reconnect', 'button')`
+14. `('visible', 'Remote project', 120)`
+15. `('click', 'Remote project', 'row')`
+16. `('remote_server_changed', 'takeover')`
+17. `('remote_file_text', 'takeover-executions', 'x')`
+18. `('remote_shell', 'printf y >> takeover-executions')`
+19. `('remote_file_text', 'takeover-executions', 'xy')`
+
+## TAKEOVER-007: Explicit local takeover replaces a foreign daemon and restores the saved workspace
+
+Fixture: `update-foreign-server`.
+
+Behaviors: `takeover`.
+
+1. `('visible', 'Takeover required', 45)`
+2. `('run', 'printf x >> local-takeover-executions')`
+3. `('remember_layout',)`
+4. `('remember_local_server',)`
+5. `('context', 'Local', 'machine')`
+6. `('click', 'Take Over Server…', 'menu')`
+7. `('visible', 'The server belongs to another Jam installation')`
+8. `('enabled', 'Take Over and Reconnect', 'button')`
+9. `('click', 'Take Over and Reconnect', 'button')`
+10. `('local_server_replaced',)`
+11. `('same_layout',)`
+12. `('absent', 'Takeover required')`
+13. `('file_text', 'local-takeover-executions', 'x')`
+14. `('run', 'printf y >> local-takeover-executions')`
+15. `('file_text', 'local-takeover-executions', 'xy')`
+
+## RENAME-001: The inline tab editor replaces the old rendered label and returns focus
+
+Fixture: `isolated local installation`.
+
+Behaviors: `rendering`, `focus-close`.
+
+1. `('context', 'Tab 1', 'button')`
+2. `('click', 'Rename', 'menu')`
+3. `('fill', 'Tab name', 'BEFORE 9374')`
+4. `('key', 'ENTER')`
+5. `('tab_name', 'BEFORE 9374')`
+6. `('rendered_label', 'BEFORE 9374', None, 'BEFORE 9374', 'button')`
+7. `('context', 'BEFORE 9374', 'button')`
+8. `('click', 'Rename', 'menu')`
+9. `('fill', 'Tab name', 'AFTER 2846')`
+10. `('rendered_label', 'AFTER 2846', 'BEFORE 9374', 'Tab name', 'field')`
+11. `('key', 'ENTER')`
+12. `('tab_name', 'AFTER 2846')`
+13. `('run_focused', 'printf rename-returned-terminal-focus')`
+14. `('output', 'rename-returned-terminal-focus')`
+
+## CREATE-008: Completing a pending worktree keeps the workspace subsequently selected by the user
+
+Fixture: `isolated local installation`.
+
+Behaviors: `creation`.
+
+1. `('hold_worktree_checkout',)`
+2. `('command', 'New Worktree')`
+3. `('fill', 'Branch name', 'background-creation')`
+4. `('fill', 'Base revision', 'HEAD')`
+5. `('click', 'Create', 'button')`
+6. `('checkout_pending',)`
+7. `('visible', 'Opening workspace')`
+8. `('click', 'Project ü with spaces', 'row')`
+9. `('release_worktree_checkout',)`
+10. `('created_workspace', 'wt/Project ü with spaces/background-creation', False)`
+11. `('run', 'printf original-selection-kept > selection-result.txt')`
+12. `('file_text', 'selection-result.txt', 'original-selection-kept')`
+13. `('settle_count', 'workspaces', 2)`
+
+## CREATE-009: A remote checkout completed through a transport outage is found by explicit Retry
+
+Fixture: `remote-creation-transport`.
+
+Behaviors: `creation`, `creation-recovery`.
+
+1. `('remote_shell',)`
+2. `('hold_worktree_checkout', 'remote')`
+3. `('command', 'New Worktree')`
+4. `('fill', 'Branch name', 'transport-creation')`
+5. `('fill', 'Base revision', 'HEAD')`
+6. `('click', 'Create', 'button')`
+7. `('peer_checkout', 'transport-creation')`
+8. `('visible', 'Opening workspace')`
+9. `('peer_transport', True)`
+10. `('visible', 'Retry', 45)`
+11. `('visible', 'Server unavailable', 90)`
+12. `('release_peer_checkout',)`
+13. `('created_workspace', '/home/fixture/wt/project/transport-creation', True)`
+14. `('peer_transport', False)`
+15. `('enabled', 'Retry', 'button', 90)`
+16. `('click', 'Retry', 'button')`
+17. `('absent', 'Opening workspace')`
+18. `('enabled', 'Terminal', 'terminal', 90)`
+19. `('visible', 'fixture@jam-fixture:~/wt/project/transport-creation$', 90)`
+20. `('click', 'Terminal', 'terminal')`
+21. `('type_shell_command', 'pwd > /home/fixture/project/transport-result.txt')`
+22. `('key', 'ENTER')`
+23. `('remote_file_text', 'transport-result.txt', '/home/fixture/wt/project/transport-creation\n')`
+24. `('peer_checkout', 'transport-creation')`
+25. `('remote_server_stable', 2)`
+
+## CREATE-010: Local New Workspace opens one ready terminal at the user's home
+
+Fixture: `isolated local installation`.
+
+Behaviors: `creation`.
+
+1. `('command', 'New Workspace')`
+2. `('created_workspace', '.', False)`
+3. `('run', '[ "$PWD" = "$HOME" ] && printf home-shell-ready > new-workspace.txt')`
+4. `('home_file_text', 'new-workspace.txt', 'home-shell-ready')`
+5. `('settle_count', 'workspaces', 2)`
+
+## CREATE-011: A pending checkout prevents reordering until the new workspace is ready
+
+Fixture: `isolated local installation`.
+
+Behaviors: `creation`.
+
+1. `('open_directory', 'Second workspace')`
+2. `('created_workspace', 'Second workspace', False)`
+3. `('click', 'Project ü with spaces', 'row')`
+4. `('hold_worktree_checkout',)`
+5. `('command', 'New Worktree')`
+6. `('fill', 'Branch name', 'reorder-creation')`
+7. `('fill', 'Base revision', 'HEAD')`
+8. `('click', 'Create', 'button')`
+9. `('checkout_pending',)`
+10. `('visible', 'Opening workspace')`
+11. `('drag', 'Second workspace', 'Project ü with spaces', 0.5, 0.12, 'row')`
+12. `('workspace_prefix', 'Project ü with spaces', 'Second workspace')`
+13. `('release_worktree_checkout',)`
+14. `('created_workspace', 'wt/Project ü with spaces/reorder-creation', False)`
+15. `('drag', 'Second workspace', 'Project ü with spaces', 0.5, 0.12, 'row')`
+16. `('workspace_prefix', 'Second workspace', 'Project ü with spaces')`
+17. `('settle_count', 'workspaces', 3)`
+18. `('run', 'printf reordered-selection-ready > selected-workspace.txt')`
+19. `('home_file_text', 'Second workspace/selected-workspace.txt', 'reordered-selection-ready')`
+
+## CREATE-012: Retry finds a persisted checkout after the remote daemon restarts
+
+Fixture: `remote-creation-transport`.
+
+Behaviors: `creation`, `creation-recovery`.
+
+1. `('remote_shell',)`
+2. `('hold_worktree_checkout', 'remote')`
+3. `('command', 'New Worktree')`
+4. `('fill', 'Branch name', 'restart-creation')`
+5. `('fill', 'Base revision', 'HEAD')`
+6. `('click', 'Create', 'button')`
+7. `('peer_checkout', 'restart-creation')`
+8. `('peer_transport', True)`
+9. `('visible', 'Retry', 45)`
+10. `('visible', 'Server unavailable', 90)`
+11. `('release_peer_checkout',)`
+12. `('created_workspace', '/home/fixture/wt/project/restart-creation', True)`
+13. `('restart_peer_outside_client',)`
+14. `('peer_transport', False)`
+15. `('enabled', 'Retry', 'button', 90)`
+16. `('click', 'Retry', 'button')`
+17. `('absent', 'Retry')`
+18. `('enabled', 'Terminal', 'terminal', 90)`
+19. `('type_shell_command', 'pwd > /home/fixture/project/restart-result.txt')`
+20. `('key', 'ENTER')`
+21. `('remote_file_text', 'restart-result.txt', '/home/fixture/wt/project/restart-creation\n')`
+22. `('created_workspace', '/home/fixture/wt/project/restart-creation', True)`
+23. `('peer_checkout', 'restart-creation')`
+
+## CREATE-013: Retry refuses to resubmit an unconfirmed checkout after the remote daemon restarts
+
+Fixture: `remote-creation-transport`.
+
+Behaviors: `creation`, `creation-recovery`.
+
+1. `('remote_shell',)`
+2. `('hold_worktree_checkout', 'remote')`
+3. `('command', 'New Worktree')`
+4. `('fill', 'Branch name', 'restart-creation')`
+5. `('fill', 'Base revision', 'HEAD')`
+6. `('click', 'Create', 'button')`
+7. `('peer_checkout', 'restart-creation')`
+8. `('peer_transport', True)`
+9. `('visible', 'Retry', 45)`
+10. `('visible', 'Server unavailable', 90)`
+11. `('restart_peer_outside_client',)`
+12. `('peer_transport', False)`
+13. `('enabled', 'Retry', 'button', 90)`
+14. `('click', 'Retry', 'button')`
+15. `('visible', 'The server restarted. Check the workspace list before starting again.')`
+16. `('click', 'Dismiss', 'button')`
+17. `('remote_shell', 'printf original-shell-recovered')`
+18. `('remote_server_changed', 'restart')`
+19. `('peer_checkout', 'restart-creation')`
+
+## CREATE-014: Opening an existing remote worktree starts a shell in its selected branch
+
+Fixture: `remote-creation-transport`.
+
+Behaviors: `creation`.
+
+1. `('remote_shell', 'git worktree add -b peer-existing /home/fixture/remote-existing HEAD')`
+2. `('command', 'Open Worktree')`
+3. `('fill', 'Filter by branch or path', 'peer-existing')`
+4. `('visible', 'peer-existing')`
+5. `('enabled', 'Open', 'button')`
+6. `('key', 'ENTER')`
+7. `('created_workspace', '/home/fixture/remote-existing', True)`
+8. `('enabled', 'Terminal', 'terminal', 90)`
+9. `('type_shell_command', '{ pwd; git branch --show-current; } > /home/fixture/project/open-branch.txt')`
+10. `('key', 'ENTER')`
+11. `('remote_file_text', 'open-branch.txt', '/home/fixture/remote-existing\npeer-existing\n')`
+
+## CREATE-015: A pending worktree protects the previous terminal from input during handoff
+
+Fixture: `isolated local installation`.
+
+Behaviors: `creation`, `focus-close`.
+
+1. `('probe', 'raw', '180')`
+2. `('hold_worktree_checkout',)`
+3. `('command', 'New Worktree')`
+4. `('fill', 'Branch name', 'isolated-handoff')`
+5. `('fill', 'Base revision', 'HEAD')`
+6. `('click', 'Create', 'button')`
+7. `('checkout_pending',)`
+8. `('visible', 'Opening workspace')`
+9. `('key', 'ESCAPE')`
+10. `('probe_no_input',)`
+11. `('release_worktree_checkout',)`
+12. `('created_workspace', 'wt/Project ü with spaces/isolated-handoff', False)`
+13. `('run', 'printf handed-off > creation-focus.txt')`
+14. `('home_file_text', 'wt/Project ü with spaces/isolated-handoff/creation-focus.txt', 'handed-off')`
+15. `('probe_no_input',)`
+16. `('click', 'Project ü with spaces', 'row')`
+17. `('probe_key', 'x')`
+18. `('probe_hex', '78')`
+
+## UPDATE-SETTINGS-002: A slow Settings download shows one progress sheet and can be cancelled
+
+Fixture: `update-slow-prepare`.
+
+Behaviors: `update-settings`.
+
+1. `('remember_layout',)`
+2. `('remember_pids',)`
+3. `('settings', 'General')`
+4. `('click', 'Check for Updates…', 'button')`
+5. `('visible', 'Jam 0.0.5 is available')`
+6. `('enabled', 'Upgrade…', 'button')`
+7. `('click', 'Upgrade…', 'button')`
+8. `('visible', 'Downloading and verifying the update…')`
+9. `('single_sheet', 'Upgrade Jam')`
+10. `('disabled', 'Upgrade and Restart', 'button')`
+11. `('click', 'Cancel', 'button')`
+12. `('absent', 'Upgrade Jam')`
+13. `('installed_version', '0.0.4')`
+14. `('same_layout',)`
+15. `('same_pids',)`
+
+## UPDATE-SETTINGS-003: Update preparation routes a foreign live server to a takeover confirmation
+
+Fixture: `update-foreign-server`.
+
+Behaviors: `update-settings`, `takeover`.
+
+1. `('remember_layout',)`
+2. `('remember_pids',)`
+3. `('settings', 'General')`
+4. `('click', 'Check for Updates…', 'button')`
+5. `('visible', 'Jam 0.0.5 is available')`
+6. `('enabled', 'Upgrade…', 'button')`
+7. `('click', 'Upgrade…', 'button')`
+8. `('visible', 'Take over the server on Local?', 60)`
+9. `('visible', 'The server belongs to another Jam installation')`
+10. `('enabled', 'Take Over and Reconnect', 'button')`
+11. `('click', 'Cancel', 'button')`
+12. `('same_layout',)`
+13. `('same_pids',)`
+14. `('installed_version', '0.0.4')`
+
+## UPDATE-SETTINGS-004: An unmanaged installation reports a release in Settings without offering an upgrade
+
+Fixture: `update-unmanaged`.
+
+Behaviors: `update-settings`.
+
+1. `('remember_layout',)`
+2. `('remember_pids',)`
+3. `('settings', 'General')`
+4. `('click', 'Check for Updates…', 'button')`
+5. `('visible', 'Jam 0.0.5 is available')`
+6. `('disabled', 'Upgrade…', 'button')`
+7. `('absent', 'Upgrade Jam')`
+8. `('click', 'Cancel', 'button')`
+9. `('absent', 'Jam 0.0.5 is available')`
+10. `('installed_version', '0.0.4')`
+11. `('same_layout',)`
+12. `('same_pids',)`
+
+## UPDATE-SETTINGS-005: An unavailable minimum client release leaves the newer server untouched
+
+Fixture: `update-required-without-compatible-release`.
+
+Behaviors: `update-settings`.
+
+1. `('visible', 'Update Jam required', 60)`
+2. `('settings', 'General')`
+3. `('enabled', 'Check for Updates…', 'button')`
+4. `('click', 'Check for Updates…', 'button')`
+5. `('visible', 'This machine requires Jam 0.0.5')`
+6. `('visible', 'no matching published update is available')`
+7. `('absent', 'Upgrade…')`
+8. `('click', 'Cancel', 'button')`
+9. `('remote_workspace_preserved',)`
+10. `('remote_server_stable', 2)`
+
+## UPDATE-SETTINGS-006: Settings offers an explicitly requested upgrade after the user skipped its notice
+
+Fixture: `update-available`.
+
+Behaviors: `update-settings`, `update-notices`.
+
+1. `('click', 'Upgrade options')`
+2. `('click', 'Skip This Version', 'menu')`
+3. `('absent', 'Upgrade available')`
+4. `('settings', 'General')`
+5. `('visible', 'Jam 0.0.5 is available')`
+6. `('enabled', 'Upgrade…', 'button')`
+7. `('click', 'Upgrade…', 'button')`
+8. `('single_sheet', 'Upgrade Jam')`
+9. `('enabled', 'Upgrade and Restart', 'button')`
+10. `('click', 'Cancel', 'button')`
+11. `('visible', 'Automatically check for updates')`
+12. `('installed_version', '0.0.4')`
+
+## UPDATE-SETTINGS-007: Settings opens one recovery sheet for an actual unfinished app upgrade
+
+Fixture: `update-interrupted`.
+
+Behaviors: `update-settings`.
+
+1. `('remember_layout',)`
+2. `('remember_pids',)`
+3. `('settings', 'General')`
+4. `('click', 'Recover Interrupted Upgrade…', 'button')`
+5. `('single_sheet', 'Recover Interrupted Upgrade')`
+6. `('enabled', 'Recover', 'button')`
+7. `('click', 'Cancel', 'button')`
+8. `('target_visible', 'Recover Interrupted Upgrade…', 'button')`
+9. `('installed_version', '0.0.4')`
+10. `('same_layout',)`
+11. `('same_pids',)`
+
+## THEME-001: Warm is applied only on Save and survives relaunch without changing dark appearance
+
+Fixture: `isolated local installation`.
+
+Behaviors: `theme-and-selection`.
+
+1. `('settings', 'Appearance')`
+2. `('click', 'Dark')`
+3. `('click', 'Midnight')`
+4. `('save',)`
+5. `('config', 'appearance', 'dark')`
+6. `('theme_pixels', 'midnight')`
+7. `('settings', 'Appearance')`
+8. `('click', 'Warm')`
+9. `('click', 'Cancel')`
+10. `('theme_pixels', 'cancelled', 'midnight', 'same')`
+11. `('settings', 'Appearance')`
+12. `('click', 'Warm')`
+13. `('save',)`
+14. `('theme_pixels', 'warm', 'midnight', 'different')`
+15. `('relaunch',)`
+16. `('theme_pixels', 'restored', 'warm', 'same')`
+17. `('config', 'appearance', 'dark')`
+18. `('settings', 'Appearance')`
+19. `('click', 'Midnight')`
+20. `('save',)`
+21. `('theme_pixels', 'restored-midnight', 'midnight', 'same')`
+22. `('run', 'printf shell-survives-theme-changes')`
+23. `('output', 'shell-survives-theme-changes')`
+
+## SELECT-003: An untouched profile copies a native drag selection and its confirmation clears
+
+Fixture: `isolated local installation`.
+
+Behaviors: `theme-and-selection`.
+
+1. `('run', "printf '\\033[2J\\033[H\\123\\105\\114\\105\\103\\124\\111\\117\\116\\n'")`
+2. `('clipboard', 'before-default-selection')`
+3. `('select_word', 'SELECTION')`
+4. `('visible', 'Copied to clipboard', 3)`
+5. `('clipboard_equals', 'SELECTION')`
+6. `('absent', 'Copied to clipboard', 5)`
+7. `('copy',)`
+8. `('clipboard_equals', 'SELECTION')`
+9. `('absent', 'Copied to clipboard', 3)`
+10. `('config_default', 'copy_on_select', True)`
+
+## LAYOUT-003: A split previews geometry before an unavailable daemon can commit it
+
+Fixture: `isolated local installation`.
+
+Behaviors: `optimistic-layout`, `render-lifecycle`.
+
+1. `('resize', 1100, 650)`
+2. `('remember_pane',)`
+3. `('remember_pids',)`
+4. `('remember_terminal_width',)`
+5. `('suspend_daemon',)`
+6. `('chord', 'ctrl+shift+e')`
+7. `('visible', 'Starting terminal', 5)`
+8. `('narrower_terminal',)`
+9. `('resume_daemon',)`
+10. `('count', 'panes', 2)`
+11. `('remaining_original_pids',)`
+12. `('absent', 'Starting terminal')`
+13. `('run_focused', 'printf committed-split-terminal')`
+14. `('output', 'committed-split-terminal')`
+
+## LAYOUT-004: A second tab appears before the daemon replies and becomes one live terminal
+
+Fixture: `isolated local installation`.
+
+Behaviors: `optimistic-layout`.
+
+1. `('remember_pids',)`
+2. `('suspend_daemon',)`
+3. `('chord', 'ctrl+shift+t')`
+4. `('target_visible', 'Tab 2', 'button')`
+5. `('visible', 'Starting terminal', 5)`
+6. `('resume_daemon',)`
+7. `('count', 'tabs', 2)`
+8. `('count', 'panes', 2)`
+9. `('remaining_original_pids',)`
+10. `('run', 'printf optimistic-tab-now-live')`
+11. `('output', 'optimistic-tab-now-live')`
+
+## LAYOUT-005: Closing the bottom-right pane delivers the next input to its nearest sibling
+
+Fixture: `isolated local installation`.
+
+Behaviors: `optimistic-layout`.
+
+1. `('resize', 1280, 560)`
+2. `('chord', 'ctrl+shift+e')`
+3. `('count', 'panes', 2)`
+4. `('remember_split_pane', 'b')`
+5. `('click', 'Terminal', 'terminal', 1)`
+6. `('chord', 'ctrl+shift+o')`
+7. `('count', 'panes', 3)`
+8. `('click', 'Terminal', 'terminal', 2)`
+9. `('chord', 'ctrl+shift+w')`
+10. `('count', 'panes', 2)`
+11. `('run_focused', "printf 'NEAREST PANE %s' 3524")`
+12. `('remembered_output', 'NEAREST PANE 3524')`
+
+## RECOVERY-006: A manually started agent restores its conversation after a daemon restart and returns to a shell
+
+Fixture: `provider-detected`.
+
+Behaviors: `agent-recovery`.
+
+1. `('remember_layout',)`
+2. `('remember_pane',)`
+3. `('click', 'Terminal', 'terminal', 0)`
+4. `('type_shell_command', 'claude --dangerously-skip-permissions')`
+5. `('key', 'ENTER')`
+6. `('output', 'fixture-agent-resumed')`
+7. `('agent_field', 'shell_launched', True)`
+8. `('remember_agent_session',)`
+9. `('remember_provider_inputs',)`
+10. `('restart_server',)`
+11. `('same_layout',)`
+12. `('same_agent_session',)`
+13. `('provider_resumed_conversation',)`
+14. `('provider_inputs_unchanged',)`
+15. `('click', 'Terminal', 'terminal', 0)`
+16. `('chord', 'ctrl+c')`
+17. `('pane_field', 'agent_provider', None)`
+18. `('pane_field', 'exited', False)`
+19. `('run', 'pwd; printf resumed-agent-returned-to-shell')`
+20. `('output_repo',)`
+21. `('output', 'resumed-agent-returned-to-shell')`
+22. `('no_registered_agents',)`
+23. `('same_layout',)`
+
+## RECOVERY-007: Exiting a manually launched agent leaves the original shell responsive
+
+Fixture: `provider-detected`.
+
+Behaviors: `agent-recovery`.
+
+1. `('remember_layout',)`
+2. `('remember_pids',)`
+3. `('click', 'Terminal', 'terminal', 0)`
+4. `('type_shell_command', 'claude --dangerously-skip-permissions')`
+5. `('key', 'ENTER')`
+6. `('output', 'fixture-agent-resumed')`
+7. `('agent_field', 'shell_launched', True)`
+8. `('type_terminal', 'exit')`
+9. `('key', 'ENTER')`
+10. `('pane_field', 'agent_provider', None)`
+11. `('run', 'pwd; printf original-shell-after-agent')`
+12. `('output_repo',)`
+13. `('output', 'original-shell-after-agent')`
+14. `('same_layout',)`
+15. `('same_pids',)`
+16. `('no_registered_agents',)`
+
+## USAGE-007: The same signed-in account keeps its last successful usage after a daemon restart
+
+Fixture: `usage-configured-login`.
+
+Behaviors: `persistent-usage`.
+
+1. `('click', 'Show Codex usage details', 'button')`
+2. `('visible', '25%')`
+3. `('key', 'ESCAPE')`
+4. `('remember_usage_requests',)`
+5. `('usage_service_error', 503)`
+6. `('restart_server',)`
+7. `('relaunch',)`
+8. `('click', 'Show Codex usage details', 'button')`
+9. `('visible', '25%')`
+10. `('visible', '50%')`
+11. `('usage_requests_unchanged',)`
+
+## USAGE-008: Rate-limit backoff is shared by the client and survives daemon and app restarts
+
+Fixture: `usage-rate-limited`.
+
+Behaviors: `persistent-usage`.
+
+1. `('visible', 'Usage service rate limited. Retrying later')`
+2. `('remember_usage_requests',)`
+3. `('usage_service_error', None)`
+4. `('remember_local_server',)`
+5. `('stop_local_daemon',)`
+6. `('relaunch',)`
+7. `('local_server_replaced',)`
+8. `('click', 'Show Codex usage details', 'button')`
+9. `('visible', 'Usage service rate limited. Retrying later')`
+10. `('usage_requests_unchanged',)`
+
+## UPDATE-014: Expiry hides the interrupted-upgrade notice while Settings still offers recovery
+
+Fixture: `update-interrupted`.
+
+Behaviors: `update-notices`.
+
+1. `('visible', 'A Jam upgrade was interrupted')`
+2. `('enabled', 'Recover…', 'button')`
+3. `('absent', 'A Jam upgrade was interrupted', 15)`
+4. `('absent', 'Recover…')`
+5. `('settings', 'General')`
+6. `('click', 'Recover Interrupted Upgrade…', 'button')`
+7. `('single_sheet', 'Recover Interrupted Upgrade')`
+8. `('click', 'Cancel', 'button')`
+9. `('installed_version', '0.0.4')`
+
+## UPDATE-015: The upgrade chip persists on the toolbar and returns after a cancelled confirmation
+
+Fixture: `update-available`.
+
+Behaviors: `update-notices`.
+
+1. `('enabled', 'Upgrade available', 'button')`
+2. `('stable_visible', 'Upgrade available', 10, 'any')`
+3. `('click', 'Upgrade available', 'button')`
+4. `('enabled', 'Upgrade and Restart', 'button')`
+5. `('click', 'Cancel', 'button')`
+6. `('enabled', 'Upgrade available', 'button')`
+7. `('installed_version', '0.0.4')`
+
+## PREVIEW-001: A quoted path opens a drawer that stays with its tab and returns focus when closed
+
+Fixture: `isolated local installation`.
+
+Behaviors: `file-previews`, `toolbar-tabs`.
+
+1. `('open_file_preview', 'quoted')`
+2. `('visible', 'Private drawer content')`
+3. `('click', 'Expand preview', 'button')`
+4. `('visible', 'Private drawer content')`
+5. `('click', 'Close preview', 'button')`
+6. `('enabled', 'Expand preview', 'button')`
+7. `('command', 'New Tab')`
+8. `('target_visible', 'Tab 2', 'button')`
+9. `('absent', 'Close preview')`
+10. `('click', 'Tab 1', 'button')`
+11. `('visible', 'Private drawer content')`
+12. `('click', 'Close preview', 'button')`
+13. `('run_focused', 'printf drawer-restored-shell')`
+14. `('output', 'drawer-restored-shell')`
+
+## PREVIEW-002: Markdown starts formatted and exposes its original table and diagram source on demand
+
+Fixture: `isolated local installation`.
+
+Behaviors: `file-previews`.
+
+1. `('open_file_preview', 'markdown')`
+2. `('visible', 'Fixture heading')`
+3. `('visible', 'Pear')`
+4. `('click', 'Raw')`
+5. `('visible', '| Fruit | Pear |')`
+6. `('visible', 'North --> South')`
+7. `('click', 'Formatted')`
+8. `('visible', 'Fixture heading')`
+9. `('absent', '| Fruit | Pear |')`
+
+## PREVIEW-003: A Markdown line reference opens raw source and the editor opens on its owning machine
+
+Fixture: `isolated local installation`.
+
+Behaviors: `file-previews`.
+
+1. `('open_file_preview', 'line')`
+2. `('visible', '**Source marker**')`
+3. `('click', 'Edit in terminal', 'button')`
+4. `('count', 'tabs', 2)`
+5. `('click', 'Tab 1', 'button')`
+6. `('visible', '**Source marker**')`
+
+## PREVIEW-004: Large Markdown stays raw and supports paging in both directions
+
+Fixture: `isolated local installation`.
+
+Behaviors: `file-previews`.
+
+1. `('open_file_preview', 'large')`
+2. `('visible', 'Markdown over 2 MiB opens in Raw view.')`
+3. `('visible', 'First page')`
+4. `('disabled', 'Earlier', 'button')`
+5. `('click', 'Later', 'button')`
+6. `('enabled', 'Earlier', 'button')`
+7. `('absent', 'First page')`
+8. `('click', 'Earlier', 'button')`
+9. `('visible', 'First page')`
+
+## PREVIEW-005: An image displays its pixels in the drawer and at actual size in the expanded preview
+
+Fixture: `isolated local installation`.
+
+Behaviors: `file-previews`.
+
+1. `('open_file_preview', 'image')`
+2. `('preview_pixels', 'magenta')`
+3. `('click', 'Expand preview', 'button')`
+4. `('click', '100%', 'button')`
+5. `('enabled', 'Fit', 'button')`
+6. `('preview_pixels', 'magenta')`
+7. `('click', 'Close preview', 'button')`
+8. `('enabled', 'Expand preview', 'button')`
+
+## PREVIEW-006: MP4 playback retains its current frame when expanded
+
+Fixture: `isolated local installation`.
+
+Behaviors: `file-previews`.
+
+1. `('open_file_preview', 'movie')`
+2. `('preview_pixels', 'magenta', True)`
+3. `('preview_playback', True)`
+4. `('preview_pixels', 'cyan', True)`
+5. `('preview_playback', False)`
+6. `('click', 'Expand preview', 'button')`
+7. `('preview_pixels', 'cyan')`
+8. `('click', 'Close preview', 'button')`
+9. `('enabled', 'Expand preview', 'button')`
+
+## PREVIEW-007: MOV playback retains its current frame when expanded
+
+Fixture: `isolated local installation`.
+
+Behaviors: `file-previews`.
+
+1. `('open_file_preview', 'quicktime')`
+2. `('preview_pixels', 'magenta', True)`
+3. `('preview_playback', True)`
+4. `('preview_pixels', 'cyan', True)`
+5. `('preview_playback', False)`
+6. `('click', 'Expand preview', 'button')`
+7. `('preview_pixels', 'cyan')`
+8. `('click', 'Close preview', 'button')`
+9. `('enabled', 'Expand preview', 'button')`
+
+## PREVIEW-008: A remote terminal reads its own file when the local checkout has the same filename
+
+Fixture: `remote-connected`.
+
+Behaviors: `file-previews`.
+
+1. `('open_file_preview', 'text', True)`
+2. `('visible', 'Remote-only preview content')`
+3. `('absent', 'Local-only preview content')`
+4. `('click', 'Close preview', 'button')`
+5. `('remote_workspace_preserved',)`
+
+## PREVIEW-009: Integrations checks each supported local file format and can refresh its results
+
+Fixture: `isolated local installation`.
+
+Behaviors: `file-previews`.
+
+1. `('settings', 'Integrations')`
+2. `('visible', 'File previews')`
+3. `('visible', 'Text')`
+4. `('visible', 'Images')`
+5. `('visible', 'Formatted Markdown')`
+6. `('visible', 'Mermaid diagrams')`
+7. `('visible', 'MP4 playback')`
+8. `('visible', 'MOV playback')`
+9. `('preview_integrations', 'Available')`
+10. `('click', 'Check again', 'button')`
+11. `('preview_integrations', 'Available')`
+12. `('click', 'Cancel', 'button')`
+
+## PROGRESS-001: Replacing a pane's steps updates its average, individual percentages and clear state
+
+Fixture: `isolated local installation`.
+
+Behaviors: `pane-progress`.
+
+1. `('program_identity', 'codex')`
+2. `('pane_field', 'agent_provider', 'codex')`
+3. `('set_progress', 'Build=20', 'Check=80')`
+4. `('control_value', 'Task progress', '50 percent across 2 steps')`
+5. `('click', 'Task progress', 'button')`
+6. `('control_value', 'Build', '20 percent')`
+7. `('control_value', 'Check', '80 percent')`
+8. `('key', 'ESCAPE')`
+9. `('set_progress', 'Review=75')`
+10. `('control_value', 'Review', '75 percent')`
+11. `('absent', 'Task progress')`
+12. `('set_progress',)`
+13. `('no_control', 'Review')`
+14. `('program_phase', 'exit')`
+15. `('run', 'printf progress-cleared')`
+16. `('output', 'progress-cleared')`
+
+## PROGRESS-002: Invalid duplicate steps leave the previous progress attached only to its owning tab
+
+Fixture: `isolated local installation`.
+
+Behaviors: `pane-progress`.
+
+1. `('program_identity', 'codex')`
+2. `('pane_field', 'agent_provider', 'codex')`
+3. `('set_progress', 'Upload=40')`
+4. `('control_value', 'Upload', '40 percent')`
+5. `('reject_progress', 'Build=50', 'Build=80')`
+6. `('control_value', 'Upload', '40 percent')`
+7. `('command', 'New Tab')`
+8. `('target_visible', 'Tab 2', 'button')`
+9. `('no_control', 'Upload')`
+10. `('click', 'Tab 1', 'button')`
+11. `('control_value', 'Upload', '40 percent')`
+
+## TAB-005: A new toolbar tab accepts typing immediately and a background tab can be closed in place
+
+Fixture: `isolated local installation`.
+
+Behaviors: `toolbar-tabs`.
+
+1. `('command', 'New Tab')`
+2. `('target_visible', 'Tab 2', 'button')`
+3. `('run_focused', 'printf toolbar-keyboard-owner')`
+4. `('output', 'toolbar-keyboard-owner')`
+5. `('context', 'Tab 1', 'button')`
+6. `('click', 'Close Tab', 'menu')`
+7. `('count', 'tabs', 1)`
+8. `('target_visible', 'Tab 2', 'button')`
+9. `('output', 'toolbar-keyboard-owner')`
+
+## CLOSE-005: A pending group closure shows progress and preserves the checkout's working files
+
+Fixture: `dirty-checkout`.
+
+Behaviors: `workspace-removal`.
+
+1. `('click', 'Fixture', 'row')`
+2. `('context', 'Fixture', 'row')`
+3. `('click', 'Close Workspace', 'menu')`
+4. `('visible', 'Close project and its open worktrees?')`
+5. `('suspend_daemon',)`
+6. `('click', 'Close', 'button')`
+7. `('visible', 'Closing workspace')`
+8. `('no_control', 'Tab 1', 'button')`
+9. `('resume_daemon',)`
+10. `('settle_count', 'workspaces', 0)`
+11. `('file_text', '../Fixture checkout/dirty.txt', 'Keep this uncommitted work\n')`
+
+## UPDATE-016: Reopening a verified upgrade reuses the downloads and refreshes the session plan
+
+Fixture: `update-available`.
+
+Behaviors: `staged-upgrade`.
+
+1. `('click', 'Upgrade available', 'button')`
+2. `('enabled', 'Upgrade and Restart', 'button')`
+3. `('remember_release_downloads',)`
+4. `('click', 'Cancel', 'button')`
+5. `('command', 'New Tab')`
+6. `('count', 'tabs', 2)`
+7. `('click', 'Upgrade available', 'button')`
+8. `('enabled', 'Upgrade and Restart', 'button')`
+9. `('visible', '2 running terminals')`
+10. `('same_release_downloads',)`
+11. `('click', 'Cancel', 'button')`
+12. `('count', 'panes', 2)`
+
+## PREVIEW-010: An older machine explains missing preview support while local integrations remain available
+
+Fixture: `remote-limited`.
+
+Behaviors: `file-previews`.
+
+1. `('open_file_preview', 'text', True)`
+2. `('visible', 'Update this machine’s Jam server to preview files.')`
+3. `('click', 'Close preview', 'button')`
+4. `('settings', 'Integrations')`
+5. `('preview_integrations', 'Available')`
+6. `('click', 'Local', 'picker')`
+7. `('click', 'Fixture', 'menu')`
+8. `('preview_integrations', 'Update the Jam server')`
+9. `('click', 'Cancel', 'button')`
+10. `('remote_workspace_preserved',)`
+
+## RESET-001: Codex listed reset requires confirmation and refreshes the remaining balance
+
+Fixture: `usage-configured-login`.
+
+Behaviors: `free-resets`.
+
+1. `('reset_offer', 'listed')`
+2. `('click', 'Show Codex usage details', 'button')`
+3. `('visible', '1 reset available')`
+4. `('click', 'Use reset…', 'button')`
+5. `('visible', 'Use one free reset for fixture@example.invalid?')`
+6. `('click', 'Cancel', 'button')`
+7. `('reset_receipts', 'codex', 0, 'listed')`
+8. `('visible', '1 reset available')`
+9. `('click', 'Use reset…', 'button')`
+10. `('click', 'Use free reset', 'button')`
+11. `('visible', 'Free reset applied.')`
+12. `('visible', '0 resets available')`
+13. `('no_control', 'Use reset…', 'button')`
+14. `('reset_receipts', 'codex', 1, 'listed')`
+15. `('click', 'Done', 'button')`
+
+## RESET-002: Codex count reset requires confirmation and refreshes the remaining balance
+
+Fixture: `usage-configured-login`.
+
+Behaviors: `free-resets`.
+
+1. `('reset_offer', 'count')`
+2. `('click', 'Show Codex usage details', 'button')`
+3. `('visible', '1 reset available')`
+4. `('click', 'Use reset…', 'button')`
+5. `('visible', 'Use one free reset for fixture@example.invalid?')`
+6. `('click', 'Cancel', 'button')`
+7. `('reset_receipts', 'codex', 0, 'count')`
+8. `('visible', '1 reset available')`
+9. `('click', 'Use reset…', 'button')`
+10. `('click', 'Use free reset', 'button')`
+11. `('visible', 'Free reset applied.')`
+12. `('visible', '0 resets available')`
+13. `('no_control', 'Use reset…', 'button')`
+14. `('reset_receipts', 'codex', 1, 'count')`
+15. `('click', 'Done', 'button')`
+
+## RESET-003: Claude claude reset requires confirmation and refreshes the remaining balance
+
+Fixture: `usage-configured-login`.
+
+Behaviors: `free-resets`.
+
+1. `('reset_offer', 'claude')`
+2. `('click', 'Show Claude usage details', 'button')`
+3. `('visible', '1 reset available')`
+4. `('click', 'Use reset…', 'button')`
+5. `('visible', 'Use one free reset for fixture@example.invalid?')`
+6. `('click', 'Cancel', 'button')`
+7. `('reset_receipts', 'claude', 0, 'claude')`
+8. `('visible', '1 reset available')`
+9. `('click', 'Use reset…', 'button')`
+10. `('click', 'Use free reset', 'button')`
+11. `('visible', 'Free reset applied.')`
+12. `('visible', '0 resets available')`
+13. `('no_control', 'Use reset…', 'button')`
+14. `('reset_receipts', 'claude', 1, 'claude')`
+15. `('click', 'Done', 'button')`
+
+## RESET-004: An unconfirmed Codex reset reuses its attempt ID after the app relaunches
+
+Fixture: `usage-configured-login`.
+
+Behaviors: `free-resets`.
+
+1. `('reset_offer', 'unconfirmed')`
+2. `('click', 'Show Codex usage details', 'button')`
+3. `('visible', '1 reset available')`
+4. `('click', 'Use reset…', 'button')`
+5. `('click', 'Use free reset', 'button')`
+6. `('visible', 'Codex did not confirm this reset.')`
+7. `('reset_receipts', 'codex', 1, 'unconfirmed')`
+8. `('click', 'Done', 'button')`
+9. `('relaunch',)`
+10. `('click', 'Show Codex usage details', 'button')`
+11. `('click', 'Use reset…', 'button')`
+12. `('click', 'Use free reset', 'button')`
+13. `('visible', 'Free reset applied.')`
+14. `('reset_receipts', 'codex', 2, 'unconfirmed')`
+
+## RESET-005: A cached free reset survives reopening and relaunching the app without another provider read
+
+Fixture: `usage-configured-login`.
+
+Behaviors: `free-resets`.
+
+1. `('reset_offer', 'listed')`
+2. `('click', 'Show Codex usage details', 'button')`
+3. `('visible', '1 reset available')`
+4. `('remember_reset_reads',)`
+5. `('click', 'Done', 'button')`
+6. `('relaunch',)`
+7. `('click', 'Show Codex usage details', 'button')`
+8. `('stable_visible', '1 reset available', 2)`
+9. `('same_reset_reads',)`
+10. `('reset_receipts', 'codex', 0, 'listed')`
+
+## RESET-006: An account mismatch blocks redemption and an explicit retry loads the verified account
+
+Fixture: `usage-configured-login`.
+
+Behaviors: `free-resets`.
+
+1. `('reset_offer', 'mismatch')`
+2. `('click', 'Show Codex usage details', 'button')`
+3. `('visible', 'Codex could not verify the selected account')`
+4. `('no_control', 'Use reset…', 'button')`
+5. `('reset_receipts', 'codex', 0, 'mismatch')`
+6. `('reset_offer', 'listed')`
+7. `('click', 'Retry', 'button')`
+8. `('visible', '1 reset available')`
+9. `('enabled', 'Use reset…', 'button')`
+
+## RECOVERY-008: An interrupted working Claude session gets one continuation in its original conversation
+
+Fixture: `provider-detected`.
+
+Behaviors: `agent-recovery`.
+
+1. `('run', 'mkdir Worker && jam workspace create "$PWD/Worker" --agent claude > worker-created.json')`
+2. `('count', 'workspaces', 2)`
+3. `('click', 'Worker', 'row')`
+4. `('output', 'fixture-agent-resumed')`
+5. `('agent_field', 'verified_launch', True)`
+6. `('remember_layout',)`
+7. `('click', 'Terminal', 'terminal', 0)`
+8. `('remember_agent_session',)`
+9. `('type_terminal', 'fixture pending job')`
+10. `('key', 'ENTER')`
+11. `('agent_field', 'activity', 'working')`
+12. `('restart_server',)`
+13. `('agent_output', 'fixture-continuation-received')`
+14. `('same_agent_session',)`
+15. `('one_launch_continuation',)`
+16. `('same_layout',)`
+
+## WORKER-001: A standalone worker receives provider defaults
+
+Fixture: `provider-detected`.
+
+Behaviors: `worker-permissions`.
+
+1. `('run', 'mkdir Worker && jam workspace create "$PWD/Worker" --agent codex > worker-created.json')`
+2. `('count', 'workspaces', 2)`
+3. `('target_visible', 'Worker', 'row')`
+4. `('worker_permission', False)`
+5. `('click', 'Worker', 'row')`
+6. `('visible', 'fixture-agent-resumed')`
+
+## WORKER-002: A standalone worker receives explicit full access
+
+Fixture: `provider-detected`.
+
+Behaviors: `worker-permissions`.
+
+1. `('run', 'mkdir Worker && jam workspace create "$PWD/Worker" --agent codex --yolo > worker-created.json')`
+2. `('count', 'workspaces', 2)`
+3. `('target_visible', 'Worker', 'row')`
+4. `('worker_permission', True)`
+5. `('click', 'Worker', 'row')`
+6. `('visible', 'fixture-agent-resumed')`
+
+## LAYOUT-006: Switching machines and reconnecting preserves the remote toolbar tabs and their live terminals
+
+Fixture: `remote-connected`.
+
+Behaviors: `toolbar-tabs`, `optimistic-layout`.
+
+1. `('remote_shell', 'printf x > remote-tabs')`
+2. `('command', 'New Tab')`
+3. `('target_visible', 'Tab 2', 'button')`
+4. `('remember_remote_tabs',)`
+5. `('type_shell_command', 'printf y >> remote-tabs')`
+6. `('key', 'ENTER')`
+7. `('remote_file_text', 'remote-tabs', 'xy')`
+8. `('click_workspace_row', 'Fixture', 'main')`
+9. `('no_control', 'Tab 2', 'button')`
+10. `('click', 'Remote project', 'row')`
+11. `('target_visible', 'Tab 2', 'button')`
+12. `('context', 'Fixture', 'machine')`
+13. `('click', 'Disconnect', 'menu')`
+14. `('context', 'Fixture', 'machine')`
+15. `('click', 'Reconnect', 'menu')`
+16. `('remote_shell', 'printf z >> remote-tabs')`
+17. `('target_visible', 'Tab 2', 'button')`
+18. `('same_remote_tabs',)`
+19. `('remote_file_text', 'remote-tabs', 'xyz')`
