@@ -391,9 +391,14 @@ struct WorktreeListFixture: View {
     window.toolbar?.isVisible = true
     window.orderFront(nil)
     defer { window.orderOut(nil) }
-    try wait("initial split terminal") {
+    try wait(
+      "initial terminal is wide enough to split",
+      details:
+        "Pane size \(String(describing: store.paneSizes[source])), window \(window.frame), "
+        + "current tab \(store.tab), focus \(store.focus)"
+    ) {
       guard let view = store.terminalViews.existing(source) else { return false }
-      return view.desiredSize != nil && matchesGeometry(view) && store.paneSizes[source] != nil
+      return view.desiredSize != nil && matchesGeometry(view) && store.canSplit(false, pane: source)
     }
     let view = store.terminalViews.existing(source)!
     let originalWidth = view.desiredSize!.width
@@ -2748,11 +2753,16 @@ struct WorktreeListFixture: View {
       && view.meta["rows"] as? Int == min(1000, max(1, Int(view.bounds.height / size.height)))
   }
 
-  static func wait(_ stage: String = "terminal presentation", _ condition: () -> Bool) throws {
+  static func wait(
+    _ stage: String = "terminal presentation", details: @autoclosure () -> String = "",
+    _ condition: () -> Bool
+  ) throws {
     let deadline = Date().addingTimeInterval(5)
     while !condition() {
       guard Date() < deadline else {
-        throw NSError(domain: "Timed out: " + stage, code: 1)
+        let detail = details()
+        throw NSError(
+          domain: "Timed out: " + stage + (detail.isEmpty ? "" : ". " + detail), code: 1)
       }
       RunLoop.current.run(until: Date().addingTimeInterval(0.002))
     }
