@@ -98,7 +98,8 @@ def macos_ui_tests():
                 if daemon.poll() is not None or time.monotonic() >= deadline:
                     raise RuntimeError('Test daemon did not start')
                 time.sleep(0.01)
-            subprocess.run([str(executable), '--preview'], cwd=ROOT, env=env, check=True, timeout=40)
+            for suite in ('--controls-only', '--workspace-only'):
+                subprocess.run([str(executable), '--preview', suite], cwd=ROOT, env=env, check=True, timeout=40)
         finally:
             # A lifecycle test may have replaced the original daemon process.
             # Stop whichever instance now owns this private fixture socket.

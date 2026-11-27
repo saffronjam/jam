@@ -15,6 +15,8 @@ struct ServerSheetFixture: View {
   @ObservedObject var store: Store
   var body: some View {
     ContentView().environmentObject(store)
+      // Match the minimum window size used by JamApp.
+      .frame(minWidth: 800, minHeight: 520)
       .sheet(isPresented: $store.showSettings) {
         AppSettingsView(store: store, close: { store.showSettings = false })
           .frame(width: 860, height: 600)
@@ -62,6 +64,17 @@ struct WorktreeListFixture: View {
       try checkTerminalMouseGestures()
       return
     }
+    if !CommandLine.arguments.contains("--workspace-only") {
+      try checkControls()
+    }
+    if !CommandLine.arguments.contains("--controls-only") {
+      _ = nativeString(jam_start(""))
+      defer { _ = rpc("Stop") }
+      try checkWorkspaceWindow()
+    }
+  }
+
+  static func checkControls() throws {
     for provider in ["claude", "codex"] {
       assert(AgentBrand.image(provider) != nil, "Provider vector asset is missing")
       assert(
@@ -93,7 +106,6 @@ struct WorktreeListFixture: View {
     try checkWorktreeNavigation()
     try checkWorkspaceScrollIndicator()
     _ = nativeString(jam_start(""))
-    defer { _ = rpc("Stop") }
     try checkTerminalMouseGestures()
     try checkOptimisticSplit()
     try checkRapidClose()
@@ -105,6 +117,10 @@ struct WorktreeListFixture: View {
     try checkUpgradeChip(store: store)
     try checkUpdateSettingsControls(store: store)
     try checkSettings(store: store)
+  }
+
+  static func checkWorkspaceWindow() throws {
+    let store = Store()
     let directory = ProcessInfo.processInfo.environment["JAM_STATE_DIR"]!
     for name in ["first", "second"] {
       let path = directory + "/" + name
