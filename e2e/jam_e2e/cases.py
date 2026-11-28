@@ -1865,6 +1865,8 @@ case(
     ("suspend_daemon",),
     ("server_unresponsive",),
     ("context", "Local", "machine"),
+    # The connection timeout inserts this status above Server Details in the open menu.
+    ("visible", "Offline", 60),
     ("absent", "Take Over Server…"),
     ("absent", "Server update required"),
     ("disabled", "Restart Server…", "menu"),

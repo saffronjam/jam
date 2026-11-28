@@ -3115,23 +3115,24 @@ Behaviors: `diagnostics`.
 3. `('suspend_daemon',)`
 4. `('server_unresponsive',)`
 5. `('context', 'Local', 'machine')`
-6. `('absent', 'Take Over Server…')`
-7. `('absent', 'Server update required')`
-8. `('disabled', 'Restart Server…', 'menu')`
-9. `('click', 'Server Details…', 'menu')`
-10. `('visible', 'Server — Local')`
-11. `('visible', 'without stopping running sessions')`
-12. `('visible', 'Local server is not responding')`
-13. `('enabled', 'Retry', 'button')`
-14. `('click', 'Retry', 'button')`
-15. `('enabled', 'Retry', 'button')`
-16. `('visible', 'without stopping running sessions')`
-17. `('resume_daemon',)`
-18. `('absent', 'Server — Local')`
-19. `('same_layout',)`
-20. `('same_pids',)`
-21. `('run', 'printf daemon-recovered-without-restart')`
-22. `('output', 'daemon-recovered-without-restart')`
+6. `('visible', 'Offline', 60)`
+7. `('absent', 'Take Over Server…')`
+8. `('absent', 'Server update required')`
+9. `('disabled', 'Restart Server…', 'menu')`
+10. `('click', 'Server Details…', 'menu')`
+11. `('visible', 'Server — Local')`
+12. `('visible', 'without stopping running sessions')`
+13. `('visible', 'Local server is not responding')`
+14. `('enabled', 'Retry', 'button')`
+15. `('click', 'Retry', 'button')`
+16. `('enabled', 'Retry', 'button')`
+17. `('visible', 'without stopping running sessions')`
+18. `('resume_daemon',)`
+19. `('absent', 'Server — Local')`
+20. `('same_layout',)`
+21. `('same_pids',)`
+22. `('run', 'printf daemon-recovered-without-restart')`
+23. `('output', 'daemon-recovered-without-restart')`
 
 ## DIAG-002: A broken SSH path exposes inspection and Retry without enabling destructive actions
 
